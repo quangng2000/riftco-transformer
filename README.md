@@ -78,7 +78,7 @@ sequenceDiagram
         M->>O: full or LoRA gradients
         O-->>M: update selected weights
     end
-    M->>A: save child; merge LoRA first
+    M->>A: save child after LoRA merge
     A->>S: load once
     U->>S: prompt
     loop Each new token
