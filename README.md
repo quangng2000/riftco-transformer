@@ -227,7 +227,13 @@ On a Metal-capable Mac, use `--backend metal`. The same build also creates
 
 ## Install and consume
 
-Install the headers, libraries, executable, and CMake package:
+Install the native CLI, headers, libraries, and CMake package with Homebrew:
+
+```bash
+brew install quangng2000/tap/transformer-lab
+```
+
+Or build and install those native components from source:
 
 ```bash
 cmake --preset release
@@ -263,7 +269,7 @@ the parent project keeps control. They can be enabled independently with
 Apple adapter, and `TRANSFORMER_LAB_ENABLE_SANITIZERS` enables compiler-checked
 ASan/UBSan instrumentation on supported GNU-like toolchains.
 
-After a release has been published to PyPI, install the Python package with:
+Install the self-contained Python package from PyPI with:
 
 ```bash
 python3 -m pip install riftco-transformer
