@@ -2,6 +2,15 @@
 
 Every milestone must compile, pass tests, and leave the main branch runnable.
 
+## Working rules
+
+1. Add one concept at a time.
+2. Write its test before connecting it to the Transformer.
+3. Check every tensor shape at runtime while the project is small.
+4. Compare analytical gradients with finite differences.
+5. Prefer obvious loops over clever optimizations.
+6. Optimize only after the tiny model can overfit a tiny batch.
+
 ## 0. Scaffold — complete
 
 - CMake presets and strict compiler warnings
