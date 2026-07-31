@@ -13,8 +13,10 @@ from typing import NoReturn
 
 
 EXPECTED_PLATFORMS = {
-    "linux-x86_64",
-    "linux-aarch64",
+    "linux-manylinux-x86_64",
+    "linux-manylinux-aarch64",
+    "linux-musllinux-x86_64",
+    "linux-musllinux-aarch64",
     "macos-x86_64",
     "macos-arm64",
     "windows-amd64",
@@ -27,9 +29,13 @@ def fail(message: str) -> NoReturn:
 
 def platform_family(platform_tag: str) -> str:
     if "manylinux" in platform_tag and platform_tag.endswith("_x86_64"):
-        return "linux-x86_64"
+        return "linux-manylinux-x86_64"
     if "manylinux" in platform_tag and platform_tag.endswith("_aarch64"):
-        return "linux-aarch64"
+        return "linux-manylinux-aarch64"
+    if platform_tag == "musllinux_1_2_x86_64":
+        return "linux-musllinux-x86_64"
+    if platform_tag == "musllinux_1_2_aarch64":
+        return "linux-musllinux-aarch64"
     if platform_tag == "macosx_13_0_x86_64":
         return "macos-x86_64"
     if platform_tag == "macosx_13_0_arm64":
@@ -60,7 +66,10 @@ def verify_wheel(wheel: Path, version: str) -> str:
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         native_entries = [
-            name for name in names if name.startswith("transformer_lab/.libs/")
+            name
+            for name in names
+            if name.startswith("transformer_lab/.libs/")
+            and not name.endswith("/")
         ]
         required_library = expected_library(family)
         if native_entries != [required_library]:
@@ -81,7 +90,15 @@ def verify_wheel(wheel: Path, version: str) -> str:
             fail(f"{wheel.name} has malformed distribution metadata")
 
         wheel_metadata = archive.read(wheel_metadata_names[0]).decode("utf-8")
-        if f"Tag: py3-none-{platform_tag}" not in wheel_metadata:
+        actual_tags = {
+            line.removeprefix("Tag: ")
+            for line in wheel_metadata.splitlines()
+            if line.startswith("Tag: ")
+        }
+        expected_tags = {
+            f"py3-none-{tag}" for tag in platform_tag.split(".")
+        }
+        if actual_tags != expected_tags:
             fail(f"{wheel.name} metadata does not match its filename tag")
         package_metadata = archive.read(package_metadata_names[0]).decode("utf-8")
         if "\nRequires-Dist:" in package_metadata:
@@ -138,7 +155,7 @@ def main() -> int:
     wheels = sorted(arguments.directory.glob("*.whl"))
     sdists = sorted(arguments.directory.glob("*.tar.gz"))
     if len(wheels) != len(EXPECTED_PLATFORMS):
-        fail(f"expected five platform wheels, found {len(wheels)}")
+        fail(f"expected seven platform wheels, found {len(wheels)}")
     if len(sdists) != 1:
         fail(f"expected one source distribution, found {len(sdists)}")
 

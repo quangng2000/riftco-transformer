@@ -275,7 +275,8 @@ The platform wheel includes the matching C ABI library under
 separate native installation, or `TRANSFORMER_LAB_LIBRARY`. The installed
 package has no third-party runtime dependencies. The initial wheel matrix is:
 
-- Linux `x86_64` and `aarch64`, with the CPU backend;
+- Linux `x86_64` and `aarch64` for glibc (`manylinux`) and musl
+  (`musllinux`), with the CPU backend;
 - macOS `x86_64` and `arm64`, with CPU and Metal backends; and
 - Windows `AMD64`, with the CPU backend.
 

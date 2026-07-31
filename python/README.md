@@ -19,9 +19,9 @@ The wheel stores `libtransformer_lab_c.so`,
 `libtransformer_lab_c.dylib`, or `transformer_lab_c.dll` under
 `transformer_lab/.libs`. It has no third-party runtime dependencies and needs
 no compiler or environment variable after installation. Initial binary wheels
-cover Linux `x86_64` and `aarch64`, macOS `x86_64` and `arm64`, and Windows
-`AMD64`. CPU is available on every supported platform; the macOS wheels also
-include Metal.
+cover Linux `x86_64` and `aarch64` for both glibc (`manylinux`) and musl
+(`musllinux`), macOS `x86_64` and `arm64`, and Windows `AMD64`. CPU is
+available on every supported platform; the macOS wheels also include Metal.
 
 From a source checkout, install at the repository root with:
 

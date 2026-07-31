@@ -559,11 +559,12 @@ stable C ABI. The installed package has no third-party runtime dependencies;
 users of a matching wheel do not need CMake, a C++ compiler, a system-wide
 native installation, or `TRANSFORMER_LAB_LIBRARY`.
 
-The initial binary matrix provides Linux `x86_64` and `aarch64`, macOS
-`x86_64` and `arm64`, and Windows `AMD64` wheels. Every wheel includes CPU.
-The macOS builds also include Metal, whose availability is still checked at
-runtime. Because `ctypes` calls the language-neutral C ABI instead of CPython's
-extension ABI, a build produces one `py3-none-<platform>` wheel for its
+The initial binary matrix provides Linux `x86_64` and `aarch64` wheels for
+both glibc (`manylinux`) and musl (`musllinux`), macOS `x86_64` and `arm64`,
+and Windows `AMD64` wheels. Every wheel includes CPU. The macOS builds also
+include Metal, whose availability is still checked at runtime. Because
+`ctypes` calls the language-neutral C ABI instead of CPython's extension ABI,
+a build produces one `py3-none-<platform>` wheel for its platform and
 architecture. Package metadata requires Python 3.10 or newer.
 
 Install from a source checkout at the repository root with:
