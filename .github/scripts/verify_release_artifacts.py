@@ -25,6 +25,10 @@ EXPECTED_PLATFORMS = {
 }
 EXPECTED_LICENSE = "Apache-2.0"
 EXPECTED_LICENSE_FILE = "LICENSE"
+FORBIDDEN_SDIST_PARTS = (
+    "/data/external/",
+    "/data/pretraining/huggingface/",
+)
 
 
 def fail(message: str) -> NoReturn:
@@ -165,6 +169,13 @@ def verify_sdist(sdist: Path, version: str, license_contents: bytes) -> None:
         fail(f"source distribution is missing required files: {sorted(missing)}")
     if any("/__pycache__/" in name or name.endswith(".pyc") for name in names):
         fail("source distribution contains generated Python bytecode")
+    forbidden = [
+        name
+        for name in names
+        if any(part in name for part in FORBIDDEN_SDIST_PARTS)
+    ]
+    if forbidden:
+        fail(f"source distribution contains external training data: {forbidden}")
 
 
 def write_checksums(directory: Path, artifacts: list[Path]) -> None:

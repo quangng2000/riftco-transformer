@@ -30,7 +30,12 @@ Repository = "https://github.com/quangng2000/transformer-lab"
 cmake.version = ">=3.24"
 cmake.build-type = "Release"
 install.components = ["PythonWheel"]
-sdist.exclude = ["**/__pycache__/**", "**/*.pyc"]
+sdist.exclude = [
+  "**/__pycache__/**",
+  "**/*.pyc",
+  "data/external/**",
+  "data/pretraining/huggingface/**",
+]
 sdist.reproducible = true
 wheel.exclude = ["**/__pycache__/**", "**/*.pyc"]
 wheel.packages = ["python/transformer_lab"]
