@@ -1,12 +1,12 @@
-#include "transformer_lab/nn/loss.hpp"
+#include "riftco_transformer/nn/loss.hpp"
 
 #include "core/backend/adapter.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <memory>
 #include <stdexcept>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 
 Variable
 cross_entropy(const Variable& logits, std::span<const TokenId> targets) {
@@ -60,4 +60,4 @@ cross_entropy(const Variable& logits, std::span<const TokenId> targets) {
     );
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

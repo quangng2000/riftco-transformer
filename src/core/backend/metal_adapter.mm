@@ -23,14 +23,14 @@
 #include <utility>
 #include <vector>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 constexpr const char* kMatmulKernelSource = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
-kernel void transformer_lab_batched_matmul(
+kernel void riftco_transformer_batched_matmul(
     device const float* left [[buffer(0)]],
     device const float* right [[buffer(1)]],
     device float* output [[buffer(2)]],
@@ -63,27 +63,27 @@ constexpr const char* kAdamKernelSource = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
-inline bool transformer_lab_is_subnormal(float value) {
+inline bool riftco_transformer_is_subnormal(float value) {
     const uint magnitude =
         as_type<uint>(value) & 0x7fffffffu;
     return magnitude != 0u && magnitude < 0x00800000u;
 }
 
-inline bool transformer_lab_unsafe_input(float value) {
+inline bool riftco_transformer_unsafe_input(float value) {
     return !isfinite(value) ||
-           transformer_lab_is_subnormal(value);
+           riftco_transformer_is_subnormal(value);
 }
 
-inline bool transformer_lab_unsafe_result(
+inline bool riftco_transformer_unsafe_result(
     float value,
     bool exact_nonzero_expected
 ) {
     return !isfinite(value) ||
-           transformer_lab_is_subnormal(value) ||
+           riftco_transformer_is_subnormal(value) ||
            (value == 0.0f && exact_nonzero_expected);
 }
 
-inline bool transformer_lab_ill_conditioned_sum(
+inline bool riftco_transformer_ill_conditioned_sum(
     float left,
     float right,
     float result
@@ -99,7 +99,7 @@ inline bool transformer_lab_ill_conditioned_sum(
     return fabs(result) < largest * 0.03125f;
 }
 
-inline void transformer_lab_request_reference(
+inline void riftco_transformer_request_reference(
     device atomic_uint* reference_required
 ) {
     atomic_store_explicit(
@@ -109,7 +109,7 @@ inline void transformer_lab_request_reference(
     );
 }
 
-kernel void transformer_lab_adam_update(
+kernel void riftco_transformer_adam_update(
     device const float* value [[buffer(0)]],
     device const float* gradient [[buffer(1)]],
     device const float* first_moment [[buffer(2)]],
@@ -137,38 +137,38 @@ kernel void transformer_lab_adam_update(
     const float raw_gradient = gradient[index];
     const float old_first = first_moment[index];
     const float old_second = second_moment[index];
-    if (transformer_lab_unsafe_input(parameter_value) ||
-        transformer_lab_unsafe_input(raw_gradient) ||
-        transformer_lab_unsafe_input(old_first) ||
-        transformer_lab_unsafe_input(old_second) ||
+    if (riftco_transformer_unsafe_input(parameter_value) ||
+        riftco_transformer_unsafe_input(raw_gradient) ||
+        riftco_transformer_unsafe_input(old_first) ||
+        riftco_transformer_unsafe_input(old_second) ||
         old_second < 0.0f ||
-        transformer_lab_unsafe_input(learning_rate) ||
-        transformer_lab_unsafe_input(beta1) ||
-        transformer_lab_unsafe_input(beta2) ||
-        transformer_lab_unsafe_input(epsilon) ||
-        transformer_lab_unsafe_input(clip_mantissa) ||
-        transformer_lab_unsafe_input(first_correction) ||
-        transformer_lab_unsafe_input(second_correction)) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_unsafe_input(learning_rate) ||
+        riftco_transformer_unsafe_input(beta1) ||
+        riftco_transformer_unsafe_input(beta2) ||
+        riftco_transformer_unsafe_input(epsilon) ||
+        riftco_transformer_unsafe_input(clip_mantissa) ||
+        riftco_transformer_unsafe_input(first_correction) ||
+        riftco_transformer_unsafe_input(second_correction)) {
+        riftco_transformer_request_reference(reference_required);
         return;
     }
 
     float clipped_gradient = raw_gradient;
     if (clip_mantissa != 1.0f || clip_exponent != 0) {
         const float preclip = raw_gradient * clip_mantissa;
-        if (transformer_lab_unsafe_result(
+        if (riftco_transformer_unsafe_result(
                 preclip,
                 raw_gradient != 0.0f && clip_mantissa != 0.0f
             )) {
-            transformer_lab_request_reference(reference_required);
+            riftco_transformer_request_reference(reference_required);
             return;
         }
         clipped_gradient = ldexp(preclip, clip_exponent);
-        if (transformer_lab_unsafe_result(
+        if (riftco_transformer_unsafe_result(
                 clipped_gradient,
                 preclip != 0.0f
             )) {
-            transformer_lab_request_reference(reference_required);
+            riftco_transformer_request_reference(reference_required);
             return;
         }
     }
@@ -177,129 +177,129 @@ kernel void transformer_lab_adam_update(
     const float retained_first = beta1 * old_first;
     const float gradient_first =
         one_minus_beta1 * clipped_gradient;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             retained_first,
             beta1 != 0.0f && old_first != 0.0f
         ) ||
-        transformer_lab_unsafe_result(
+        riftco_transformer_unsafe_result(
             gradient_first,
             one_minus_beta1 != 0.0f &&
                 clipped_gradient != 0.0f
         )) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
     const float first = retained_first + gradient_first;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             first,
             retained_first != 0.0f || gradient_first != 0.0f
         ) ||
-        transformer_lab_ill_conditioned_sum(
+        riftco_transformer_ill_conditioned_sum(
             retained_first,
             gradient_first,
             first
         )) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
 
     const float gradient_square =
         clipped_gradient * clipped_gradient;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             gradient_square,
             clipped_gradient != 0.0f
         )) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
     const float one_minus_beta2 = 1.0f - beta2;
     const float retained_second = beta2 * old_second;
     const float gradient_second =
         one_minus_beta2 * gradient_square;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             retained_second,
             beta2 != 0.0f && old_second != 0.0f
         ) ||
-        transformer_lab_unsafe_result(
+        riftco_transformer_unsafe_result(
             gradient_second,
             one_minus_beta2 != 0.0f &&
                 gradient_square != 0.0f
         )) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
     const float second = retained_second + gradient_second;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             second,
             retained_second != 0.0f ||
                 gradient_second != 0.0f
         ) ||
         second < 0.0f) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
 
     const float corrected_first = first / first_correction;
     const float corrected_second = second / second_correction;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             corrected_first,
             first != 0.0f
         ) ||
-        transformer_lab_unsafe_result(
+        riftco_transformer_unsafe_result(
             corrected_second,
             second != 0.0f
         ) ||
         corrected_second < 0.0f) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
 
     const float root_second = sqrt(corrected_second);
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             root_second,
             corrected_second != 0.0f
         )) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
     const float denominator = root_second + epsilon;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             denominator,
             root_second != 0.0f || epsilon != 0.0f
         ) ||
         denominator <= 0.0f) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
     const float scaled_first =
         learning_rate * corrected_first;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             scaled_first,
             learning_rate != 0.0f &&
                 corrected_first != 0.0f
         )) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
     const float update = scaled_first / denominator;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             update,
             scaled_first != 0.0f
         )) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
     const float updated_value = parameter_value - update;
-    if (transformer_lab_unsafe_result(
+    if (riftco_transformer_unsafe_result(
             updated_value,
             parameter_value != 0.0f || update != 0.0f
         ) ||
-        transformer_lab_ill_conditioned_sum(
+        riftco_transformer_ill_conditioned_sum(
             parameter_value,
             -update,
             updated_value
         )) {
-        transformer_lab_request_reference(reference_required);
+        riftco_transformer_request_reference(reference_required);
         return;
     }
 
@@ -955,7 +955,7 @@ private:
             try {
                 matmul_pipeline_ = make_pipeline(
                     kMatmulKernelSource,
-                    @"transformer_lab_batched_matmul",
+                    @"riftco_transformer_batched_matmul",
                     "matmul",
                     true
                 );
@@ -975,7 +975,7 @@ private:
             try {
                 adam_pipeline_ = make_pipeline(
                     kAdamKernelSource,
-                    @"transformer_lab_adam_update",
+                    @"riftco_transformer_adam_update",
                     "Adam",
                     false
                 );
@@ -1285,4 +1285,4 @@ MetalAdamPathCounts metal_adam_path_counts() noexcept {
     };
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 std::vector<std::size_t> make_strides(
@@ -732,4 +732,4 @@ void nn_reference_cross_entropy_forward(
     loss[0] = static_cast<float>(mean_loss);
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

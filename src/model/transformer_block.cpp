@@ -1,8 +1,8 @@
-#include "transformer_lab/model/transformer_block.hpp"
+#include "riftco_transformer/model/transformer_block.hpp"
 
 #include <stdexcept>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 std::size_t checked_model_width(
@@ -134,4 +134,4 @@ ParameterList TransformerBlock::lora_parameters() {
     return result;
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

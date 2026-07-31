@@ -15,14 +15,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "python"))
 sys.path.insert(0, str(PROJECT_ROOT / "examples" / "python"))
 
-from transformer_lab import (  # noqa: E402
+from riftco_transformer import (  # noqa: E402
     DecoderOnlyTransformer,
     Tokenizer,
     TransformerConfig,
 )
-from transformer_lab.artifacts import ModelBundle  # noqa: E402
-from transformer_lab.data import PreparedDataset, PreparedFile  # noqa: E402
-from transformer_lab.experiments import (  # noqa: E402
+from riftco_transformer.artifacts import ModelBundle  # noqa: E402
+from riftco_transformer.data import PreparedDataset, PreparedFile  # noqa: E402
+from riftco_transformer.experiments import (  # noqa: E402
     IdentityPromptFormatter,
     InstructionSplits,
     LoraRankExperimentConfig,
@@ -31,8 +31,8 @@ from transformer_lab.experiments import (  # noqa: E402
     load_instruction_splits,
     load_prepared_instruction_splits,
 )
-import transformer_lab.experiments.lora_rank as lora_rank_module  # noqa: E402
-from transformer_lab.post_training import (  # noqa: E402
+import riftco_transformer.experiments.lora_rank as lora_rank_module  # noqa: E402
+from riftco_transformer.post_training import (  # noqa: E402
     InstructionExample,
     PlainChatFormatter,
 )
@@ -107,7 +107,7 @@ def write_jsonl(
 
 
 def prepared_dataset_view(root: Path) -> PreparedDataset:
-    manifest = {"format": "transformer_lab.prepared_dataset.v1"}
+    manifest = {"format": "riftco-transformer.prepared-dataset.v1"}
     manifest_bytes = (
         json.dumps(manifest, sort_keys=True) + "\n"
     ).encode("utf-8")
@@ -172,7 +172,7 @@ class LoraRankExperimentTests(unittest.TestCase):
                 with rank_cli.staged_output_directory(
                     failed_destination
                 ) as failed_staging:
-                    (failed_staging / "partial.tlab").write_bytes(b"partial")
+                    (failed_staging / "partial.rift").write_bytes(b"partial")
                     raise RuntimeError("training failed")
             self.assertFalse(failed_destination.exists())
             self.assertFalse(failed_staging.exists())
@@ -188,7 +188,7 @@ class LoraRankExperimentTests(unittest.TestCase):
 
     def test_cli_provenance_uses_verified_manifest_snapshot(self) -> None:
         manifest = {
-            "format": "transformer_lab.prepared_dataset.v1",
+            "format": "riftco-transformer.prepared-dataset.v1",
             "source": {
                 "revision": "revision-123",
                 "license": "cc-by-sa-3.0",

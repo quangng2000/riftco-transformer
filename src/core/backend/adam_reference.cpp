@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 float checked_float(double value, const char* description) {
@@ -71,4 +71,4 @@ void adam_reference_update(const AdamUpdateRequest& request) {
     }
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

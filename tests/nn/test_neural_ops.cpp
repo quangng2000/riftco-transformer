@@ -1,7 +1,7 @@
-#include "transformer_lab/nn/activations.hpp"
-#include "transformer_lab/nn/layer_norm.hpp"
-#include "transformer_lab/nn/loss.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/nn/activations.hpp"
+#include "riftco_transformer/nn/layer_norm.hpp"
+#include "riftco_transformer/nn/loss.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <cmath>
 #include <exception>
@@ -13,11 +13,11 @@
 
 namespace {
 
-using transformer_lab::LayerNorm;
-using transformer_lab::Tensor;
-using transformer_lab::TokenId;
-using transformer_lab::Variable;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::LayerNorm;
+using riftco_transformer::Tensor;
+using riftco_transformer::TokenId;
+using riftco_transformer::Variable;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -97,7 +97,7 @@ void test_gelu_forward_and_gradients() {
         {0.5F, -1.0F, 2.0F, 0.25F, -0.75F}
     );
     const Variable input(input_values);
-    const Variable output = transformer_lab::gelu(input);
+    const Variable output = riftco_transformer::gelu(input);
 
     require_tensor_close(
         output.value(),
@@ -112,7 +112,7 @@ void test_gelu_forward_and_gradients() {
         "GELU forward",
         1.0e-6F
     );
-    transformer_lab::sum(
+    riftco_transformer::sum(
         output * Variable(weights, false)
     ).backward();
 
@@ -123,13 +123,13 @@ void test_gelu_forward_and_gradients() {
         plus.flat(index) += epsilon;
         minus.flat(index) -= epsilon;
         const float plus_loss = tensor_dot(
-            transformer_lab::gelu(
+            riftco_transformer::gelu(
                 Variable(plus, false)
             ).value(),
             weights
         );
         const float minus_loss = tensor_dot(
-            transformer_lab::gelu(
+            riftco_transformer::gelu(
                 Variable(minus, false)
             ).value(),
             weights
@@ -150,7 +150,7 @@ void test_layer_norm_forward_and_parameters() {
     ));
     const Variable scale(Tensor({3}, 1.0F));
     const Variable bias(Tensor({3}, 0.0F));
-    const Variable output = transformer_lab::layer_norm(
+    const Variable output = riftco_transformer::layer_norm(
         input,
         scale,
         bias
@@ -184,7 +184,7 @@ void test_layer_norm_forward_and_parameters() {
         Tensor({3}, {0.1F, -0.2F, 0.3F})
     );
     require_tensor_close(
-        transformer_lab::layer_norm(
+        riftco_transformer::layer_norm(
             constant_input,
             affine_scale,
             affine_bias
@@ -198,13 +198,13 @@ void test_layer_norm_forward_and_parameters() {
     const auto parameters = layer.parameters();
     require(parameters.size() == 2, "layer norm parameter count");
     require(
-        transformer_lab::parameter_count(parameters) == 6,
+        riftco_transformer::parameter_count(parameters) == 6,
         "layer norm scalar parameter count"
     );
 
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::layer_norm(
+            static_cast<void>(riftco_transformer::layer_norm(
                 Variable::scalar(1.0F),
                 scale,
                 bias
@@ -214,7 +214,7 @@ void test_layer_norm_forward_and_parameters() {
     );
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::layer_norm(
+            static_cast<void>(riftco_transformer::layer_norm(
                 input,
                 Variable(Tensor({2}, 1.0F)),
                 bias
@@ -224,7 +224,7 @@ void test_layer_norm_forward_and_parameters() {
     );
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::layer_norm(
+            static_cast<void>(riftco_transformer::layer_norm(
                 input,
                 scale,
                 bias,
@@ -250,8 +250,8 @@ void test_layer_norm_finite_differences() {
     const Variable input(input_values);
     const Variable scale(scale_values);
     const Variable bias(bias_values);
-    transformer_lab::sum(
-        transformer_lab::layer_norm(
+    riftco_transformer::sum(
+        riftco_transformer::layer_norm(
             input,
             scale,
             bias
@@ -264,7 +264,7 @@ void test_layer_norm_finite_differences() {
         const Tensor& candidate_bias
     ) {
         return tensor_dot(
-            transformer_lab::layer_norm(
+            riftco_transformer::layer_norm(
                 Variable(candidate_input, false),
                 Variable(candidate_scale, false),
                 Variable(candidate_bias, false)
@@ -332,7 +332,7 @@ void test_softmax_forward_and_gradients() {
     );
     const Variable logits(logits_values);
     const Variable probabilities =
-        transformer_lab::softmax(logits, 1);
+        riftco_transformer::softmax(logits, 1);
     for (std::size_t row = 0; row < 2; ++row) {
         float total = 0.0F;
         for (std::size_t column = 0; column < 3; ++column) {
@@ -340,7 +340,7 @@ void test_softmax_forward_and_gradients() {
         }
         require_close(total, 1.0F, "softmax row sum");
     }
-    transformer_lab::sum(
+    riftco_transformer::sum(
         probabilities * Variable(weights, false)
     ).backward();
 
@@ -351,14 +351,14 @@ void test_softmax_forward_and_gradients() {
         plus.flat(index) += epsilon;
         minus.flat(index) -= epsilon;
         const float plus_loss = tensor_dot(
-            transformer_lab::softmax(
+            riftco_transformer::softmax(
                 Variable(plus, false),
                 1
             ).value(),
             weights
         );
         const float minus_loss = tensor_dot(
-            transformer_lab::softmax(
+            riftco_transformer::softmax(
                 Variable(minus, false),
                 1
             ).value(),
@@ -396,7 +396,7 @@ void test_softmax_forward_and_gradients() {
     );
     const Variable middle_axis(middle_values);
     const Variable middle_probabilities =
-        transformer_lab::softmax(middle_axis, 1);
+        riftco_transformer::softmax(middle_axis, 1);
     for (std::size_t outer = 0; outer < 2; ++outer) {
         for (std::size_t inner = 0; inner < 2; ++inner) {
             require_close(
@@ -408,7 +408,7 @@ void test_softmax_forward_and_gradients() {
             );
         }
     }
-    transformer_lab::sum(
+    riftco_transformer::sum(
         middle_probabilities * Variable(middle_weights, false)
     ).backward();
     for (std::size_t index = 0; index < middle_values.numel(); ++index) {
@@ -417,14 +417,14 @@ void test_softmax_forward_and_gradients() {
         plus.flat(index) += epsilon;
         minus.flat(index) -= epsilon;
         const float plus_loss = tensor_dot(
-            transformer_lab::softmax(
+            riftco_transformer::softmax(
                 Variable(plus, false),
                 1
             ).value(),
             middle_weights
         );
         const float minus_loss = tensor_dot(
-            transformer_lab::softmax(
+            riftco_transformer::softmax(
                 Variable(minus, false),
                 1
             ).value(),
@@ -444,7 +444,7 @@ void test_softmax_forward_and_gradients() {
         Tensor({2}, {0.0F, negative_infinity})
     );
     const Variable masked =
-        transformer_lab::softmax(masked_logits, 0);
+        riftco_transformer::softmax(masked_logits, 0);
     masked.backward(Tensor({2}, {2.0F, 7.0F}));
     require_tensor_close(
         masked.value(),
@@ -464,7 +464,7 @@ void test_cross_entropy_forward_and_gradients() {
     const std::vector<TokenId> simple_targets{0, 2};
     const Variable simple_logits(Tensor({2, 3}, 0.0F));
     const Variable simple_loss =
-        transformer_lab::cross_entropy(
+        riftco_transformer::cross_entropy(
             simple_logits,
             simple_targets
         );
@@ -495,7 +495,7 @@ void test_cross_entropy_forward_and_gradients() {
     );
     const std::vector<TokenId> targets{0, 2, 1, 0};
     const Variable logits(logits_values);
-    transformer_lab::cross_entropy(logits, targets).backward();
+    riftco_transformer::cross_entropy(logits, targets).backward();
 
     constexpr float epsilon = 1.0e-3F;
     for (std::size_t index = 0; index < logits_values.numel(); ++index) {
@@ -503,11 +503,11 @@ void test_cross_entropy_forward_and_gradients() {
         Tensor minus = logits_values;
         plus.flat(index) += epsilon;
         minus.flat(index) -= epsilon;
-        const float plus_loss = transformer_lab::cross_entropy(
+        const float plus_loss = riftco_transformer::cross_entropy(
             Variable(plus, false),
             targets
         ).value().flat(0);
-        const float minus_loss = transformer_lab::cross_entropy(
+        const float minus_loss = riftco_transformer::cross_entropy(
             Variable(minus, false),
             targets
         ).value().flat(0);
@@ -533,7 +533,7 @@ void test_cross_entropy_forward_and_gradients() {
     }
 
     require_close(
-        transformer_lab::cross_entropy(
+        riftco_transformer::cross_entropy(
             Variable(
                 Tensor({3}, {10000.0F, 0.0F, -10000.0F}),
                 false
@@ -545,7 +545,7 @@ void test_cross_entropy_forward_and_gradients() {
         1.0e-6F
     );
     require_close(
-        transformer_lab::cross_entropy(
+        riftco_transformer::cross_entropy(
             Variable(
                 Tensor({3}, {10000.0F, 0.0F, -10000.0F}),
                 false
@@ -559,7 +559,7 @@ void test_cross_entropy_forward_and_gradients() {
 
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::cross_entropy(
+            static_cast<void>(riftco_transformer::cross_entropy(
                 Variable(Tensor({2, 3}, 0.0F)),
                 std::vector<TokenId>{0}
             ));
@@ -568,7 +568,7 @@ void test_cross_entropy_forward_and_gradients() {
     );
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::cross_entropy(
+            static_cast<void>(riftco_transformer::cross_entropy(
                 Variable(Tensor({3}, 0.0F)),
                 std::vector<TokenId>{3}
             ));

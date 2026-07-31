@@ -1,12 +1,12 @@
 #pragma once
 
-namespace transformer_lab::backend_detail::attention_metal_detail {
+namespace riftco_transformer::backend_detail::attention_metal_detail {
 
 // Compiled into the shared Metal neural-kernel library. Paged decode remains
 // an independent sibling of materialized and Flash full-sequence attention
 // while sharing Metal runtime ownership and command-queue synchronization.
 inline constexpr char kPagedDecodeAttentionKernelSource[] = R"METAL(
-kernel void tl_paged_decode_attention_probabilities(
+kernel void rt_paged_decode_attention_probabilities(
     device const float* queries [[buffer(0)]],
     device const float* key_pages [[buffer(1)]],
     device const uint* block_table [[buffer(2)]],
@@ -51,7 +51,7 @@ kernel void tl_paged_decode_attention_probabilities(
         maximum = max(maximum, score);
     }
     if (!valid || maximum == -INFINITY) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         for (ulong position = 0;
              position < sequence_length;
              ++position) {
@@ -63,7 +63,7 @@ kernel void tl_paged_decode_attention_probabilities(
     float denominator_sum = 0.0f;
     float denominator_correction = 0.0f;
     for (ulong position = 0; position < sequence_length; ++position) {
-        tl_compensated_add(
+        rt_compensated_add(
             exp(
                 probabilities[probability_base + position] -
                 maximum
@@ -75,7 +75,7 @@ kernel void tl_paged_decode_attention_probabilities(
     const float denominator =
         denominator_sum + denominator_correction;
     if (!(denominator > 0.0f) || !isfinite(denominator)) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         return;
     }
     for (ulong position = 0; position < sequence_length; ++position) {
@@ -88,7 +88,7 @@ kernel void tl_paged_decode_attention_probabilities(
     }
 }
 
-kernel void tl_paged_decode_attention_context(
+kernel void rt_paged_decode_attention_context(
     device const float* probabilities [[buffer(0)]],
     device const float* value_pages [[buffer(1)]],
     device const uint* block_table [[buffer(2)]],
@@ -125,4 +125,4 @@ kernel void tl_paged_decode_attention_context(
 }
 )METAL";
 
-}  // namespace transformer_lab::backend_detail::attention_metal_detail
+}  // namespace riftco_transformer::backend_detail::attention_metal_detail

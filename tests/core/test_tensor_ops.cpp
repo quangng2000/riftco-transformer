@@ -1,4 +1,4 @@
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <cmath>
 #include <exception>
@@ -10,8 +10,8 @@
 
 namespace {
 
-using transformer_lab::Tensor;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::Tensor;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {

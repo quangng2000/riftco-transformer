@@ -1,6 +1,6 @@
-#include "transformer_lab/core/autograd.hpp"
-#include "transformer_lab/core/tensor.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/autograd.hpp"
+#include "riftco_transformer/core/tensor.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <cmath>
 #include <exception>
@@ -12,10 +12,10 @@
 
 namespace {
 
-using transformer_lab::ExecutionBackend;
-using transformer_lab::Tensor;
-using transformer_lab::Variable;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::Tensor;
+using riftco_transformer::Variable;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -261,7 +261,7 @@ void test_operations_preserve_backend(ExecutionBackend backend) {
     require_close(reduced.flat(0), 134.0F, "backend sum value");
 
     const Variable input(left);
-    const Variable objective = transformer_lab::sum(input * input);
+    const Variable objective = riftco_transformer::sum(input * input);
     require(
         objective.value().backend() == backend,
         "autograd output should preserve the input backend"
@@ -281,7 +281,7 @@ void test_operations_preserve_backend(ExecutionBackend backend) {
 }
 
 void test_metal_transfer_and_copy_if_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -340,7 +340,7 @@ void test_metal_transfer_and_copy_if_available() {
 }
 
 void test_mixed_backend_inputs_are_rejected_if_metal_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -396,7 +396,7 @@ int main() {
         test_metal_transfer_and_copy_if_available();
         test_mixed_backend_inputs_are_rejected_if_metal_available();
         const bool metal_available =
-            transformer_lab::execution_backend_available(
+            riftco_transformer::execution_backend_available(
                 ExecutionBackend::Metal
             );
         if (metal_available) {

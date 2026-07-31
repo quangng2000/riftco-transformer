@@ -18,7 +18,7 @@ autograd and neural-network code
 The public numerical interface is:
 
 ```text
-include/transformer_lab/core/tensor_ops.hpp
+include/riftco_transformer/core/tensor_ops.hpp
 ```
 
 The dependency-free numerical implementation and backend dispatch are:
@@ -34,7 +34,7 @@ src/core/backend/metal_adapter.mm
 
 ## Current operations
 
-The namespace `transformer_lab::tensor_ops` contains:
+The namespace `riftco_transformer::tensor_ops` contains:
 
 - elementwise `add`, `subtract`, `multiply`, and `divide`;
 - `negate` and scalar `scale`;

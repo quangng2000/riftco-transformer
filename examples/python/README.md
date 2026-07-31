@@ -50,7 +50,7 @@ single-turn prompts through the same dependency-free runtime and paged
 KV-cache used by the JSON API. The browser page itself has no external
 assets or packages.
 
-They hand off immutable `.tlab` bundles under `results/stages/`. See
+They hand off immutable `.rift` bundles under `results/stages/`. See
 [the staged pipeline guide](../../docs/PIPELINE.md) for the artifact contract,
 HTTP request examples, and the distinction between a model bundle and a
 future resumable training checkpoint.
@@ -89,7 +89,7 @@ python3 examples/python/pretrain_stage.py \
   --file data/external/huggingface/tinystories-train/train.txt \
   --validation-file \
     data/external/huggingface/tinystories-validation/validation.txt \
-  --output results/stages/tinystories_pretrained.tlab \
+  --output results/stages/tinystories_pretrained.rift \
   --backend cpu \
   --steps 100 \
   --context 32
@@ -110,7 +110,7 @@ python3 examples/python/prepare_huggingface_data.py \
   --seed lora-v1
 
 python3 examples/python/compare_lora_ranks.py \
-  --base results/stages/tinystories_pretrained.tlab \
+  --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
   --output results/experiments/dolly-lora-ranks \
   --ranks 1,2,4,8 \
@@ -150,7 +150,7 @@ python3 examples/python/post_train_stage.py \
 ```
 
 The stage optimizes only query/value LoRA factors, merges them into the base
-weights, and then saves the ordinary child `.tlab` bundle. See
+weights, and then saves the ordinary child `.rift` bundle. See
 [the LoRA guide](../../docs/LORA.md) for target selection, direct APIs, and
 the current adapter-checkpoint limitation.
 
@@ -232,13 +232,13 @@ every `--eval-every` updates, and after the final update. It never calls
 When automatic native-library discovery is unsuitable, provide its path:
 
 ```bash
-TRANSFORMER_LAB_LIBRARY="$PWD/build/release/libtransformer_lab_c.dylib" \
+RIFTCO_TRANSFORMER_LIBRARY="$PWD/build/release/libriftco_transformer_c.dylib" \
 python3 examples/python/train_tiny.py
 ```
 
 This override is for native development and is unnecessary with a released
-wheel. Use `libtransformer_lab_c.so` instead on Linux or
-`transformer_lab_c.dll` on Windows. The model must move to its backend before
+wheel. Use `libriftco_transformer_c.so` instead on Linux or
+`riftco_transformer_c.dll` on Windows. The model must move to its backend before
 creating the parameter view or optimizer. Each optimizer update invalidates the
 previous computation graph, so the loop creates a fresh forward and loss every
 step.

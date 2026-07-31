@@ -1,4 +1,4 @@
-#include "transformer_lab/config.hpp"
+#include "riftco_transformer/config.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include <string_view>
 #include <unordered_set>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 std::string trim(std::string value) {
@@ -214,4 +214,4 @@ std::string Config::summary() const {
     return output.str();
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

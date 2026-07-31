@@ -1,4 +1,4 @@
-#include "transformer_lab/config.hpp"
+#include "riftco_transformer/config.hpp"
 
 #include <exception>
 #include <filesystem>
@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
             throw std::runtime_error("expected path to tiny.conf");
         }
 
-        const auto config = transformer_lab::Config::load(argv[1]);
+        const auto config = riftco_transformer::Config::load(argv[1]);
         require(config.context_size == 16, "unexpected maximum context");
         require(config.d_model == 32, "unexpected model width");
         require(config.n_heads == 4, "unexpected attention head count");

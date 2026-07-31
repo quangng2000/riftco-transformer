@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TRAINING_SCRIPT = PROJECT_ROOT / "examples" / "python" / "train_tiny.py"
 
 script_specification = importlib.util.spec_from_file_location(
-    "transformer_lab_train_tiny",
+    "riftco_transformer_train_tiny",
     TRAINING_SCRIPT,
 )
 if script_specification is None or script_specification.loader is None:

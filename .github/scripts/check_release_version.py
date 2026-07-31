@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -19,6 +20,16 @@ EXPECTED_LICENSE = "Apache-2.0"
 EXPECTED_LICENSE_FILE = "LICENSE"
 EXPECTED_PROJECT_NAME = "riftco-transformer"
 EXPECTED_REPOSITORY_URL = "https://github.com/quangng2000/riftco-transformer"
+LEGACY_MARKERS = (
+    "transformer" + "_" + "lab",
+    "TRANSFORMER" + "_" + "LAB",
+    "Transformer" + "Lab",
+    "transformer" + "-" + "lab",
+    "Transformer" + " Lab",
+    "." + "tlab",
+    "t" + "l_",
+    "T" + "L_",
+)
 
 
 def fail(message: str) -> NoReturn:
@@ -29,15 +40,44 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def validate_canonical_branding(root: Path) -> None:
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout.split(b"\0")
+    violations: list[str] = []
+    for encoded_path in tracked:
+        if not encoded_path:
+            continue
+        relative_path = encoded_path.decode("utf-8")
+        if any(marker in relative_path for marker in LEGACY_MARKERS):
+            violations.append(relative_path)
+            continue
+        path = root / relative_path
+        try:
+            contents = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if any(marker in contents for marker in LEGACY_MARKERS):
+            violations.append(relative_path)
+    if violations:
+        fail(
+            "legacy project identifiers remain in tracked files: "
+            f"{sorted(violations)}"
+        )
+
+
 def cmake_version(cmake_lists: str) -> str:
     match = re.search(
-        r"project\(\s*transformer_lab\s+VERSION\s+"
+        r"project\(\s*riftco_transformer\s+VERSION\s+"
         r"([0-9]+\.[0-9]+\.[0-9]+)",
         cmake_lists,
         flags=re.MULTILINE,
     )
     if match is None:
-        fail("could not read the transformer_lab version from CMakeLists.txt")
+        fail("could not read the riftco_transformer version from CMakeLists.txt")
     return match.group(1)
 
 
@@ -46,6 +86,7 @@ def main(arguments: list[str]) -> int:
         fail("usage: check_release_version.py [vMAJOR.MINOR.PATCH]")
 
     root = project_root()
+    validate_canonical_branding(root)
     with (root / "pyproject.toml").open("rb") as stream:
         metadata = tomllib.load(stream)
     project_metadata = metadata["project"]

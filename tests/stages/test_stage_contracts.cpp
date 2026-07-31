@@ -1,7 +1,7 @@
-#include "transformer_lab/stages/post_training/config.hpp"
-#include "transformer_lab/stages/post_training/instruction.hpp"
-#include "transformer_lab/stages/pretraining/config.hpp"
-#include "transformer_lab/stages/serving/config.hpp"
+#include "riftco_transformer/stages/post_training/config.hpp"
+#include "riftco_transformer/stages/post_training/instruction.hpp"
+#include "riftco_transformer/stages/pretraining/config.hpp"
+#include "riftco_transformer/stages/serving/config.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -13,21 +13,21 @@
 
 namespace {
 
-using transformer_lab::ExecutionBackend;
-using transformer_lab::FullSequenceAttentionKind;
-using transformer_lab::ActivationCheckpointingKind;
-using transformer_lab::TokenId;
-using transformer_lab::TokenizerMethod;
-using transformer_lab::execution_backend_available;
-using transformer_lab::stages::post_training::InstructionExample;
-using transformer_lab::stages::post_training::FineTuningMethod;
-using transformer_lab::stages::post_training::PlainChatFormatter;
-using transformer_lab::stages::post_training::PostTrainingConfig;
-using transformer_lab::stages::post_training::
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::FullSequenceAttentionKind;
+using riftco_transformer::ActivationCheckpointingKind;
+using riftco_transformer::TokenId;
+using riftco_transformer::TokenizerMethod;
+using riftco_transformer::execution_backend_available;
+using riftco_transformer::stages::post_training::InstructionExample;
+using riftco_transformer::stages::post_training::FineTuningMethod;
+using riftco_transformer::stages::post_training::PlainChatFormatter;
+using riftco_transformer::stages::post_training::PostTrainingConfig;
+using riftco_transformer::stages::post_training::
     kFullSequenceCausalObjective;
-using transformer_lab::stages::pretraining::PretrainingConfig;
-using transformer_lab::stages::serving::KvCacheKind;
-using transformer_lab::stages::serving::ServingConfig;
+using riftco_transformer::stages::pretraining::PretrainingConfig;
+using riftco_transformer::stages::serving::KvCacheKind;
+using riftco_transformer::stages::serving::ServingConfig;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -220,11 +220,11 @@ void test_post_training_config() {
         20,
         16,
         2,
-        transformer_lab::AdamOptions{},
+        riftco_transformer::AdamOptions{},
         29,
         ExecutionBackend::Cpu,
         FineTuningMethod::Full,
-        transformer_lab::LoraConfig{},
+        riftco_transformer::LoraConfig{},
     };
     require(
         legacy_positional.attention ==
@@ -282,7 +282,7 @@ void test_post_training_config() {
         2,
         4.0F,
         31U,
-        transformer_lab::kLoraDefaultTargets,
+        riftco_transformer::kLoraDefaultTargets,
     };
     config.validate();
 
@@ -308,8 +308,8 @@ void test_post_training_config() {
     );
 
     config.lora.targets =
-        transformer_lab::kLoraAllTargets |
-        (transformer_lab::LoraTargetMask{1} << 63U);
+        riftco_transformer::kLoraAllTargets |
+        (riftco_transformer::LoraTargetMask{1} << 63U);
     require_throws<std::invalid_argument>(
         [&] { config.validate(); },
         "post-training should reject unknown LoRA targets"

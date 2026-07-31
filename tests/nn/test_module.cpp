@@ -1,5 +1,5 @@
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/nn/module.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/nn/module.hpp"
 
 #include <exception>
 #include <iostream>
@@ -12,13 +12,13 @@
 
 namespace {
 
-using transformer_lab::ExecutionBackend;
-using transformer_lab::Module;
-using transformer_lab::ModuleList;
-using transformer_lab::Parameter;
-using transformer_lab::ParameterHandle;
-using transformer_lab::ParameterList;
-using transformer_lab::Tensor;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::Module;
+using riftco_transformer::ModuleList;
+using riftco_transformer::Parameter;
+using riftco_transformer::ParameterHandle;
+using riftco_transformer::ParameterList;
+using riftco_transformer::Tensor;
 
 static_assert(!std::is_copy_constructible_v<Module>);
 static_assert(!std::is_copy_assignable_v<Module>);
@@ -282,7 +282,7 @@ void test_recursive_backend_transfer() {
         );
     }
 
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         require_throws(

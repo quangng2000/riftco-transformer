@@ -1,4 +1,4 @@
-#include "transformer_lab/stages/serving/generation.hpp"
+#include "riftco_transformer/stages/serving/generation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab::stages::serving {
+namespace riftco_transformer::stages::serving {
 namespace {
 
 void validate_logits(std::span<const float> logits) {
@@ -395,4 +395,4 @@ GenerationResult GenerationEngine::generate(
     return result;
 }
 
-}  // namespace transformer_lab::stages::serving
+}  // namespace riftco_transformer::stages::serving

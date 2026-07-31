@@ -1,8 +1,8 @@
-#include "transformer_lab/nn/activations.hpp"
+#include "riftco_transformer/nn/activations.hpp"
 
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
-namespace transformer_lab {
+namespace riftco_transformer {
 
 Variable gelu(const Variable& input) {
     const auto input_node = input.node_;
@@ -33,4 +33,4 @@ Variable softmax(const Variable& input, std::size_t axis) {
     );
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

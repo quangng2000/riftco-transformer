@@ -1,4 +1,4 @@
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include "backend/adapter.hpp"
 
@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace transformer_lab::tensor_ops {
+namespace riftco_transformer::tensor_ops {
 namespace {
 
 void require_same_shape(const Tensor& left, const Tensor& right) {
@@ -678,4 +678,4 @@ Tensor causal_softmax_backward(
     return result;
 }
 
-}  // namespace transformer_lab::tensor_ops
+}  // namespace riftco_transformer::tensor_ops

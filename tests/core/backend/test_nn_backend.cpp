@@ -1,7 +1,7 @@
 #include "core/backend/adapter.hpp"
 
-#include "transformer_lab/core/tensor.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/tensor.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -15,13 +15,13 @@
 
 namespace {
 
-using transformer_lab::ExecutionBackend;
-using transformer_lab::Tensor;
-namespace backend = transformer_lab::backend_detail;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::Tensor;
+namespace backend = riftco_transformer::backend_detail;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
-#ifndef TRANSFORMER_LAB_TEST_REQUIRE_METAL
-#define TRANSFORMER_LAB_TEST_REQUIRE_METAL 0
+#ifndef RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL
+#define RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL 0
 #endif
 
 void require(bool condition, const std::string& message) {
@@ -287,7 +287,7 @@ void test_layer_norm_reference() {
         "layer norm bias gradient"
     );
 
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -418,7 +418,7 @@ void test_extreme_loss_and_special_value_backend_parity() {
         1.0e-5F
     );
 
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -605,7 +605,7 @@ void test_extreme_loss_and_special_value_backend_parity() {
 }
 
 void test_metal_tensor_neural_substrate_parity() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -736,7 +736,7 @@ void test_metal_tensor_neural_substrate_parity() {
 }
 
 void test_metal_layout_and_scatter_scalability() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -1034,7 +1034,7 @@ void test_attention_reference_and_gradients() {
         "attention probability key gradient"
     );
 
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -1339,7 +1339,7 @@ void test_flash_causal_attention_reference_and_gradients() {
         "Flash attention CPU value VJP",
         5.0e-5F
     );
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         const Tensor metal_queries =
@@ -1776,14 +1776,14 @@ void test_flash_causal_attention_stability_and_special_values() {
                     },
                     label + " on " +
                         std::string(
-                            transformer_lab::execution_backend_name(
+                            riftco_transformer::execution_backend_name(
                                 execution_backend
                             )
                         )
                 );
             };
         check_backend(ExecutionBackend::Cpu);
-        if (transformer_lab::execution_backend_available(
+        if (riftco_transformer::execution_backend_available(
                 ExecutionBackend::Metal
             )) {
             check_backend(ExecutionBackend::Metal);
@@ -1804,7 +1804,7 @@ void test_flash_causal_attention_stability_and_special_values() {
 }
 
 void test_flash_causal_attention_wide_metal_tiles() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -2145,7 +2145,7 @@ void test_paged_decode_attention_reference_and_metal_parity() {
         2.0e-6F
     );
 
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         const Tensor metal_context = paged_decode_attention_forward(
@@ -2343,7 +2343,7 @@ void test_paged_decode_attention_contract_and_special_values() {
         };
 
     verify_special_values(ExecutionBackend::Cpu);
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         verify_special_values(ExecutionBackend::Metal);
@@ -2354,9 +2354,9 @@ void test_paged_decode_attention_contract_and_special_values() {
 
 int main() {
     try {
-#if TRANSFORMER_LAB_TEST_REQUIRE_METAL
+#if RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL
         require(
-            transformer_lab::execution_backend_available(
+            riftco_transformer::execution_backend_available(
                 ExecutionBackend::Metal
             ),
             "Metal is required for this NN backend test, but no Metal device "

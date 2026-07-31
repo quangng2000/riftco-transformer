@@ -1,7 +1,7 @@
-#include "transformer_lab/nn/low_rank_adapter.hpp"
+#include "riftco_transformer/nn/low_rank_adapter.hpp"
 
-#include "transformer_lab/core/tensor_ops.hpp"
-#include "transformer_lab/nn/initialization.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
+#include "riftco_transformer/nn/initialization.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include <string>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 [[nodiscard]] std::size_t checked_width(
@@ -174,4 +174,4 @@ ParameterList LowRankAdapter::parameters() {
     return Module::parameters();
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

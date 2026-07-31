@@ -1,7 +1,7 @@
-#include "transformer_lab/core/autograd.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
-#include "transformer_lab/nn/parameter.hpp"
-#include "transformer_lab/optim/adam.hpp"
+#include "riftco_transformer/core/autograd.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
+#include "riftco_transformer/optim/adam.hpp"
 
 #include <cmath>
 #include <exception>
@@ -13,13 +13,13 @@
 
 namespace {
 
-using transformer_lab::Tensor;
-using transformer_lab::Variable;
-using transformer_lab::Adam;
-using transformer_lab::ExecutionBackend;
-using transformer_lab::Parameter;
-using transformer_lab::move_parameters_to;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::Tensor;
+using riftco_transformer::Variable;
+using riftco_transformer::Adam;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::Parameter;
+using riftco_transformer::move_parameters_to;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -153,7 +153,7 @@ void test_public_custom_gradient_operation() {
     const Tensor right_value = right.value();
     const std::vector<Variable> inputs{left, right};
 
-    const Variable product = transformer_lab::custom_gradient(
+    const Variable product = riftco_transformer::custom_gradient(
         tensor_ops::multiply(left_value, right_value),
         inputs,
         [left_value, right_value](const Tensor& upstream) {
@@ -188,7 +188,7 @@ void test_public_custom_gradient_operation() {
     const Variable repeated = Variable::scalar(3.0F);
     const Tensor repeated_value = repeated.value();
     const std::vector<Variable> repeated_inputs{repeated, repeated};
-    const Variable square = transformer_lab::custom_gradient(
+    const Variable square = riftco_transformer::custom_gradient(
         tensor_ops::multiply(repeated_value, repeated_value),
         repeated_inputs,
         [repeated_value](const Tensor& upstream) {
@@ -210,7 +210,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
     const Variable right(Tensor({2}, {4.0F, 5.0F}));
     const std::vector<Variable> inputs{left, right};
 
-    transformer_lab::sum(left * 2.0F + right * 3.0F).backward();
+    riftco_transformer::sum(left * 2.0F + right * 3.0F).backward();
     require_tensor_close(
         left.gradient(), {2}, {2.0F, 2.0F},
         "custom gradient atomic baseline left"
@@ -222,7 +222,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
 
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::custom_gradient(
+            static_cast<void>(riftco_transformer::custom_gradient(
                 tensor_ops::add(left.value(), right.value()),
                 inputs,
                 {}
@@ -233,7 +233,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
     require_throws(
         [&] {
             const std::vector<Variable> no_inputs;
-            static_cast<void>(transformer_lab::custom_gradient(
+            static_cast<void>(riftco_transformer::custom_gradient(
                 Tensor(Tensor::Shape{}, 1.0F),
                 no_inputs,
                 [](const Tensor&) {
@@ -244,7 +244,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
         "custom gradient should reject an empty input list"
     );
 
-    const Variable wrong_count = transformer_lab::custom_gradient(
+    const Variable wrong_count = riftco_transformer::custom_gradient(
         tensor_ops::add(left.value(), right.value()),
         inputs,
         [](const Tensor& upstream) {
@@ -252,7 +252,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
         }
     );
     require_throws(
-        [&] { transformer_lab::sum(wrong_count).backward(); },
+        [&] { riftco_transformer::sum(wrong_count).backward(); },
         "custom gradient should reject the wrong VJP result count"
     );
     require_tensor_close(
@@ -264,7 +264,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
         "wrong VJP count must preserve the right gradient"
     );
 
-    const Variable wrong_shape = transformer_lab::custom_gradient(
+    const Variable wrong_shape = riftco_transformer::custom_gradient(
         tensor_ops::add(left.value(), right.value()),
         inputs,
         [](const Tensor& upstream) {
@@ -275,7 +275,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
         }
     );
     require_throws(
-        [&] { transformer_lab::sum(wrong_shape).backward(); },
+        [&] { riftco_transformer::sum(wrong_shape).backward(); },
         "custom gradient should reject a mismatched VJP Tensor shape"
     );
     require_tensor_close(
@@ -291,7 +291,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
         "failed custom gradient output must remain uncommitted"
     );
 
-    const Variable throwing = transformer_lab::custom_gradient(
+    const Variable throwing = riftco_transformer::custom_gradient(
         tensor_ops::add(left.value(), right.value()),
         inputs,
         [](const Tensor&) -> std::vector<Tensor> {
@@ -299,7 +299,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
         }
     );
     require_throws(
-        [&] { transformer_lab::sum(throwing).backward(); },
+        [&] { riftco_transformer::sum(throwing).backward(); },
         "custom gradient should propagate a VJP callback failure"
     );
     require_tensor_close(
@@ -311,14 +311,14 @@ void test_custom_gradient_validation_and_atomic_failure() {
         "throwing VJP must preserve the right gradient"
     );
 
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         const Variable metal_input(left.value().to(ExecutionBackend::Metal));
         const std::vector<Variable> metal_inputs{metal_input};
         require_throws(
             [&] {
-                static_cast<void>(transformer_lab::custom_gradient(
+                static_cast<void>(riftco_transformer::custom_gradient(
                     left.value(),
                     metal_inputs,
                     [](const Tensor& upstream) {
@@ -330,7 +330,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
         );
 
         const std::vector<Variable> cpu_inputs{left};
-        const Variable wrong_backend = transformer_lab::custom_gradient(
+        const Variable wrong_backend = riftco_transformer::custom_gradient(
             left.value(),
             cpu_inputs,
             [](const Tensor& upstream) {
@@ -340,7 +340,7 @@ void test_custom_gradient_validation_and_atomic_failure() {
             }
         );
         require_throws(
-            [&] { transformer_lab::sum(wrong_backend).backward(); },
+            [&] { riftco_transformer::sum(wrong_backend).backward(); },
             "custom gradient should reject a mismatched VJP backend"
         );
         require_tensor_close(
@@ -413,7 +413,7 @@ void test_arithmetic_and_elementwise_functions() {
 
     const Variable square_root_input = Variable::scalar(4.0F);
     const Variable square_root =
-        transformer_lab::sqrt(square_root_input);
+        riftco_transformer::sqrt(square_root_input);
     square_root.backward();
     require_close(
         square_root_input.gradient().flat(0),
@@ -422,8 +422,8 @@ void test_arithmetic_and_elementwise_functions() {
     );
 
     const Variable identity_input = Variable::scalar(1.25F);
-    const Variable identity = transformer_lab::log(
-        transformer_lab::exp(identity_input)
+    const Variable identity = riftco_transformer::log(
+        riftco_transformer::exp(identity_input)
     );
     identity.backward();
     require_close(identity.value().flat(0), 1.25F, "log(exp(x)) value");
@@ -432,8 +432,8 @@ void test_arithmetic_and_elementwise_functions() {
 
     const Variable x = Variable::scalar(1.4F);
     const Variable y = Variable::scalar(0.8F);
-    const Variable expression = transformer_lab::log(
-        transformer_lab::exp(
+    const Variable expression = riftco_transformer::log(
+        riftco_transformer::exp(
             x * y + x / y - y + 2.0F + (-x) * 0.25F
         )
     );
@@ -496,8 +496,8 @@ void test_matrix_multiplication_gradients() {
     );
     const Variable left(left_values);
     const Variable right(right_values);
-    const Variable loss = transformer_lab::sum(
-        transformer_lab::matmul(left, right)
+    const Variable loss = riftco_transformer::sum(
+        riftco_transformer::matmul(left, right)
     );
     loss.backward();
 
@@ -564,7 +564,7 @@ void test_permute_and_batched_matmul_gradients() {
             10.0F, 11.0F,
         }
     ));
-    transformer_lab::permute(layout, {1, 0, 2}).backward(Tensor(
+    riftco_transformer::permute(layout, {1, 0, 2}).backward(Tensor(
         {3, 2, 2},
         {
             1.0F, 2.0F, 3.0F, 4.0F,
@@ -608,8 +608,8 @@ void test_permute_and_batched_matmul_gradients() {
     );
     const Variable left(left_values);
     const Variable right(right_values);
-    transformer_lab::sum(
-        transformer_lab::matmul(left, right) *
+    riftco_transformer::sum(
+        riftco_transformer::matmul(left, right) *
         Variable(output_weights, false)
     ).backward();
 
@@ -661,7 +661,7 @@ void test_reductions_reshape_and_transpose() {
     const Variable rows(
         Tensor({2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F})
     );
-    const Variable row_sums = transformer_lab::sum(rows, 1);
+    const Variable row_sums = riftco_transformer::sum(rows, 1);
     require(row_sums.value().shape() == Tensor::Shape({2}),
             "axis reduction shape");
     require_tensor_close(
@@ -682,7 +682,7 @@ void test_reductions_reshape_and_transpose() {
         Tensor({2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F})
     );
     const Variable kept_row_sums =
-        transformer_lab::sum(kept_rows, 1, true);
+        riftco_transformer::sum(kept_rows, 1, true);
     require(
         kept_row_sums.value().shape() == Tensor::Shape({2, 1}),
         "kept axis reduction shape"
@@ -698,14 +698,14 @@ void test_reductions_reshape_and_transpose() {
     const Variable columns(
         Tensor({2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F})
     );
-    const Variable column_means = transformer_lab::mean(columns, 0);
+    const Variable column_means = riftco_transformer::mean(columns, 0);
     require_tensor_close(
         column_means.value(),
         {3},
         {2.5F, 3.5F, 4.5F},
         "column means"
     );
-    transformer_lab::sum(column_means).backward();
+    riftco_transformer::sum(column_means).backward();
     require_tensor_close(
         columns.gradient(),
         {2, 3},
@@ -716,14 +716,14 @@ void test_reductions_reshape_and_transpose() {
     const Variable layout(
         Tensor({2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F})
     );
-    const Variable transformed = transformer_lab::transpose_2d(
-        transformer_lab::reshape(layout, {3, 2})
+    const Variable transformed = riftco_transformer::transpose_2d(
+        riftco_transformer::reshape(layout, {3, 2})
     );
     require(
         transformed.value().shape() == Tensor::Shape({2, 3}),
         "reshape/transpose output shape"
     );
-    transformer_lab::sum(transformed).backward();
+    riftco_transformer::sum(transformed).backward();
     require_tensor_close(
         layout.gradient(),
         {2, 3},
@@ -741,10 +741,10 @@ void test_reductions_reshape_and_transpose() {
     );
     const Variable layout_input(layout_values);
     const Variable weights(weight_values, false);
-    const Variable layout_result = transformer_lab::sum(
-        transformer_lab::mean(
-            transformer_lab::transpose_2d(
-                transformer_lab::reshape(layout_input, {3, 2})
+    const Variable layout_result = riftco_transformer::sum(
+        riftco_transformer::mean(
+            riftco_transformer::transpose_2d(
+                riftco_transformer::reshape(layout_input, {3, 2})
             ) * weights,
             1
         )
@@ -786,7 +786,7 @@ void test_reductions_reshape_and_transpose() {
 void test_broadcast_gather_and_erf_gradients() {
     const Variable columns(Tensor({3}, {1.0F, 2.0F, 3.0F}));
     const Variable expanded_columns =
-        transformer_lab::broadcast_to(columns, {2, 3});
+        riftco_transformer::broadcast_to(columns, {2, 3});
     expanded_columns.backward(Tensor(
         {2, 3},
         {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}
@@ -800,7 +800,7 @@ void test_broadcast_gather_and_erf_gradients() {
 
     const Variable rows(Tensor({2, 1}, {10.0F, 20.0F}));
     const Variable expanded_rows =
-        transformer_lab::broadcast_to(rows, {2, 3});
+        riftco_transformer::broadcast_to(rows, {2, 3});
     expanded_rows.backward(Tensor(
         {2, 3},
         {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}
@@ -813,7 +813,7 @@ void test_broadcast_gather_and_erf_gradients() {
     );
 
     const Variable scalar = Variable::scalar(2.0F);
-    transformer_lab::broadcast_to(scalar, {2, 3}).backward(
+    riftco_transformer::broadcast_to(scalar, {2, 3}).backward(
         Tensor({2, 3}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F})
     );
     require_tensor_close(
@@ -828,7 +828,7 @@ void test_broadcast_gather_and_erf_gradients() {
         {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F}
     ));
     const std::vector<std::size_t> row_indices{2, 0, 2};
-    const Variable gathered = transformer_lab::gather_rows(
+    const Variable gathered = riftco_transformer::gather_rows(
         table,
         row_indices,
         {3}
@@ -849,7 +849,7 @@ void test_broadcast_gather_and_erf_gradients() {
     );
 
     const Variable erf_input = Variable::scalar(0.75F);
-    transformer_lab::erf(erf_input).backward();
+    riftco_transformer::erf(erf_input).backward();
     const float numerical = finite_difference(
         [](float candidate) { return std::erf(candidate); },
         0.75F
@@ -864,7 +864,7 @@ void test_broadcast_gather_and_erf_gradients() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::broadcast_to(columns, {2, 2})
+                riftco_transformer::broadcast_to(columns, {2, 2})
             );
         },
         "invalid differentiable broadcast should throw"
@@ -872,7 +872,7 @@ void test_broadcast_gather_and_erf_gradients() {
     require_throws(
         [&] {
             const std::vector<std::size_t> invalid_rows{3};
-            static_cast<void>(transformer_lab::gather_rows(
+            static_cast<void>(riftco_transformer::gather_rows(
                 table,
                 invalid_rows,
                 {1}
@@ -885,7 +885,7 @@ void test_broadcast_gather_and_erf_gradients() {
 void test_constants_and_errors() {
     const Variable trainable(Tensor({2}, {2.0F, 3.0F}));
     const Variable constant(Tensor({2}, {5.0F, 7.0F}), false);
-    transformer_lab::sum(trainable * constant).backward();
+    riftco_transformer::sum(trainable * constant).backward();
 
     require(trainable.requires_gradient(), "trainable flag");
     require(!constant.requires_gradient(), "constant flag");
@@ -919,14 +919,14 @@ void test_constants_and_errors() {
     require_throws(
         [] {
             const Variable value = Variable::scalar(0.0F);
-            static_cast<void>(transformer_lab::log(value));
+            static_cast<void>(riftco_transformer::log(value));
         },
         "log of zero should throw"
     );
     require_throws(
         [] {
             const Variable value = Variable::scalar(0.0F);
-            static_cast<void>(transformer_lab::sqrt(value));
+            static_cast<void>(riftco_transformer::sqrt(value));
         },
         "sqrt derivative at zero should throw"
     );
@@ -940,7 +940,7 @@ void test_constants_and_errors() {
     );
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::sum(trainable, 1));
+            static_cast<void>(riftco_transformer::sum(trainable, 1));
         },
         "out-of-range reduction axis should throw"
     );
@@ -993,7 +993,7 @@ void test_stale_graphs_are_rejected_before_gradients_change() {
         "Adam should invalidate graphs built before its parameter update"
     );
 
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         Parameter transferred(Tensor(Tensor::Shape{}, 2.0F));
@@ -1030,7 +1030,7 @@ void test_checkpoint_recomputation_and_graph_reduction() {
 
     const Variable regular = function(input);
     call_count = 0;
-    const Variable checkpointed = transformer_lab::checkpoint(
+    const Variable checkpointed = riftco_transformer::checkpoint(
         input,
         dependencies,
         function
@@ -1062,9 +1062,9 @@ void test_checkpoint_recomputation_and_graph_reduction() {
     );
 
     const Variable outside =
-        transformer_lab::sum(weight.variable() * 2.0F);
+        riftco_transformer::sum(weight.variable() * 2.0F);
     const Variable loss =
-        transformer_lab::sum(checkpointed) + outside;
+        riftco_transformer::sum(checkpointed) + outside;
     loss.backward();
     require(
         call_count == 2,
@@ -1101,14 +1101,14 @@ void test_checkpoint_shared_dependencies_and_atomic_failure() {
     Parameter weight(Tensor(Tensor::Shape{}, 3.0F));
     const std::vector<Variable> dependencies{weight.variable()};
 
-    const Variable product = transformer_lab::checkpoint(
+    const Variable product = riftco_transformer::checkpoint(
         input,
         dependencies,
         [parameter = weight.variable()](const Variable& value) {
             return value * parameter;
         }
     );
-    const Variable sum_path = transformer_lab::checkpoint(
+    const Variable sum_path = riftco_transformer::checkpoint(
         input,
         dependencies,
         [parameter = weight.variable()](const Variable& value) {
@@ -1128,7 +1128,7 @@ void test_checkpoint_shared_dependencies_and_atomic_failure() {
     );
 
     std::size_t call_count = 0;
-    const Variable failing = transformer_lab::checkpoint(
+    const Variable failing = riftco_transformer::checkpoint(
         input,
         dependencies,
         [parameter = weight.variable(), &call_count](
@@ -1172,7 +1172,7 @@ void test_checkpoint_replay_contract_validation() {
     );
 
     std::size_t shape_call_count = 0;
-    const Variable shape_changing = transformer_lab::checkpoint(
+    const Variable shape_changing = riftco_transformer::checkpoint(
         input,
         dependencies,
         [parameter = weight.variable(), &shape_call_count](
@@ -1182,7 +1182,7 @@ void test_checkpoint_replay_contract_validation() {
             const Variable result = value * parameter;
             return shape_call_count == 1
                        ? result
-                       : transformer_lab::reshape(result, {1});
+                       : riftco_transformer::reshape(result, {1});
         }
     );
     require_logic_error(
@@ -1201,7 +1201,7 @@ void test_checkpoint_replay_contract_validation() {
     );
 
     std::size_t dependency_call_count = 0;
-    const Variable dependency_changing = transformer_lab::checkpoint(
+    const Variable dependency_changing = riftco_transformer::checkpoint(
         input,
         dependencies,
         [parameter = weight.variable(), &dependency_call_count](
@@ -1236,7 +1236,7 @@ void test_checkpoint_contract_validation_and_stale_dependencies() {
 
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::checkpoint(
+            static_cast<void>(riftco_transformer::checkpoint(
                 input,
                 dependencies,
                 {}
@@ -1250,7 +1250,7 @@ void test_checkpoint_contract_validation_and_stale_dependencies() {
                 weight.variable(),
                 weight.variable(),
             };
-            static_cast<void>(transformer_lab::checkpoint(
+            static_cast<void>(riftco_transformer::checkpoint(
                 input,
                 duplicate_dependencies,
                 [parameter = weight.variable()](
@@ -1264,7 +1264,7 @@ void test_checkpoint_contract_validation_and_stale_dependencies() {
     );
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::checkpoint(
+            static_cast<void>(riftco_transformer::checkpoint(
                 input,
                 {},
                 [parameter = weight.variable()](
@@ -1280,7 +1280,7 @@ void test_checkpoint_contract_validation_and_stale_dependencies() {
     const Variable external = weight.variable() * 2.0F;
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::checkpoint(
+            static_cast<void>(riftco_transformer::checkpoint(
                 input,
                 dependencies,
                 [external](const Variable& value) {
@@ -1291,7 +1291,7 @@ void test_checkpoint_contract_validation_and_stale_dependencies() {
         "checkpoint should reject captured external non-leaf state"
     );
 
-    const Variable stale = transformer_lab::checkpoint(
+    const Variable stale = riftco_transformer::checkpoint(
         input,
         dependencies,
         [parameter = weight.variable()](const Variable& value) {

@@ -117,12 +117,12 @@ interface.
 explicit and size a shared pool:
 
 ```cpp
-#include "transformer_lab/stages/serving/stack.hpp"
+#include "riftco_transformer/stages/serving/stack.hpp"
 
-namespace serve = transformer_lab::stages::serving;
+namespace serve = riftco_transformer::stages::serving;
 
 serve::ServingConfig config;
-config.backend = transformer_lab::ExecutionBackend::Cpu;
+config.backend = riftco_transformer::ExecutionBackend::Cpu;
 config.kv_cache_kind = serve::KvCacheKind::Paged;
 config.kv_cache_block_size = 16;
 config.kv_cache_block_count = 0;  // one full context
@@ -139,18 +139,17 @@ maximum context.
 
 ## Stable C and Python sessions
 
-C ABI 1.6 introduced the opaque `tl_decode_session` lifecycle, which the
-current ABI 1.8 retains:
+C ABI 2.0 exposes the opaque `rt_decode_session` lifecycle:
 
-- `tl_model_decode_session_create`
-- `tl_decode_session_step`
-- `tl_decode_session_reset`
-- `tl_decode_session_size` and `tl_decode_session_capacity`
-- `tl_decode_session_cache_kind` and `tl_decode_session_block_size`
-- `tl_decode_session_release`
+- `rt_model_decode_session_create`
+- `rt_decode_session_step`
+- `rt_decode_session_reset`
+- `rt_decode_session_size` and `rt_decode_session_capacity`
+- `rt_decode_session_cache_kind` and `rt_decode_session_block_size`
+- `rt_decode_session_release`
 
-Initialize `tl_decode_session_options` with
-`tl_decode_session_options_init`. Null options select the same defaults:
+Initialize `rt_decode_session_options` with
+`rt_decode_session_options_init`. Null options select the same defaults:
 paged caching with a 16-token page. Each `step` appends exactly one token and
 returns the vocabulary-sized logits that predict the next token. A raw session
 reports capacity exhaustion; it does not choose a crop or replay policy for
@@ -165,10 +164,10 @@ model lock and offers an idempotent context-managed `DecodeSession`.
 High-level Python generation uses that session automatically:
 
 ```python
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab.serving import TextGenerator
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.serving import TextGenerator
 
-bundle = ModelBundle.load("results/stages/tiny_post_trained.tlab")
+bundle = ModelBundle.load("results/stages/tiny_post_trained.rift")
 with bundle.instantiate("cpu") as runtime:
     generator = TextGenerator(
         runtime.model,

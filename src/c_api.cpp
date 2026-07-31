@@ -1,16 +1,16 @@
-#include "transformer_lab/c_api.h"
+#include "riftco_transformer/c_api.h"
 
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/core/autograd.hpp"
-#include "transformer_lab/core/tensor.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
-#include "transformer_lab/data/tokenizer.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/model/lora.hpp"
-#include "transformer_lab/nn/loss.hpp"
-#include "transformer_lab/nn/parameter.hpp"
-#include "transformer_lab/optim/adam.hpp"
-#include "transformer_lab/stages/serving/kv_cache.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/core/autograd.hpp"
+#include "riftco_transformer/core/tensor.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
+#include "riftco_transformer/data/tokenizer.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/model/lora.hpp"
+#include "riftco_transformer/nn/loss.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
+#include "riftco_transformer/optim/adam.hpp"
+#include "riftco_transformer/stages/serving/kv_cache.hpp"
 
 #include <algorithm>
 #include <array>
@@ -29,62 +29,62 @@
 #include <utility>
 #include <vector>
 
-static_assert(sizeof(tl_transformer_config) == 64);
-static_assert(sizeof(tl_lora_config) == 40);
-static_assert(sizeof(tl_decode_session_options) == 24);
-static_assert(sizeof(tl_adam_options) == 32);
-static_assert(sizeof(tl_adam_step_stats) == 32);
-static_assert(sizeof(tl_tokenizer_options) == 32);
-static_assert(sizeof(tl_bpe_merge_rule) == 12);
-static_assert(sizeof(tl_activation_checkpointing_kind) == 4);
+static_assert(sizeof(rt_transformer_config) == 64);
+static_assert(sizeof(rt_lora_config) == 40);
+static_assert(sizeof(rt_decode_session_options) == 24);
+static_assert(sizeof(rt_adam_options) == 32);
+static_assert(sizeof(rt_adam_step_stats) == 32);
+static_assert(sizeof(rt_tokenizer_options) == 32);
+static_assert(sizeof(rt_bpe_merge_rule) == 12);
+static_assert(sizeof(rt_activation_checkpointing_kind) == 4);
 static_assert(
-    TL_LORA_TARGET_ATTENTION_QUERY ==
-    transformer_lab::kLoraAttentionQuery
+    RT_LORA_TARGET_ATTENTION_QUERY ==
+    riftco_transformer::kLoraAttentionQuery
 );
 static_assert(
-    TL_LORA_TARGET_ATTENTION_KEY ==
-    transformer_lab::kLoraAttentionKey
+    RT_LORA_TARGET_ATTENTION_KEY ==
+    riftco_transformer::kLoraAttentionKey
 );
 static_assert(
-    TL_LORA_TARGET_ATTENTION_VALUE ==
-    transformer_lab::kLoraAttentionValue
+    RT_LORA_TARGET_ATTENTION_VALUE ==
+    riftco_transformer::kLoraAttentionValue
 );
 static_assert(
-    TL_LORA_TARGET_ATTENTION_OUTPUT ==
-    transformer_lab::kLoraAttentionOutput
+    RT_LORA_TARGET_ATTENTION_OUTPUT ==
+    riftco_transformer::kLoraAttentionOutput
 );
 static_assert(
-    TL_LORA_TARGET_FF_EXPAND ==
-    transformer_lab::kLoraFeedForwardExpand
+    RT_LORA_TARGET_FF_EXPAND ==
+    riftco_transformer::kLoraFeedForwardExpand
 );
 static_assert(
-    TL_LORA_TARGET_FF_PROJECT ==
-    transformer_lab::kLoraFeedForwardProject
+    RT_LORA_TARGET_FF_PROJECT ==
+    riftco_transformer::kLoraFeedForwardProject
 );
 static_assert(
-    TL_LORA_TARGET_LM_HEAD ==
-    transformer_lab::kLoraLanguageModelHead
+    RT_LORA_TARGET_LM_HEAD ==
+    riftco_transformer::kLoraLanguageModelHead
 );
 static_assert(
-    TL_LORA_TARGET_DEFAULT ==
-    transformer_lab::kLoraDefaultTargets
+    RT_LORA_TARGET_DEFAULT ==
+    riftco_transformer::kLoraDefaultTargets
 );
 static_assert(
-    TL_LORA_TARGET_ALL_LINEAR ==
-    transformer_lab::kLoraAllTargets
+    RT_LORA_TARGET_ALL_LINEAR ==
+    riftco_transformer::kLoraAllTargets
 );
 
-struct tl_context {
-    transformer_lab::ExecutionBackend backend;
+struct rt_context {
+    riftco_transformer::ExecutionBackend backend;
 };
 
-struct tl_tensor {
-    transformer_lab::Tensor value;
+struct rt_tensor {
+    riftco_transformer::Tensor value;
 };
 
-struct tl_tokenizer {
-    explicit tl_tokenizer(
-        std::unique_ptr<transformer_lab::TokenizerStrategy> strategy
+struct rt_tokenizer {
+    explicit rt_tokenizer(
+        std::unique_ptr<riftco_transformer::TokenizerStrategy> strategy
     )
         : value(std::move(strategy)) {
         if (value == nullptr) {
@@ -94,12 +94,12 @@ struct tl_tokenizer {
         }
     }
 
-    std::unique_ptr<transformer_lab::TokenizerStrategy> value;
+    std::unique_ptr<riftco_transformer::TokenizerStrategy> value;
 };
 
 struct ModelState {
     ModelState(
-        transformer_lab::TransformerDimensions dimensions,
+        riftco_transformer::TransformerDimensions dimensions,
         std::mt19937& random,
         float layer_norm_epsilon
     )
@@ -109,7 +109,7 @@ struct ModelState {
               layer_norm_epsilon
           ) {}
 
-    transformer_lab::DecoderOnlyTransformer value;
+    riftco_transformer::DecoderOnlyTransformer value;
     std::atomic_size_t active_variables{0};
     std::atomic_size_t active_optimizers{0};
     std::atomic_size_t active_lora_parameter_lists{0};
@@ -117,16 +117,16 @@ struct ModelState {
     std::atomic_uint64_t parameter_epoch{0};
 };
 
-struct tl_model {
+struct rt_model {
     std::shared_ptr<ModelState> state;
 };
 
-struct tl_decode_session {
-    tl_decode_session(
+struct rt_decode_session {
+    rt_decode_session(
         std::shared_ptr<ModelState> model_owner,
-        std::unique_ptr<transformer_lab::DecoderKeyValueCache>
+        std::unique_ptr<riftco_transformer::DecoderKeyValueCache>
             key_value_cache,
-        tl_kv_cache_kind cache_kind,
+        rt_kv_cache_kind cache_kind,
         std::size_t cache_block_size,
         std::uint64_t epoch
     )
@@ -146,29 +146,29 @@ struct tl_decode_session {
         );
     }
 
-    ~tl_decode_session() {
+    ~rt_decode_session() {
         owner->active_decode_sessions.fetch_sub(
             1,
             std::memory_order_relaxed
         );
     }
 
-    tl_decode_session(const tl_decode_session&) = delete;
-    tl_decode_session& operator=(const tl_decode_session&) = delete;
-    tl_decode_session(tl_decode_session&&) = delete;
-    tl_decode_session& operator=(tl_decode_session&&) = delete;
+    rt_decode_session(const rt_decode_session&) = delete;
+    rt_decode_session& operator=(const rt_decode_session&) = delete;
+    rt_decode_session(rt_decode_session&&) = delete;
+    rt_decode_session& operator=(rt_decode_session&&) = delete;
 
     std::shared_ptr<ModelState> owner;
-    std::unique_ptr<transformer_lab::DecoderKeyValueCache> cache;
-    tl_kv_cache_kind kind;
+    std::unique_ptr<riftco_transformer::DecoderKeyValueCache> cache;
+    rt_kv_cache_kind kind;
     std::size_t block_size;
     std::uint64_t parameter_epoch;
 };
 
-struct tl_parameter_list {
-    tl_parameter_list(
+struct rt_parameter_list {
+    rt_parameter_list(
         std::shared_ptr<ModelState> model_owner,
-        transformer_lab::ParameterList parameters,
+        riftco_transformer::ParameterList parameters,
         bool tracks_lora_parameters
     )
         : owner(std::move(model_owner)),
@@ -182,7 +182,7 @@ struct tl_parameter_list {
         }
     }
 
-    ~tl_parameter_list() {
+    ~rt_parameter_list() {
         if (tracks_lora) {
             owner->active_lora_parameter_lists.fetch_sub(
                 1,
@@ -191,13 +191,13 @@ struct tl_parameter_list {
         }
     }
 
-    tl_parameter_list(const tl_parameter_list&) = delete;
-    tl_parameter_list& operator=(const tl_parameter_list&) = delete;
-    tl_parameter_list(tl_parameter_list&&) = delete;
-    tl_parameter_list& operator=(tl_parameter_list&&) = delete;
+    rt_parameter_list(const rt_parameter_list&) = delete;
+    rt_parameter_list& operator=(const rt_parameter_list&) = delete;
+    rt_parameter_list(rt_parameter_list&&) = delete;
+    rt_parameter_list& operator=(rt_parameter_list&&) = delete;
 
     std::shared_ptr<ModelState> owner;
-    transformer_lab::ParameterList value;
+    riftco_transformer::ParameterList value;
     bool tracks_lora;
 };
 
@@ -209,11 +209,11 @@ struct VariableGraphState {
     bool backward_consumed = false;
 };
 
-struct tl_variable {
-    tl_variable(
+struct rt_variable {
+    rt_variable(
         std::shared_ptr<ModelState> model_owner,
         std::shared_ptr<VariableGraphState> graph_state,
-        transformer_lab::Variable variable
+        riftco_transformer::Variable variable
     )
         : owner(std::move(model_owner)),
           graph(std::move(graph_state)),
@@ -224,7 +224,7 @@ struct tl_variable {
         );
     }
 
-    ~tl_variable() {
+    ~rt_variable() {
         owner->active_variables.fetch_sub(
             1,
             std::memory_order_relaxed
@@ -233,14 +233,14 @@ struct tl_variable {
 
     std::shared_ptr<ModelState> owner;
     std::shared_ptr<VariableGraphState> graph;
-    transformer_lab::Variable value;
+    riftco_transformer::Variable value;
 };
 
-struct tl_adam {
-    tl_adam(
+struct rt_adam {
+    rt_adam(
         std::shared_ptr<ModelState> model_owner,
-        transformer_lab::ParameterList parameters,
-        transformer_lab::AdamOptions options
+        riftco_transformer::ParameterList parameters,
+        riftco_transformer::AdamOptions options
     )
         : owner(std::move(model_owner)),
           value(std::move(parameters), options) {
@@ -250,7 +250,7 @@ struct tl_adam {
         );
     }
 
-    ~tl_adam() {
+    ~rt_adam() {
         owner->active_optimizers.fetch_sub(
             1,
             std::memory_order_relaxed
@@ -258,7 +258,7 @@ struct tl_adam {
     }
 
     std::shared_ptr<ModelState> owner;
-    transformer_lab::Adam value;
+    riftco_transformer::Adam value;
 };
 
 namespace {
@@ -288,56 +288,56 @@ public:
 };
 
 template <typename Function>
-tl_status guard(Function&& function) noexcept {
+rt_status guard(Function&& function) noexcept {
     try {
         clear_last_error();
         function();
-        return TL_STATUS_OK;
+        return RT_STATUS_OK;
     } catch (const BackendUnavailable& error) {
         set_last_error(error.what());
-        return TL_STATUS_BACKEND_UNAVAILABLE;
+        return RT_STATUS_BACKEND_UNAVAILABLE;
     } catch (const std::domain_error& error) {
         set_last_error(error.what());
-        return TL_STATUS_INVALID_ARGUMENT;
+        return RT_STATUS_INVALID_ARGUMENT;
     } catch (const std::invalid_argument& error) {
         set_last_error(error.what());
-        return TL_STATUS_INVALID_ARGUMENT;
+        return RT_STATUS_INVALID_ARGUMENT;
     } catch (const std::out_of_range& error) {
         set_last_error(error.what());
-        return TL_STATUS_OUT_OF_RANGE;
+        return RT_STATUS_OUT_OF_RANGE;
     } catch (const std::overflow_error& error) {
         set_last_error(error.what());
-        return TL_STATUS_OVERFLOW;
+        return RT_STATUS_OVERFLOW;
     } catch (const std::bad_alloc& error) {
         set_last_error(error.what());
-        return TL_STATUS_OUT_OF_MEMORY;
+        return RT_STATUS_OUT_OF_MEMORY;
     } catch (const std::exception& error) {
         set_last_error(error.what());
-        return TL_STATUS_RUNTIME_ERROR;
+        return RT_STATUS_RUNTIME_ERROR;
     } catch (...) {
         set_last_error("unknown native error");
-        return TL_STATUS_UNKNOWN_ERROR;
+        return RT_STATUS_UNKNOWN_ERROR;
     }
 }
 
-transformer_lab::ExecutionBackend checked_backend(
-    tl_backend backend
+riftco_transformer::ExecutionBackend checked_backend(
+    rt_backend backend
 ) {
-    transformer_lab::ExecutionBackend result;
+    riftco_transformer::ExecutionBackend result;
     switch (backend) {
-        case TL_BACKEND_CPU:
-            result = transformer_lab::ExecutionBackend::Cpu;
+        case RT_BACKEND_CPU:
+            result = riftco_transformer::ExecutionBackend::Cpu;
             break;
-        case TL_BACKEND_METAL:
-            result = transformer_lab::ExecutionBackend::Metal;
+        case RT_BACKEND_METAL:
+            result = riftco_transformer::ExecutionBackend::Metal;
             break;
         default:
             throw std::invalid_argument("unknown C API backend");
     }
-    if (!transformer_lab::execution_backend_available(result)) {
+    if (!riftco_transformer::execution_backend_available(result)) {
         throw BackendUnavailable(
             std::string(
-                transformer_lab::execution_backend_name(result)
+                riftco_transformer::execution_backend_name(result)
             ) +
             " execution backend is unavailable"
         );
@@ -345,27 +345,27 @@ transformer_lab::ExecutionBackend checked_backend(
     return result;
 }
 
-tl_backend c_backend(
-    transformer_lab::ExecutionBackend backend
+rt_backend c_backend(
+    riftco_transformer::ExecutionBackend backend
 ) {
     switch (backend) {
-        case transformer_lab::ExecutionBackend::Cpu:
-            return TL_BACKEND_CPU;
-        case transformer_lab::ExecutionBackend::Metal:
-            return TL_BACKEND_METAL;
+        case riftco_transformer::ExecutionBackend::Cpu:
+            return RT_BACKEND_CPU;
+        case riftco_transformer::ExecutionBackend::Metal:
+            return RT_BACKEND_METAL;
     }
     throw std::invalid_argument("unknown native backend");
 }
 
-transformer_lab::FullSequenceAttentionKind
+riftco_transformer::FullSequenceAttentionKind
 checked_full_sequence_attention(
-    tl_full_sequence_attention_kind kind
+    rt_full_sequence_attention_kind kind
 ) {
     switch (kind) {
-        case TL_FULL_SEQUENCE_ATTENTION_MATERIALIZED:
-            return transformer_lab::FullSequenceAttentionKind::Materialized;
-        case TL_FULL_SEQUENCE_ATTENTION_FLASH:
-            return transformer_lab::FullSequenceAttentionKind::Flash;
+        case RT_FULL_SEQUENCE_ATTENTION_MATERIALIZED:
+            return riftco_transformer::FullSequenceAttentionKind::Materialized;
+        case RT_FULL_SEQUENCE_ATTENTION_FLASH:
+            return riftco_transformer::FullSequenceAttentionKind::Flash;
         default:
             throw std::invalid_argument(
                 "unknown C API full-sequence attention kind"
@@ -373,29 +373,29 @@ checked_full_sequence_attention(
     }
 }
 
-tl_full_sequence_attention_kind c_full_sequence_attention(
-    transformer_lab::FullSequenceAttentionKind kind
+rt_full_sequence_attention_kind c_full_sequence_attention(
+    riftco_transformer::FullSequenceAttentionKind kind
 ) {
     switch (kind) {
-        case transformer_lab::FullSequenceAttentionKind::Materialized:
-            return TL_FULL_SEQUENCE_ATTENTION_MATERIALIZED;
-        case transformer_lab::FullSequenceAttentionKind::Flash:
-            return TL_FULL_SEQUENCE_ATTENTION_FLASH;
+        case riftco_transformer::FullSequenceAttentionKind::Materialized:
+            return RT_FULL_SEQUENCE_ATTENTION_MATERIALIZED;
+        case riftco_transformer::FullSequenceAttentionKind::Flash:
+            return RT_FULL_SEQUENCE_ATTENTION_FLASH;
     }
     throw std::invalid_argument(
         "unknown native full-sequence attention kind"
     );
 }
 
-transformer_lab::ActivationCheckpointingKind
+riftco_transformer::ActivationCheckpointingKind
 checked_activation_checkpointing(
-    tl_activation_checkpointing_kind kind
+    rt_activation_checkpointing_kind kind
 ) {
     switch (kind) {
-        case TL_ACTIVATION_CHECKPOINTING_DISABLED:
-            return transformer_lab::ActivationCheckpointingKind::Disabled;
-        case TL_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK:
-            return transformer_lab::ActivationCheckpointingKind::
+        case RT_ACTIVATION_CHECKPOINTING_DISABLED:
+            return riftco_transformer::ActivationCheckpointingKind::Disabled;
+        case RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK:
+            return riftco_transformer::ActivationCheckpointingKind::
                 TransformerBlock;
         default:
             throw std::invalid_argument(
@@ -404,15 +404,15 @@ checked_activation_checkpointing(
     }
 }
 
-tl_activation_checkpointing_kind c_activation_checkpointing(
-    transformer_lab::ActivationCheckpointingKind kind
+rt_activation_checkpointing_kind c_activation_checkpointing(
+    riftco_transformer::ActivationCheckpointingKind kind
 ) {
     switch (kind) {
-        case transformer_lab::ActivationCheckpointingKind::Disabled:
-            return TL_ACTIVATION_CHECKPOINTING_DISABLED;
-        case transformer_lab::ActivationCheckpointingKind::
+        case riftco_transformer::ActivationCheckpointingKind::Disabled:
+            return RT_ACTIVATION_CHECKPOINTING_DISABLED;
+        case riftco_transformer::ActivationCheckpointingKind::
                 TransformerBlock:
-            return TL_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK;
+            return RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK;
     }
     throw std::invalid_argument(
         "unknown native activation checkpointing kind"
@@ -454,7 +454,7 @@ std::uint64_t checked_u64(
     return static_cast<std::uint64_t>(value);
 }
 
-transformer_lab::Tensor::Shape checked_shape(
+riftco_transformer::Tensor::Shape checked_shape(
     const std::uint64_t* shape,
     std::uint64_t rank
 ) {
@@ -466,7 +466,7 @@ transformer_lab::Tensor::Shape checked_shape(
         );
     }
 
-    transformer_lab::Tensor::Shape result;
+    riftco_transformer::Tensor::Shape result;
     result.reserve(native_rank);
     for (std::size_t index = 0;
          index < native_rank;
@@ -504,7 +504,7 @@ std::size_t checked_product(
     return left * right;
 }
 
-std::vector<transformer_lab::TokenId> checked_token_ids(
+std::vector<riftco_transformer::TokenId> checked_token_ids(
     const std::uint32_t* values,
     std::uint64_t value_count,
     const char* description
@@ -583,7 +583,7 @@ void copy_sized_output(
     std::copy(values.begin(), values.end(), output);
 }
 
-void require_tokenizer(const tl_tokenizer* tokenizer) {
+void require_tokenizer(const rt_tokenizer* tokenizer) {
     if (tokenizer == nullptr || tokenizer->value == nullptr) {
         throw std::invalid_argument(
             "tokenizer handle must not be null"
@@ -591,14 +591,14 @@ void require_tokenizer(const tl_tokenizer* tokenizer) {
     }
 }
 
-transformer_lab::TokenizerMethod checked_tokenizer_method(
-    tl_tokenizer_method method
+riftco_transformer::TokenizerMethod checked_tokenizer_method(
+    rt_tokenizer_method method
 ) {
     switch (method) {
-        case TL_TOKENIZER_METHOD_BYTE:
-            return transformer_lab::TokenizerMethod::CorpusByte;
-        case TL_TOKENIZER_METHOD_BPE:
-            return transformer_lab::TokenizerMethod::BytePair;
+        case RT_TOKENIZER_METHOD_BYTE:
+            return riftco_transformer::TokenizerMethod::CorpusByte;
+        case RT_TOKENIZER_METHOD_BPE:
+            return riftco_transformer::TokenizerMethod::BytePair;
         default:
             throw std::invalid_argument(
                 "unknown C API tokenizer method"
@@ -606,26 +606,26 @@ transformer_lab::TokenizerMethod checked_tokenizer_method(
     }
 }
 
-tl_tokenizer_method c_tokenizer_method(
-    transformer_lab::TokenizerMethod method
+rt_tokenizer_method c_tokenizer_method(
+    riftco_transformer::TokenizerMethod method
 ) {
     switch (method) {
-        case transformer_lab::TokenizerMethod::CorpusByte:
-            return TL_TOKENIZER_METHOD_BYTE;
-        case transformer_lab::TokenizerMethod::BytePair:
-            return TL_TOKENIZER_METHOD_BPE;
+        case riftco_transformer::TokenizerMethod::CorpusByte:
+            return RT_TOKENIZER_METHOD_BYTE;
+        case riftco_transformer::TokenizerMethod::BytePair:
+            return RT_TOKENIZER_METHOD_BPE;
     }
     throw std::invalid_argument("unknown native tokenizer method");
 }
 
-transformer_lab::TokenizerOptions checked_tokenizer_options(
-    const tl_tokenizer_options* options
+riftco_transformer::TokenizerOptions checked_tokenizer_options(
+    const rt_tokenizer_options* options
 ) {
     if (options == nullptr) {
         return {};
     }
     constexpr std::size_t minimum_size =
-        offsetof(tl_tokenizer_options, minimum_pair_frequency) +
+        offsetof(rt_tokenizer_options, minimum_pair_frequency) +
         sizeof(std::uint64_t);
     checked_structure_size(
         options->struct_size,
@@ -639,11 +639,11 @@ transformer_lab::TokenizerOptions checked_tokenizer_options(
     }
 
     const auto method = checked_tokenizer_method(options->method);
-    if (method == transformer_lab::TokenizerMethod::CorpusByte) {
+    if (method == riftco_transformer::TokenizerMethod::CorpusByte) {
         return {
             method,
-            transformer_lab::TokenizerOptions{}.vocabulary_size,
-            transformer_lab::TokenizerOptions{}.minimum_pair_frequency,
+            riftco_transformer::TokenizerOptions{}.vocabulary_size,
+            riftco_transformer::TokenizerOptions{}.minimum_pair_frequency,
         };
     }
 
@@ -655,7 +655,7 @@ transformer_lab::TokenizerOptions checked_tokenizer_options(
     }
     if (options->vocabulary_size >
         static_cast<std::uint64_t>(
-            std::numeric_limits<transformer_lab::TokenId>::max()
+            std::numeric_limits<riftco_transformer::TokenId>::max()
         )) {
         throw std::overflow_error(
             "tokenizer vocabulary size exceeds token ID range"
@@ -681,21 +681,21 @@ transformer_lab::TokenizerOptions checked_tokenizer_options(
 }
 
 struct CheckedDecodeSessionOptions {
-    tl_kv_cache_kind kind;
+    rt_kv_cache_kind kind;
     std::size_t block_size;
 };
 
 CheckedDecodeSessionOptions checked_decode_session_options(
-    const tl_decode_session_options* options
+    const rt_decode_session_options* options
 ) {
     if (options == nullptr) {
         return {
-            TL_KV_CACHE_PAGED,
+            RT_KV_CACHE_PAGED,
             16,
         };
     }
     constexpr std::size_t minimum_size =
-        offsetof(tl_decode_session_options, block_size) +
+        offsetof(rt_decode_session_options, block_size) +
         sizeof(std::uint64_t);
     checked_structure_size(
         options->struct_size,
@@ -708,8 +708,8 @@ CheckedDecodeSessionOptions checked_decode_session_options(
         );
     }
     switch (options->kind) {
-        case TL_KV_CACHE_CONTIGUOUS:
-        case TL_KV_CACHE_PAGED:
+        case RT_KV_CACHE_CONTIGUOUS:
+        case RT_KV_CACHE_PAGED:
             break;
         default:
             throw std::invalid_argument(
@@ -731,7 +731,7 @@ CheckedDecodeSessionOptions checked_decode_session_options(
     };
 }
 
-void require_context(const tl_context* context) {
+void require_context(const rt_context* context) {
     if (context == nullptr) {
         throw std::invalid_argument(
             "context handle must not be null"
@@ -739,7 +739,7 @@ void require_context(const tl_context* context) {
     }
 }
 
-void require_tensor(const tl_tensor* tensor) {
+void require_tensor(const rt_tensor* tensor) {
     if (tensor == nullptr) {
         throw std::invalid_argument(
             "tensor handle must not be null"
@@ -747,7 +747,7 @@ void require_tensor(const tl_tensor* tensor) {
     }
 }
 
-void require_model(const tl_model* model) {
+void require_model(const rt_model* model) {
     if (model == nullptr || model->state == nullptr) {
         throw std::invalid_argument(
             "model handle must not be null"
@@ -755,7 +755,7 @@ void require_model(const tl_model* model) {
     }
 }
 
-void require_decode_session(const tl_decode_session* session) {
+void require_decode_session(const rt_decode_session* session) {
     if (session == nullptr ||
         session->owner == nullptr ||
         session->cache == nullptr) {
@@ -766,7 +766,7 @@ void require_decode_session(const tl_decode_session* session) {
 }
 
 void require_current_decode_session(
-    const tl_decode_session* session
+    const rt_decode_session* session
 ) {
     require_decode_session(session);
     if (session->parameter_epoch !=
@@ -794,7 +794,7 @@ void require_no_active_decode_sessions(
 }
 
 void require_parameter_list(
-    const tl_parameter_list* parameters
+    const rt_parameter_list* parameters
 ) {
     if (parameters == nullptr ||
         parameters->owner == nullptr) {
@@ -804,8 +804,8 @@ void require_parameter_list(
     }
 }
 
-const transformer_lab::NamedParameter& checked_parameter(
-    const tl_parameter_list* parameters,
+const riftco_transformer::NamedParameter& checked_parameter(
+    const rt_parameter_list* parameters,
     std::uint64_t index
 ) {
     require_parameter_list(parameters);
@@ -825,7 +825,7 @@ const transformer_lab::NamedParameter& checked_parameter(
     return parameter;
 }
 
-void require_variable(const tl_variable* variable) {
+void require_variable(const rt_variable* variable) {
     if (variable == nullptr ||
         variable->owner == nullptr ||
         variable->graph == nullptr) {
@@ -836,7 +836,7 @@ void require_variable(const tl_variable* variable) {
 }
 
 void require_current_graph(
-    const tl_variable* variable,
+    const rt_variable* variable,
     const char* operation
 ) {
     if (variable->graph->backward_consumed) {
@@ -868,7 +868,7 @@ void require_epoch_increment_available(
     }
 }
 
-void require_adam(const tl_adam* adam) {
+void require_adam(const rt_adam* adam) {
     if (adam == nullptr || adam->owner == nullptr) {
         throw std::invalid_argument(
             "Adam handle must not be null"
@@ -887,7 +887,7 @@ void require_output(Handle** output) {
 }
 
 void copy_tensor_shape(
-    const transformer_lab::Tensor& tensor,
+    const riftco_transformer::Tensor& tensor,
     std::uint64_t* output_dimensions,
     std::uint64_t dimension_capacity
 ) {
@@ -917,7 +917,7 @@ void copy_tensor_shape(
 }
 
 void copy_tensor_values(
-    const transformer_lab::Tensor& tensor,
+    const riftco_transformer::Tensor& tensor,
     float* output_values,
     std::uint64_t value_capacity
 ) {
@@ -943,7 +943,7 @@ void copy_tensor_values(
     );
 }
 
-transformer_lab::ExecutionBackend model_backend(
+riftco_transformer::ExecutionBackend model_backend(
     ModelState& state
 ) {
     const auto parameters = state.value.parameters();
@@ -956,14 +956,14 @@ transformer_lab::ExecutionBackend model_backend(
     return parameters.front().parameter->value().backend();
 }
 
-transformer_lab::AdamOptions checked_adam_options(
-    const tl_adam_options* options
+riftco_transformer::AdamOptions checked_adam_options(
+    const rt_adam_options* options
 ) {
     if (options == nullptr) {
         return {};
     }
     constexpr std::size_t minimum_size =
-        offsetof(tl_adam_options, reserved) +
+        offsetof(rt_adam_options, reserved) +
         sizeof(std::uint32_t);
     checked_structure_size(
         options->struct_size,
@@ -984,14 +984,14 @@ transformer_lab::AdamOptions checked_adam_options(
     };
 }
 
-transformer_lab::LoraConfig checked_lora_config(
-    const tl_lora_config* config
+riftco_transformer::LoraConfig checked_lora_config(
+    const rt_lora_config* config
 ) {
     if (config == nullptr) {
         return {};
     }
     constexpr std::size_t minimum_size =
-        offsetof(tl_lora_config, reserved) +
+        offsetof(rt_lora_config, reserved) +
         sizeof(std::uint64_t);
     checked_structure_size(
         config->struct_size,
@@ -1019,7 +1019,7 @@ transformer_lab::LoraConfig checked_lora_config(
             "LoRA targets must not be empty"
         );
     }
-    if ((config->targets & ~TL_LORA_TARGET_ALL_LINEAR) != 0) {
+    if ((config->targets & ~RT_LORA_TARGET_ALL_LINEAR) != 0) {
         throw std::invalid_argument(
             "LoRA targets contain an unknown bit"
         );
@@ -1028,15 +1028,15 @@ transformer_lab::LoraConfig checked_lora_config(
         checked_size(config->rank, "LoRA rank"),
         config->alpha,
         config->random_seed,
-        static_cast<transformer_lab::LoraTargetMask>(
+        static_cast<riftco_transformer::LoraTargetMask>(
             config->targets
         ),
     };
 }
 
 void write_lora_config(
-    const transformer_lab::LoraConfig& config,
-    tl_lora_config* output
+    const riftco_transformer::LoraConfig& config,
+    rt_lora_config* output
 ) {
     if (output == nullptr) {
         throw std::invalid_argument(
@@ -1044,7 +1044,7 @@ void write_lora_config(
         );
     }
     constexpr std::size_t minimum_size =
-        offsetof(tl_lora_config, reserved) +
+        offsetof(rt_lora_config, reserved) +
         sizeof(std::uint64_t);
     checked_structure_size(
         output->struct_size,
@@ -1057,7 +1057,7 @@ void write_lora_config(
         checked_u64(config.rank, "LoRA rank"),
         config.alpha,
         config.random_seed,
-        static_cast<tl_lora_target_mask>(config.targets),
+        static_cast<rt_lora_target_mask>(config.targets),
         0,
     };
 }
@@ -1066,38 +1066,38 @@ void write_lora_config(
 
 extern "C" {
 
-uint32_t TL_CALL tl_abi_version(void) {
-    return TL_ABI_VERSION;
+uint32_t RT_CALL rt_abi_version(void) {
+    return RT_ABI_VERSION;
 }
 
-const char* TL_CALL tl_status_string(tl_status status) {
+const char* RT_CALL rt_status_string(rt_status status) {
     switch (status) {
-        case TL_STATUS_OK:
+        case RT_STATUS_OK:
             return "ok";
-        case TL_STATUS_INVALID_ARGUMENT:
+        case RT_STATUS_INVALID_ARGUMENT:
             return "invalid argument";
-        case TL_STATUS_OUT_OF_RANGE:
+        case RT_STATUS_OUT_OF_RANGE:
             return "out of range";
-        case TL_STATUS_OVERFLOW:
+        case RT_STATUS_OVERFLOW:
             return "overflow";
-        case TL_STATUS_BACKEND_UNAVAILABLE:
+        case RT_STATUS_BACKEND_UNAVAILABLE:
             return "backend unavailable";
-        case TL_STATUS_OUT_OF_MEMORY:
+        case RT_STATUS_OUT_OF_MEMORY:
             return "out of memory";
-        case TL_STATUS_RUNTIME_ERROR:
+        case RT_STATUS_RUNTIME_ERROR:
             return "runtime error";
-        case TL_STATUS_UNKNOWN_ERROR:
+        case RT_STATUS_UNKNOWN_ERROR:
             return "unknown error";
     }
     return "unrecognized status";
 }
 
-const char* TL_CALL tl_last_error(void) {
+const char* RT_CALL rt_last_error(void) {
     return last_error.data();
 }
 
-tl_status TL_CALL tl_tokenizer_options_init(
-    tl_tokenizer_options* options,
+rt_status RT_CALL rt_tokenizer_options_init(
+    rt_tokenizer_options* options,
     uint64_t options_size
 ) {
     return guard([&] {
@@ -1108,7 +1108,7 @@ tl_status TL_CALL tl_tokenizer_options_init(
         }
         constexpr std::size_t minimum_size =
             offsetof(
-                tl_tokenizer_options,
+                rt_tokenizer_options,
                 minimum_pair_frequency
             ) +
             sizeof(std::uint64_t);
@@ -1119,7 +1119,7 @@ tl_status TL_CALL tl_tokenizer_options_init(
         );
         *options = {
             options_size,
-            TL_TOKENIZER_METHOD_BYTE,
+            RT_TOKENIZER_METHOD_BYTE,
             0,
             512,
             2,
@@ -1127,12 +1127,12 @@ tl_status TL_CALL tl_tokenizer_options_init(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_create(
+rt_status RT_CALL rt_tokenizer_create(
     const uint8_t* corpus_bytes,
     uint64_t corpus_size,
-    tl_tokenizer** output
+    rt_tokenizer** output
 ) {
-    return tl_tokenizer_create_with_options(
+    return rt_tokenizer_create_with_options(
         corpus_bytes,
         corpus_size,
         nullptr,
@@ -1140,16 +1140,16 @@ tl_status TL_CALL tl_tokenizer_create(
     );
 }
 
-tl_status TL_CALL tl_tokenizer_create_with_options(
+rt_status RT_CALL rt_tokenizer_create_with_options(
     const uint8_t* corpus_bytes,
     uint64_t corpus_size,
-    const tl_tokenizer_options* options,
-    tl_tokenizer** output
+    const rt_tokenizer_options* options,
+    rt_tokenizer** output
 ) {
     return guard([&] {
         require_output(output);
-        auto result = std::make_unique<tl_tokenizer>(
-            transformer_lab::make_tokenizer(
+        auto result = std::make_unique<rt_tokenizer>(
+            riftco_transformer::make_tokenizer(
                 checked_bytes(
                     corpus_bytes,
                     corpus_size,
@@ -1162,10 +1162,10 @@ tl_status TL_CALL tl_tokenizer_create_with_options(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_create_from_byte_vocabulary(
+rt_status RT_CALL rt_tokenizer_create_from_byte_vocabulary(
     const uint8_t* ordered_vocabulary,
     uint64_t vocabulary_size,
-    tl_tokenizer** output
+    rt_tokenizer** output
 ) {
     return guard([&] {
         require_output(output);
@@ -1178,8 +1178,8 @@ tl_status TL_CALL tl_tokenizer_create_from_byte_vocabulary(
                 "tokenizer byte vocabulary must not be null"
             );
         }
-        auto result = std::make_unique<tl_tokenizer>(
-            std::make_unique<transformer_lab::ByteTokenizer>(
+        auto result = std::make_unique<rt_tokenizer>(
+            std::make_unique<riftco_transformer::ByteTokenizer>(
                 std::span<const std::uint8_t>(
                     ordered_vocabulary,
                     count
@@ -1190,10 +1190,10 @@ tl_status TL_CALL tl_tokenizer_create_from_byte_vocabulary(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_create_from_bpe_merges(
-    const tl_bpe_merge_rule* ordered_merge_rules,
+rt_status RT_CALL rt_tokenizer_create_from_bpe_merges(
+    const rt_bpe_merge_rule* ordered_merge_rules,
     uint64_t merge_count,
-    tl_tokenizer** output
+    rt_tokenizer** output
 ) {
     return guard([&] {
         require_output(output);
@@ -1206,7 +1206,7 @@ tl_status TL_CALL tl_tokenizer_create_from_bpe_merges(
                 "BPE merge rules must not be null"
             );
         }
-        std::vector<transformer_lab::BpeMergeRule> rules;
+        std::vector<riftco_transformer::BpeMergeRule> rules;
         rules.reserve(count);
         for (std::size_t index = 0; index < count; ++index) {
             const auto& rule = ordered_merge_rules[index];
@@ -1216,9 +1216,9 @@ tl_status TL_CALL tl_tokenizer_create_from_bpe_merges(
                 rule.result,
             });
         }
-        auto result = std::make_unique<tl_tokenizer>(
-            std::make_unique<transformer_lab::BytePairTokenizer>(
-                std::span<const transformer_lab::BpeMergeRule>(
+        auto result = std::make_unique<rt_tokenizer>(
+            std::make_unique<riftco_transformer::BytePairTokenizer>(
+                std::span<const riftco_transformer::BpeMergeRule>(
                     rules.data(),
                     rules.size()
                 )
@@ -1228,13 +1228,13 @@ tl_status TL_CALL tl_tokenizer_create_from_bpe_merges(
     });
 }
 
-void TL_CALL tl_tokenizer_release(tl_tokenizer* tokenizer) {
+void RT_CALL rt_tokenizer_release(rt_tokenizer* tokenizer) {
     delete tokenizer;
 }
 
-tl_status TL_CALL tl_tokenizer_get_method(
-    const tl_tokenizer* tokenizer,
-    tl_tokenizer_method* output
+rt_status RT_CALL rt_tokenizer_get_method(
+    const rt_tokenizer* tokenizer,
+    rt_tokenizer_method* output
 ) {
     return guard([&] {
         require_tokenizer(tokenizer);
@@ -1249,8 +1249,8 @@ tl_status TL_CALL tl_tokenizer_get_method(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_vocabulary_size(
-    const tl_tokenizer* tokenizer,
+rt_status RT_CALL rt_tokenizer_vocabulary_size(
+    const rt_tokenizer* tokenizer,
     uint64_t* output
 ) {
     return guard([&] {
@@ -1267,8 +1267,8 @@ tl_status TL_CALL tl_tokenizer_vocabulary_size(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_bpe_merge_count(
-    const tl_tokenizer* tokenizer,
+rt_status RT_CALL rt_tokenizer_bpe_merge_count(
+    const rt_tokenizer* tokenizer,
     uint64_t* output
 ) {
     return guard([&] {
@@ -1279,7 +1279,7 @@ tl_status TL_CALL tl_tokenizer_bpe_merge_count(
             );
         }
         const auto* byte_pair =
-            dynamic_cast<const transformer_lab::BytePairTokenizer*>(
+            dynamic_cast<const riftco_transformer::BytePairTokenizer*>(
                 tokenizer->value.get()
             );
         if (byte_pair == nullptr) {
@@ -1294,10 +1294,10 @@ tl_status TL_CALL tl_tokenizer_bpe_merge_count(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_bpe_merge_rule(
-    const tl_tokenizer* tokenizer,
+rt_status RT_CALL rt_tokenizer_bpe_merge_rule(
+    const rt_tokenizer* tokenizer,
     uint64_t index,
-    tl_bpe_merge_rule* output
+    rt_bpe_merge_rule* output
 ) {
     return guard([&] {
         require_tokenizer(tokenizer);
@@ -1307,7 +1307,7 @@ tl_status TL_CALL tl_tokenizer_bpe_merge_rule(
             );
         }
         const auto* byte_pair =
-            dynamic_cast<const transformer_lab::BytePairTokenizer*>(
+            dynamic_cast<const riftco_transformer::BytePairTokenizer*>(
                 tokenizer->value.get()
             );
         if (byte_pair == nullptr) {
@@ -1334,8 +1334,8 @@ tl_status TL_CALL tl_tokenizer_bpe_merge_rule(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_vocabulary(
-    const tl_tokenizer* tokenizer,
+rt_status RT_CALL rt_tokenizer_vocabulary(
+    const rt_tokenizer* tokenizer,
     uint8_t* output,
     uint64_t capacity,
     uint64_t* required_count
@@ -1343,11 +1343,11 @@ tl_status TL_CALL tl_tokenizer_vocabulary(
     return guard([&] {
         require_tokenizer(tokenizer);
         if (tokenizer->value->method() !=
-            transformer_lab::TokenizerMethod::CorpusByte) {
+            riftco_transformer::TokenizerMethod::CorpusByte) {
             throw std::invalid_argument(
                 "tokenizer vocabulary is only available for "
                 "the corpus-byte method; use "
-                "tl_tokenizer_token_bytes for BPE"
+                "rt_tokenizer_token_bytes for BPE"
             );
         }
 
@@ -1357,7 +1357,7 @@ tl_status TL_CALL tl_tokenizer_vocabulary(
              index < tokenizer->value->vocab_size();
              ++index) {
             const auto bytes = tokenizer->value->token_bytes(
-                static_cast<transformer_lab::TokenId>(index)
+                static_cast<riftco_transformer::TokenId>(index)
             );
             if (bytes.size() != 1) {
                 throw std::logic_error(
@@ -1379,8 +1379,8 @@ tl_status TL_CALL tl_tokenizer_vocabulary(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_token_bytes(
-    const tl_tokenizer* tokenizer,
+rt_status RT_CALL rt_tokenizer_token_bytes(
+    const rt_tokenizer* tokenizer,
     uint32_t token_id,
     uint8_t* output,
     uint64_t capacity,
@@ -1399,8 +1399,8 @@ tl_status TL_CALL tl_tokenizer_token_bytes(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_encode(
-    const tl_tokenizer* tokenizer,
+rt_status RT_CALL rt_tokenizer_encode(
+    const rt_tokenizer* tokenizer,
     const uint8_t* text,
     uint64_t text_size,
     uint32_t* output,
@@ -1417,7 +1417,7 @@ tl_status TL_CALL tl_tokenizer_encode(
             )
         );
         copy_sized_output(
-            std::span<const transformer_lab::TokenId>(
+            std::span<const riftco_transformer::TokenId>(
                 tokens.data(),
                 tokens.size()
             ),
@@ -1429,8 +1429,8 @@ tl_status TL_CALL tl_tokenizer_encode(
     });
 }
 
-tl_status TL_CALL tl_tokenizer_decode(
-    const tl_tokenizer* tokenizer,
+rt_status RT_CALL rt_tokenizer_decode(
+    const rt_tokenizer* tokenizer,
     const uint32_t* tokens,
     uint64_t token_count,
     uint8_t* output,
@@ -1459,8 +1459,8 @@ tl_status TL_CALL tl_tokenizer_decode(
     });
 }
 
-tl_status TL_CALL tl_backend_is_available(
-    tl_backend backend,
+rt_status RT_CALL rt_backend_is_available(
+    rt_backend backend,
     int32_t* available
 ) {
     return guard([&] {
@@ -1469,15 +1469,15 @@ tl_status TL_CALL tl_backend_is_available(
                 "availability output must not be null"
             );
         }
-        transformer_lab::ExecutionBackend native;
+        riftco_transformer::ExecutionBackend native;
         switch (backend) {
-            case TL_BACKEND_CPU:
+            case RT_BACKEND_CPU:
                 native =
-                    transformer_lab::ExecutionBackend::Cpu;
+                    riftco_transformer::ExecutionBackend::Cpu;
                 break;
-            case TL_BACKEND_METAL:
+            case RT_BACKEND_METAL:
                 native =
-                    transformer_lab::ExecutionBackend::Metal;
+                    riftco_transformer::ExecutionBackend::Metal;
                 break;
             default:
                 throw std::invalid_argument(
@@ -1485,33 +1485,33 @@ tl_status TL_CALL tl_backend_is_available(
                 );
         }
         *available =
-            transformer_lab::execution_backend_available(native)
+            riftco_transformer::execution_backend_available(native)
                 ? 1
                 : 0;
     });
 }
 
-tl_status TL_CALL tl_context_create(
-    tl_backend backend,
-    tl_context** output
+rt_status RT_CALL rt_context_create(
+    rt_backend backend,
+    rt_context** output
 ) {
     return guard([&] {
         require_output(output);
         const auto native = checked_backend(backend);
-        auto result = std::make_unique<tl_context>(
-            tl_context{native}
+        auto result = std::make_unique<rt_context>(
+            rt_context{native}
         );
         *output = result.release();
     });
 }
 
-void TL_CALL tl_context_release(tl_context* context) {
+void RT_CALL rt_context_release(rt_context* context) {
     delete context;
 }
 
-tl_status TL_CALL tl_context_backend(
-    const tl_context* context,
-    tl_backend* output
+rt_status RT_CALL rt_context_backend(
+    const rt_context* context,
+    rt_backend* output
 ) {
     return guard([&] {
         require_context(context);
@@ -1524,13 +1524,13 @@ tl_status TL_CALL tl_context_backend(
     });
 }
 
-tl_status TL_CALL tl_tensor_create_f32(
-    const tl_context* context,
+rt_status RT_CALL rt_tensor_create_f32(
+    const rt_context* context,
     const uint64_t* shape,
     uint64_t rank,
     const float* values,
     uint64_t value_count,
-    tl_tensor** output
+    rt_tensor** output
 ) {
     return guard([&] {
         require_output(output);
@@ -1551,9 +1551,9 @@ tl_status TL_CALL tl_tensor_create_f32(
                 values + native_count
             );
         }
-        auto result = std::make_unique<tl_tensor>(
-            tl_tensor{
-                transformer_lab::Tensor(
+        auto result = std::make_unique<rt_tensor>(
+            rt_tensor{
+                riftco_transformer::Tensor(
                     checked_shape(shape, rank),
                     std::move(owned_values),
                     context->backend
@@ -1564,18 +1564,18 @@ tl_status TL_CALL tl_tensor_create_f32(
     });
 }
 
-tl_status TL_CALL tl_tensor_zeros_f32(
-    const tl_context* context,
+rt_status RT_CALL rt_tensor_zeros_f32(
+    const rt_context* context,
     const uint64_t* shape,
     uint64_t rank,
-    tl_tensor** output
+    rt_tensor** output
 ) {
     return guard([&] {
         require_output(output);
         require_context(context);
-        auto result = std::make_unique<tl_tensor>(
-            tl_tensor{
-                transformer_lab::Tensor::zeros(
+        auto result = std::make_unique<rt_tensor>(
+            rt_tensor{
+                riftco_transformer::Tensor::zeros(
                     checked_shape(shape, rank),
                     context->backend
                 ),
@@ -1585,13 +1585,13 @@ tl_status TL_CALL tl_tensor_zeros_f32(
     });
 }
 
-void TL_CALL tl_tensor_release(tl_tensor* tensor) {
+void RT_CALL rt_tensor_release(rt_tensor* tensor) {
     delete tensor;
 }
 
-tl_status TL_CALL tl_tensor_backend(
-    const tl_tensor* tensor,
-    tl_backend* output
+rt_status RT_CALL rt_tensor_backend(
+    const rt_tensor* tensor,
+    rt_backend* output
 ) {
     return guard([&] {
         require_tensor(tensor);
@@ -1604,8 +1604,8 @@ tl_status TL_CALL tl_tensor_backend(
     });
 }
 
-tl_status TL_CALL tl_tensor_rank(
-    const tl_tensor* tensor,
+rt_status RT_CALL rt_tensor_rank(
+    const rt_tensor* tensor,
     uint64_t* output
 ) {
     return guard([&] {
@@ -1622,8 +1622,8 @@ tl_status TL_CALL tl_tensor_rank(
     });
 }
 
-tl_status TL_CALL tl_tensor_shape(
-    const tl_tensor* tensor,
+rt_status RT_CALL rt_tensor_shape(
+    const rt_tensor* tensor,
     uint64_t* output_dimensions,
     uint64_t dimension_capacity
 ) {
@@ -1637,8 +1637,8 @@ tl_status TL_CALL tl_tensor_shape(
     });
 }
 
-tl_status TL_CALL tl_tensor_numel(
-    const tl_tensor* tensor,
+rt_status RT_CALL rt_tensor_numel(
+    const rt_tensor* tensor,
     uint64_t* output
 ) {
     return guard([&] {
@@ -1655,8 +1655,8 @@ tl_status TL_CALL tl_tensor_numel(
     });
 }
 
-tl_status TL_CALL tl_tensor_copy_to_host_f32(
-    const tl_tensor* tensor,
+rt_status RT_CALL rt_tensor_copy_to_host_f32(
+    const rt_tensor* tensor,
     float* output_values,
     uint64_t value_capacity
 ) {
@@ -1670,10 +1670,10 @@ tl_status TL_CALL tl_tensor_copy_to_host_f32(
     });
 }
 
-tl_status TL_CALL tl_tensor_matmul(
-    const tl_tensor* left,
-    const tl_tensor* right,
-    tl_tensor** output
+rt_status RT_CALL rt_tensor_matmul(
+    const rt_tensor* left,
+    const rt_tensor* right,
+    rt_tensor** output
 ) {
     return guard([&] {
         require_output(output);
@@ -1684,9 +1684,9 @@ tl_status TL_CALL tl_tensor_matmul(
                 "matmul tensors must use the same backend"
             );
         }
-        auto result = std::make_unique<tl_tensor>(
-            tl_tensor{
-                transformer_lab::tensor_ops::matmul(
+        auto result = std::make_unique<rt_tensor>(
+            rt_tensor{
+                riftco_transformer::tensor_ops::matmul(
                     left->value,
                     right->value
                 ),
@@ -1696,8 +1696,8 @@ tl_status TL_CALL tl_tensor_matmul(
     });
 }
 
-tl_status TL_CALL tl_transformer_config_init(
-    tl_transformer_config* config,
+rt_status RT_CALL rt_transformer_config_init(
+    rt_transformer_config* config,
     uint64_t config_size
 ) {
     return guard([&] {
@@ -1708,7 +1708,7 @@ tl_status TL_CALL tl_transformer_config_init(
         }
         constexpr std::size_t minimum_size =
             offsetof(
-                tl_transformer_config,
+                rt_transformer_config,
                 layer_norm_epsilon
             ) +
             sizeof(float);
@@ -1731,8 +1731,8 @@ tl_status TL_CALL tl_transformer_config_init(
     });
 }
 
-tl_status TL_CALL tl_decode_session_options_init(
-    tl_decode_session_options* options,
+rt_status RT_CALL rt_decode_session_options_init(
+    rt_decode_session_options* options,
     uint64_t options_size
 ) {
     return guard([&] {
@@ -1742,7 +1742,7 @@ tl_status TL_CALL tl_decode_session_options_init(
             );
         }
         constexpr std::size_t minimum_size =
-            offsetof(tl_decode_session_options, block_size) +
+            offsetof(rt_decode_session_options, block_size) +
             sizeof(std::uint64_t);
         checked_structure_size(
             options_size,
@@ -1751,16 +1751,16 @@ tl_status TL_CALL tl_decode_session_options_init(
         );
         *options = {
             options_size,
-            TL_KV_CACHE_PAGED,
+            RT_KV_CACHE_PAGED,
             0,
             16,
         };
     });
 }
 
-tl_status TL_CALL tl_model_create(
-    const tl_transformer_config* config,
-    tl_model** output
+rt_status RT_CALL rt_model_create(
+    const rt_transformer_config* config,
+    rt_model** output
 ) {
     return guard([&] {
         require_output(output);
@@ -1771,7 +1771,7 @@ tl_status TL_CALL tl_model_create(
         }
         constexpr std::size_t minimum_size =
             offsetof(
-                tl_transformer_config,
+                rt_transformer_config,
                 layer_norm_epsilon
             ) +
             sizeof(float);
@@ -1781,7 +1781,7 @@ tl_status TL_CALL tl_model_create(
             "transformer config structure"
         );
 
-        const transformer_lab::TransformerDimensions dimensions{
+        const riftco_transformer::TransformerDimensions dimensions{
             checked_size(
                 config->vocabulary_size,
                 "vocabulary size"
@@ -1799,29 +1799,29 @@ tl_status TL_CALL tl_model_create(
             ),
         };
         std::mt19937 random(config->random_seed);
-        const transformer_lab::ScopedExecutionBackend
+        const riftco_transformer::ScopedExecutionBackend
             construction_backend(
-                transformer_lab::ExecutionBackend::Cpu
+                riftco_transformer::ExecutionBackend::Cpu
             );
         auto state = std::make_shared<ModelState>(
             dimensions,
             random,
             config->layer_norm_epsilon
         );
-        auto result = std::make_unique<tl_model>(
-            tl_model{std::move(state)}
+        auto result = std::make_unique<rt_model>(
+            rt_model{std::move(state)}
         );
         *output = result.release();
     });
 }
 
-void TL_CALL tl_model_release(tl_model* model) {
+void RT_CALL rt_model_release(rt_model* model) {
     delete model;
 }
 
-tl_status TL_CALL tl_model_to(
-    tl_model* model,
-    tl_backend backend
+rt_status RT_CALL rt_model_to(
+    rt_model* model,
+    rt_backend backend
 ) {
     return guard([&] {
         require_model(model);
@@ -1852,9 +1852,9 @@ tl_status TL_CALL tl_model_to(
     });
 }
 
-tl_status TL_CALL tl_model_backend(
-    const tl_model* model,
-    tl_backend* output
+rt_status RT_CALL rt_model_backend(
+    const rt_model* model,
+    rt_backend* output
 ) {
     return guard([&] {
         require_model(model);
@@ -1867,9 +1867,9 @@ tl_status TL_CALL tl_model_backend(
     });
 }
 
-tl_status TL_CALL tl_model_set_full_sequence_attention(
-    tl_model* model,
-    tl_full_sequence_attention_kind kind
+rt_status RT_CALL rt_model_set_full_sequence_attention(
+    rt_model* model,
+    rt_full_sequence_attention_kind kind
 ) {
     return guard([&] {
         require_model(model);
@@ -1879,9 +1879,9 @@ tl_status TL_CALL tl_model_set_full_sequence_attention(
     });
 }
 
-tl_status TL_CALL tl_model_full_sequence_attention(
-    const tl_model* model,
-    tl_full_sequence_attention_kind* output
+rt_status RT_CALL rt_model_full_sequence_attention(
+    const rt_model* model,
+    rt_full_sequence_attention_kind* output
 ) {
     return guard([&] {
         require_model(model);
@@ -1896,9 +1896,9 @@ tl_status TL_CALL tl_model_full_sequence_attention(
     });
 }
 
-tl_status TL_CALL tl_model_set_activation_checkpointing(
-    tl_model* model,
-    tl_activation_checkpointing_kind kind
+rt_status RT_CALL rt_model_set_activation_checkpointing(
+    rt_model* model,
+    rt_activation_checkpointing_kind kind
 ) {
     return guard([&] {
         require_model(model);
@@ -1908,9 +1908,9 @@ tl_status TL_CALL tl_model_set_activation_checkpointing(
     });
 }
 
-tl_status TL_CALL tl_model_activation_checkpointing(
-    const tl_model* model,
-    tl_activation_checkpointing_kind* output
+rt_status RT_CALL rt_model_activation_checkpointing(
+    const rt_model* model,
+    rt_activation_checkpointing_kind* output
 ) {
     return guard([&] {
         require_model(model);
@@ -1925,8 +1925,8 @@ tl_status TL_CALL tl_model_activation_checkpointing(
     });
 }
 
-tl_status TL_CALL tl_lora_config_init(
-    tl_lora_config* config,
+rt_status RT_CALL rt_lora_config_init(
+    rt_lora_config* config,
     uint64_t config_size
 ) {
     return guard([&] {
@@ -1936,28 +1936,28 @@ tl_status TL_CALL tl_lora_config_init(
             );
         }
         constexpr std::size_t minimum_size =
-            offsetof(tl_lora_config, reserved) +
+            offsetof(rt_lora_config, reserved) +
             sizeof(std::uint64_t);
         checked_structure_size(
             config_size,
             minimum_size,
             "LoRA config structure"
         );
-        const transformer_lab::LoraConfig defaults;
+        const riftco_transformer::LoraConfig defaults;
         *config = {
             config_size,
             checked_u64(defaults.rank, "LoRA rank"),
             defaults.alpha,
             defaults.random_seed,
-            static_cast<tl_lora_target_mask>(defaults.targets),
+            static_cast<rt_lora_target_mask>(defaults.targets),
             0,
         };
     });
 }
 
-tl_status TL_CALL tl_model_attach_lora(
-    tl_model* model,
-    const tl_lora_config* config
+rt_status RT_CALL rt_model_attach_lora(
+    rt_model* model,
+    const rt_lora_config* config
 ) {
     return guard([&] {
         require_model(model);
@@ -1995,8 +1995,8 @@ tl_status TL_CALL tl_model_attach_lora(
     });
 }
 
-tl_status TL_CALL tl_model_has_lora(
-    const tl_model* model,
+rt_status RT_CALL rt_model_has_lora(
+    const rt_model* model,
     int32_t* output
 ) {
     return guard([&] {
@@ -2010,9 +2010,9 @@ tl_status TL_CALL tl_model_has_lora(
     });
 }
 
-tl_status TL_CALL tl_model_lora_config(
-    const tl_model* model,
-    tl_lora_config* output
+rt_status RT_CALL rt_model_lora_config(
+    const rt_model* model,
+    rt_lora_config* output
 ) {
     return guard([&] {
         require_model(model);
@@ -2028,13 +2028,13 @@ tl_status TL_CALL tl_model_lora_config(
     });
 }
 
-tl_status TL_CALL tl_model_forward(
-    const tl_model* model,
+rt_status RT_CALL rt_model_forward(
+    const rt_model* model,
     const uint32_t* token_ids,
     uint64_t token_count,
     uint64_t batch_size,
     uint64_t sequence_length,
-    tl_variable** output
+    rt_variable** output
 ) {
     return guard([&] {
         require_output(output);
@@ -2063,7 +2063,7 @@ tl_status TL_CALL tl_model_forward(
                 std::memory_order_relaxed
             )
         );
-        auto result = std::make_unique<tl_variable>(
+        auto result = std::make_unique<rt_variable>(
             model->state,
             std::move(graph),
             model->state->value.forward(
@@ -2075,10 +2075,10 @@ tl_status TL_CALL tl_model_forward(
     });
 }
 
-tl_status TL_CALL tl_model_decode_session_create(
-    const tl_model* model,
-    const tl_decode_session_options* options,
-    tl_decode_session** output
+rt_status RT_CALL rt_model_decode_session_create(
+    const rt_model* model,
+    const rt_decode_session_options* options,
+    rt_decode_session** output
 ) {
     return guard([&] {
         require_output(output);
@@ -2089,11 +2089,11 @@ tl_status TL_CALL tl_model_decode_session_create(
             model->state->value.dimensions();
         const auto backend = model->state->value.backend();
 
-        std::unique_ptr<transformer_lab::DecoderKeyValueCache>
+        std::unique_ptr<riftco_transformer::DecoderKeyValueCache>
             cache;
         std::size_t block_size = 0;
-        if (configured.kind == TL_KV_CACHE_CONTIGUOUS) {
-            const transformer_lab::stages::serving::
+        if (configured.kind == RT_KV_CACHE_CONTIGUOUS) {
+            const riftco_transformer::stages::serving::
                 ContiguousKvCacheFactory factory(
                     dimensions,
                     backend
@@ -2101,7 +2101,7 @@ tl_status TL_CALL tl_model_decode_session_create(
             cache = factory.create();
             block_size = dimensions.maximum_context;
         } else {
-            const transformer_lab::stages::serving::
+            const riftco_transformer::stages::serving::
                 PagedKvCachePool pool(
                     dimensions,
                     backend,
@@ -2111,7 +2111,7 @@ tl_status TL_CALL tl_model_decode_session_create(
             block_size = pool.block_size();
         }
 
-        auto result = std::make_unique<tl_decode_session>(
+        auto result = std::make_unique<rt_decode_session>(
             model->state,
             std::move(cache),
             configured.kind,
@@ -2124,14 +2124,14 @@ tl_status TL_CALL tl_model_decode_session_create(
     });
 }
 
-void TL_CALL tl_decode_session_release(
-    tl_decode_session* session
+void RT_CALL rt_decode_session_release(
+    rt_decode_session* session
 ) {
     delete session;
 }
 
-tl_status TL_CALL tl_decode_session_reset(
-    tl_decode_session* session
+rt_status RT_CALL rt_decode_session_reset(
+    rt_decode_session* session
 ) {
     return guard([&] {
         require_current_decode_session(session);
@@ -2139,8 +2139,8 @@ tl_status TL_CALL tl_decode_session_reset(
     });
 }
 
-tl_status TL_CALL tl_decode_session_size(
-    const tl_decode_session* session,
+rt_status RT_CALL rt_decode_session_size(
+    const rt_decode_session* session,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2157,8 +2157,8 @@ tl_status TL_CALL tl_decode_session_size(
     });
 }
 
-tl_status TL_CALL tl_decode_session_capacity(
-    const tl_decode_session* session,
+rt_status RT_CALL rt_decode_session_capacity(
+    const rt_decode_session* session,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2175,9 +2175,9 @@ tl_status TL_CALL tl_decode_session_capacity(
     });
 }
 
-tl_status TL_CALL tl_decode_session_cache_kind(
-    const tl_decode_session* session,
-    tl_kv_cache_kind* output
+rt_status RT_CALL rt_decode_session_cache_kind(
+    const rt_decode_session* session,
+    rt_kv_cache_kind* output
 ) {
     return guard([&] {
         require_decode_session(session);
@@ -2190,8 +2190,8 @@ tl_status TL_CALL tl_decode_session_cache_kind(
     });
 }
 
-tl_status TL_CALL tl_decode_session_block_size(
-    const tl_decode_session* session,
+rt_status RT_CALL rt_decode_session_block_size(
+    const rt_decode_session* session,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2208,8 +2208,8 @@ tl_status TL_CALL tl_decode_session_block_size(
     });
 }
 
-tl_status TL_CALL tl_decode_session_step(
-    tl_decode_session* session,
+rt_status RT_CALL rt_decode_session_step(
+    rt_decode_session* session,
     uint32_t token_id,
     float* output_logits,
     uint64_t capacity,
@@ -2256,12 +2256,12 @@ tl_status TL_CALL tl_decode_session_step(
             );
         }
 
-        const transformer_lab::Tensor logits =
+        const riftco_transformer::Tensor logits =
             session->owner->value.decode_token(
                 token_id,
                 *session->cache
             );
-        const transformer_lab::Tensor::Shape expected_shape{
+        const riftco_transformer::Tensor::Shape expected_shape{
             1,
             1,
             vocabulary_size,
@@ -2280,14 +2280,14 @@ tl_status TL_CALL tl_decode_session_step(
     });
 }
 
-tl_status TL_CALL tl_model_parameters(
-    tl_model* model,
-    tl_parameter_list** output
+rt_status RT_CALL rt_model_parameters(
+    rt_model* model,
+    rt_parameter_list** output
 ) {
     return guard([&] {
         require_output(output);
         require_model(model);
-        auto result = std::make_unique<tl_parameter_list>(
+        auto result = std::make_unique<rt_parameter_list>(
             model->state,
             model->state->value.parameters(),
             false
@@ -2296,9 +2296,9 @@ tl_status TL_CALL tl_model_parameters(
     });
 }
 
-tl_status TL_CALL tl_model_lora_parameters(
-    tl_model* model,
-    tl_parameter_list** output
+rt_status RT_CALL rt_model_lora_parameters(
+    rt_model* model,
+    rt_parameter_list** output
 ) {
     return guard([&] {
         require_output(output);
@@ -2308,7 +2308,7 @@ tl_status TL_CALL tl_model_lora_parameters(
                 "model has no attached LoRA adapter"
             );
         }
-        auto result = std::make_unique<tl_parameter_list>(
+        auto result = std::make_unique<rt_parameter_list>(
             model->state,
             model->state->value.lora_parameters(),
             true
@@ -2317,7 +2317,7 @@ tl_status TL_CALL tl_model_lora_parameters(
     });
 }
 
-tl_status TL_CALL tl_model_merge_lora(tl_model* model) {
+rt_status RT_CALL rt_model_merge_lora(rt_model* model) {
     return guard([&] {
         require_model(model);
         if (!model->state->value.has_lora()) {
@@ -2360,14 +2360,14 @@ tl_status TL_CALL tl_model_merge_lora(tl_model* model) {
     });
 }
 
-void TL_CALL tl_parameter_list_release(
-    tl_parameter_list* parameters
+void RT_CALL rt_parameter_list_release(
+    rt_parameter_list* parameters
 ) {
     delete parameters;
 }
 
-tl_status TL_CALL tl_parameter_list_count(
-    const tl_parameter_list* parameters,
+rt_status RT_CALL rt_parameter_list_count(
+    const rt_parameter_list* parameters,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2384,9 +2384,9 @@ tl_status TL_CALL tl_parameter_list_count(
     });
 }
 
-tl_status TL_CALL tl_parameter_list_backend(
-    const tl_parameter_list* parameters,
-    tl_backend* output
+rt_status RT_CALL rt_parameter_list_backend(
+    const rt_parameter_list* parameters,
+    rt_backend* output
 ) {
     return guard([&] {
         require_parameter_list(parameters);
@@ -2408,8 +2408,8 @@ tl_status TL_CALL tl_parameter_list_backend(
     });
 }
 
-tl_status TL_CALL tl_parameter_list_name(
-    const tl_parameter_list* parameters,
+rt_status RT_CALL rt_parameter_list_name(
+    const rt_parameter_list* parameters,
     uint64_t index,
     char* output_name,
     uint64_t name_capacity,
@@ -2465,8 +2465,8 @@ tl_status TL_CALL tl_parameter_list_name(
     });
 }
 
-tl_status TL_CALL tl_parameter_list_rank(
-    const tl_parameter_list* parameters,
+rt_status RT_CALL rt_parameter_list_rank(
+    const rt_parameter_list* parameters,
     uint64_t index,
     uint64_t* output
 ) {
@@ -2484,8 +2484,8 @@ tl_status TL_CALL tl_parameter_list_rank(
     });
 }
 
-tl_status TL_CALL tl_parameter_list_shape(
-    const tl_parameter_list* parameters,
+rt_status RT_CALL rt_parameter_list_shape(
+    const rt_parameter_list* parameters,
     uint64_t index,
     uint64_t* output_dimensions,
     uint64_t dimension_capacity
@@ -2500,8 +2500,8 @@ tl_status TL_CALL tl_parameter_list_shape(
     });
 }
 
-tl_status TL_CALL tl_parameter_list_numel(
-    const tl_parameter_list* parameters,
+rt_status RT_CALL rt_parameter_list_numel(
+    const rt_parameter_list* parameters,
     uint64_t index,
     uint64_t* output
 ) {
@@ -2519,8 +2519,8 @@ tl_status TL_CALL tl_parameter_list_numel(
     });
 }
 
-tl_status TL_CALL tl_parameter_list_total_numel(
-    const tl_parameter_list* parameters,
+rt_status RT_CALL rt_parameter_list_total_numel(
+    const rt_parameter_list* parameters,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2531,21 +2531,21 @@ tl_status TL_CALL tl_parameter_list_total_numel(
             );
         }
         *output = checked_u64(
-            transformer_lab::parameter_count(parameters->value),
+            riftco_transformer::parameter_count(parameters->value),
             "total parameter element count"
         );
     });
 }
 
-tl_status TL_CALL tl_parameter_list_copy_to_host_f32(
-    const tl_parameter_list* parameters,
+rt_status RT_CALL rt_parameter_list_copy_to_host_f32(
+    const rt_parameter_list* parameters,
     float* output_values,
     uint64_t value_capacity
 ) {
     return guard([&] {
         require_parameter_list(parameters);
         const std::size_t total =
-            transformer_lab::parameter_count(parameters->value);
+            riftco_transformer::parameter_count(parameters->value);
         const std::size_t capacity = checked_size(
             value_capacity,
             "parameter value output capacity"
@@ -2575,15 +2575,15 @@ tl_status TL_CALL tl_parameter_list_copy_to_host_f32(
     });
 }
 
-tl_status TL_CALL tl_parameter_list_load_from_host_f32(
-    tl_parameter_list* parameters,
+rt_status RT_CALL rt_parameter_list_load_from_host_f32(
+    rt_parameter_list* parameters,
     const float* values,
     uint64_t value_count
 ) {
     return guard([&] {
         require_parameter_list(parameters);
         const std::size_t total =
-            transformer_lab::parameter_count(parameters->value);
+            riftco_transformer::parameter_count(parameters->value);
         const std::size_t count = checked_size(
             value_count,
             "parameter value count"
@@ -2632,8 +2632,8 @@ tl_status TL_CALL tl_parameter_list_load_from_host_f32(
         require_epoch_increment_available(*parameters->owner);
 
         struct Replacement {
-            transformer_lab::Parameter* parameter;
-            transformer_lab::Tensor value;
+            riftco_transformer::Parameter* parameter;
+            riftco_transformer::Tensor value;
         };
         std::vector<Replacement> replacements;
         replacements.reserve(parameters->value.size());
@@ -2649,7 +2649,7 @@ tl_status TL_CALL tl_parameter_list_load_from_host_f32(
             );
             replacements.push_back({
                 parameter,
-                transformer_lab::Tensor(
+                riftco_transformer::Tensor(
                     old_value.shape(),
                     std::move(replacement_values),
                     old_value.backend()
@@ -2672,9 +2672,9 @@ tl_status TL_CALL tl_parameter_list_load_from_host_f32(
     });
 }
 
-#if defined(TRANSFORMER_LAB_C_API_TESTING)
-tl_status TL_CALL tl_test_model_parameter_epoch(
-    const tl_model* model,
+#if defined(RIFTCO_TRANSFORMER_C_API_TESTING)
+rt_status RT_CALL rt_test_model_parameter_epoch(
+    const rt_model* model,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2690,8 +2690,8 @@ tl_status TL_CALL tl_test_model_parameter_epoch(
     });
 }
 
-tl_status TL_CALL tl_test_model_set_parameter_epoch(
-    tl_model* model,
+rt_status RT_CALL rt_test_model_set_parameter_epoch(
+    rt_model* model,
     uint64_t value
 ) {
     return guard([&] {
@@ -2704,13 +2704,13 @@ tl_status TL_CALL tl_test_model_set_parameter_epoch(
 }
 #endif
 
-void TL_CALL tl_variable_release(tl_variable* variable) {
+void RT_CALL rt_variable_release(rt_variable* variable) {
     delete variable;
 }
 
-tl_status TL_CALL tl_variable_backend(
-    const tl_variable* variable,
-    tl_backend* output
+rt_status RT_CALL rt_variable_backend(
+    const rt_variable* variable,
+    rt_backend* output
 ) {
     return guard([&] {
         require_variable(variable);
@@ -2723,8 +2723,8 @@ tl_status TL_CALL tl_variable_backend(
     });
 }
 
-tl_status TL_CALL tl_variable_rank(
-    const tl_variable* variable,
+rt_status RT_CALL rt_variable_rank(
+    const rt_variable* variable,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2741,8 +2741,8 @@ tl_status TL_CALL tl_variable_rank(
     });
 }
 
-tl_status TL_CALL tl_variable_shape(
-    const tl_variable* variable,
+rt_status RT_CALL rt_variable_shape(
+    const rt_variable* variable,
     uint64_t* output_dimensions,
     uint64_t dimension_capacity
 ) {
@@ -2756,8 +2756,8 @@ tl_status TL_CALL tl_variable_shape(
     });
 }
 
-tl_status TL_CALL tl_variable_numel(
-    const tl_variable* variable,
+rt_status RT_CALL rt_variable_numel(
+    const rt_variable* variable,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2774,8 +2774,8 @@ tl_status TL_CALL tl_variable_numel(
     });
 }
 
-tl_status TL_CALL tl_variable_copy_to_host_f32(
-    const tl_variable* variable,
+rt_status RT_CALL rt_variable_copy_to_host_f32(
+    const rt_variable* variable,
     float* output_values,
     uint64_t value_capacity
 ) {
@@ -2789,8 +2789,8 @@ tl_status TL_CALL tl_variable_copy_to_host_f32(
     });
 }
 
-tl_status TL_CALL tl_variable_backward(
-    const tl_variable* variable
+rt_status RT_CALL rt_variable_backward(
+    const rt_variable* variable
 ) {
     return guard([&] {
         require_variable(variable);
@@ -2800,11 +2800,11 @@ tl_status TL_CALL tl_variable_backward(
     });
 }
 
-tl_status TL_CALL tl_cross_entropy(
-    const tl_variable* logits,
+rt_status RT_CALL rt_cross_entropy(
+    const rt_variable* logits,
     const uint32_t* targets,
     uint64_t target_count,
-    tl_variable** output
+    rt_variable** output
 ) {
     return guard([&] {
         require_output(output);
@@ -2815,10 +2815,10 @@ tl_status TL_CALL tl_cross_entropy(
             target_count,
             "cross-entropy targets"
         );
-        auto result = std::make_unique<tl_variable>(
+        auto result = std::make_unique<rt_variable>(
             logits->owner,
             logits->graph,
-            transformer_lab::cross_entropy(
+            riftco_transformer::cross_entropy(
                 logits->value,
                 values
             )
@@ -2827,8 +2827,8 @@ tl_status TL_CALL tl_cross_entropy(
     });
 }
 
-tl_status TL_CALL tl_adam_options_init(
-    tl_adam_options* options,
+rt_status RT_CALL rt_adam_options_init(
+    rt_adam_options* options,
     uint64_t options_size
 ) {
     return guard([&] {
@@ -2838,14 +2838,14 @@ tl_status TL_CALL tl_adam_options_init(
             );
         }
         constexpr std::size_t minimum_size =
-            offsetof(tl_adam_options, reserved) +
+            offsetof(rt_adam_options, reserved) +
             sizeof(std::uint32_t);
         checked_structure_size(
             options_size,
             minimum_size,
             "Adam options structure"
         );
-        const transformer_lab::AdamOptions defaults;
+        const riftco_transformer::AdamOptions defaults;
         *options = {
             options_size,
             defaults.learning_rate,
@@ -2858,15 +2858,15 @@ tl_status TL_CALL tl_adam_options_init(
     });
 }
 
-tl_status TL_CALL tl_adam_create(
-    const tl_parameter_list* parameters,
-    const tl_adam_options* options,
-    tl_adam** output
+rt_status RT_CALL rt_adam_create(
+    const rt_parameter_list* parameters,
+    const rt_adam_options* options,
+    rt_adam** output
 ) {
     return guard([&] {
         require_output(output);
         require_parameter_list(parameters);
-        auto result = std::make_unique<tl_adam>(
+        auto result = std::make_unique<rt_adam>(
             parameters->owner,
             parameters->value,
             checked_adam_options(options)
@@ -2875,13 +2875,13 @@ tl_status TL_CALL tl_adam_create(
     });
 }
 
-void TL_CALL tl_adam_release(tl_adam* adam) {
+void RT_CALL rt_adam_release(rt_adam* adam) {
     delete adam;
 }
 
-tl_status TL_CALL tl_adam_backend(
-    const tl_adam* adam,
-    tl_backend* output
+rt_status RT_CALL rt_adam_backend(
+    const rt_adam* adam,
+    rt_backend* output
 ) {
     return guard([&] {
         require_adam(adam);
@@ -2894,8 +2894,8 @@ tl_status TL_CALL tl_adam_backend(
     });
 }
 
-tl_status TL_CALL tl_adam_step_count(
-    const tl_adam* adam,
+rt_status RT_CALL rt_adam_step_count(
+    const rt_adam* adam,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2912,8 +2912,8 @@ tl_status TL_CALL tl_adam_step_count(
     });
 }
 
-tl_status TL_CALL tl_adam_parameter_count(
-    const tl_adam* adam,
+rt_status RT_CALL rt_adam_parameter_count(
+    const rt_adam* adam,
     uint64_t* output
 ) {
     return guard([&] {
@@ -2930,9 +2930,9 @@ tl_status TL_CALL tl_adam_parameter_count(
     });
 }
 
-tl_status TL_CALL tl_adam_step(
-    tl_adam* adam,
-    tl_adam_step_stats* output_stats
+rt_status RT_CALL rt_adam_step(
+    rt_adam* adam,
+    rt_adam_step_stats* output_stats
 ) {
     return guard([&] {
         require_adam(adam);
@@ -2942,7 +2942,7 @@ tl_status TL_CALL tl_adam_step(
             );
         }
         constexpr std::size_t minimum_size =
-            offsetof(tl_adam_step_stats, clip_scale) +
+            offsetof(rt_adam_step_stats, clip_scale) +
             sizeof(double);
         checked_structure_size(
             output_stats->struct_size,
@@ -2970,8 +2970,8 @@ tl_status TL_CALL tl_adam_step(
     });
 }
 
-tl_status TL_CALL tl_adam_zero_gradients(
-    const tl_adam* adam
+rt_status RT_CALL rt_adam_zero_gradients(
+    const rt_adam* adam
 ) {
     return guard([&] {
         require_adam(adam);

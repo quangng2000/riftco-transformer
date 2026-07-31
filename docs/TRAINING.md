@@ -115,14 +115,14 @@ From the project directory:
 ```bash
 cmake --preset debug
 cmake --build --preset debug
-./build/debug/transformer_lab --config configs/tiny.conf
+./build/debug/riftco-transformer --config configs/tiny.conf
 ```
 
 The configuration's `training_steps` controls the normal run. Two command-line
 options make short experiments convenient:
 
 ```bash
-./build/debug/transformer_lab \
+./build/debug/riftco-transformer \
   --config configs/tiny.conf \
   --steps 20 \
   --metrics results/debug-metrics.csv \

@@ -1,9 +1,9 @@
-#include "transformer_lab/config.hpp"
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/data/tokenizer.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/nn/parameter.hpp"
-#include "transformer_lab/stages/pretraining/stack.hpp"
+#include "riftco_transformer/config.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/data/tokenizer.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
+#include "riftco_transformer/stages/pretraining/stack.hpp"
 
 #include <charconv>
 #include <exception>
@@ -22,7 +22,7 @@
 namespace {
 
 constexpr const char* kUsage =
-    "usage: transformer_lab [--config path] [--steps count] "
+    "usage: riftco-transformer [--config path] [--steps count] "
     "[--metrics path] [--backend cpu|metal] "
     "[--attention materialized|flash] "
     "[--activation-checkpointing disabled|block]";
@@ -31,13 +31,13 @@ struct CommandLineOptions {
     std::filesystem::path config_path = "configs/tiny.conf";
     std::optional<std::size_t> training_steps;
     std::optional<std::filesystem::path> metrics_path;
-    transformer_lab::ExecutionBackend backend =
-        transformer_lab::ExecutionBackend::Cpu;
-    transformer_lab::FullSequenceAttentionKind attention =
-        transformer_lab::FullSequenceAttentionKind::Materialized;
-    transformer_lab::ActivationCheckpointingKind
+    riftco_transformer::ExecutionBackend backend =
+        riftco_transformer::ExecutionBackend::Cpu;
+    riftco_transformer::FullSequenceAttentionKind attention =
+        riftco_transformer::FullSequenceAttentionKind::Materialized;
+    riftco_transformer::ActivationCheckpointingKind
         activation_checkpointing =
-            transformer_lab::ActivationCheckpointingKind::Disabled;
+            riftco_transformer::ActivationCheckpointingKind::Disabled;
 };
 
 std::size_t parse_positive_size(const std::string& value) {
@@ -54,41 +54,41 @@ std::size_t parse_positive_size(const std::string& value) {
     return result;
 }
 
-transformer_lab::ExecutionBackend parse_backend(
+riftco_transformer::ExecutionBackend parse_backend(
     const std::string& value
 ) {
     if (value == "cpu") {
-        return transformer_lab::ExecutionBackend::Cpu;
+        return riftco_transformer::ExecutionBackend::Cpu;
     }
     if (value == "metal") {
-        return transformer_lab::ExecutionBackend::Metal;
+        return riftco_transformer::ExecutionBackend::Metal;
     }
     throw std::runtime_error(
         "--backend must be 'cpu' or 'metal'"
     );
 }
 
-transformer_lab::FullSequenceAttentionKind parse_attention(
+riftco_transformer::FullSequenceAttentionKind parse_attention(
     const std::string& value
 ) {
     if (value == "materialized") {
-        return transformer_lab::FullSequenceAttentionKind::Materialized;
+        return riftco_transformer::FullSequenceAttentionKind::Materialized;
     }
     if (value == "flash") {
-        return transformer_lab::FullSequenceAttentionKind::Flash;
+        return riftco_transformer::FullSequenceAttentionKind::Flash;
     }
     throw std::runtime_error(
         "--attention must be 'materialized' or 'flash'"
     );
 }
 
-transformer_lab::ActivationCheckpointingKind
+riftco_transformer::ActivationCheckpointingKind
 parse_activation_checkpointing(const std::string& value) {
     if (value == "disabled") {
-        return transformer_lab::ActivationCheckpointingKind::Disabled;
+        return riftco_transformer::ActivationCheckpointingKind::Disabled;
     }
     if (value == "block") {
-        return transformer_lab::ActivationCheckpointingKind::
+        return riftco_transformer::ActivationCheckpointingKind::
             TransformerBlock;
     }
     throw std::runtime_error(
@@ -175,7 +175,7 @@ public:
     MetricsCsv& operator=(const MetricsCsv&) = delete;
 
     void write(
-        const transformer_lab::training::TrainingStepMetrics& metrics
+        const riftco_transformer::training::TrainingStepMetrics& metrics
     ) {
         output_ << metrics.step << ','
                 << metrics.loss << ','
@@ -218,9 +218,9 @@ int main(int argc, char** argv) {
     try {
         const CommandLineOptions command_line =
             command_line_options(argc, argv);
-        const transformer_lab::Config config =
-            transformer_lab::Config::load(command_line.config_path);
-        transformer_lab::set_execution_backend(
+        const riftco_transformer::Config config =
+            riftco_transformer::Config::load(command_line.config_path);
+        riftco_transformer::set_execution_backend(
             command_line.backend
         );
         const std::size_t training_steps =
@@ -233,8 +233,8 @@ int main(int argc, char** argv) {
             );
 
         const std::string corpus =
-            transformer_lab::read_file_bytes(config.corpus_path);
-        transformer_lab::stages::pretraining::PretrainingConfig
+            riftco_transformer::read_file_bytes(config.corpus_path);
+        riftco_transformer::stages::pretraining::PretrainingConfig
             stage_config;
         stage_config.steps = training_steps;
         stage_config.context_size = config.context_size;
@@ -244,7 +244,7 @@ int main(int argc, char** argv) {
         stage_config.block_count = config.n_layers;
         stage_config.feed_forward_width = config.d_ff;
         stage_config.tokenizer = {
-            transformer_lab::TokenizerMethod::CorpusByte,
+            riftco_transformer::TokenizerMethod::CorpusByte,
             256,
             1,
         };
@@ -262,9 +262,9 @@ int main(int argc, char** argv) {
         stage_config.activation_checkpointing =
             command_line.activation_checkpointing;
 
-        transformer_lab::stages::pretraining::PretrainingStack
+        riftco_transformer::stages::pretraining::PretrainingStack
             training(corpus, stage_config);
-        const transformer_lab::ParameterList parameters =
+        const riftco_transformer::ParameterList parameters =
             training.model().parameters();
         MetricsCsv metrics_csv(metrics_path);
 
@@ -275,17 +275,17 @@ int main(int argc, char** argv) {
                   << "Vocabulary:    "
                   << training.tokenizer().vocab_size() << '\n'
                   << "Parameters:    "
-                  << transformer_lab::parameter_count(parameters)
+                  << riftco_transformer::parameter_count(parameters)
                   << '\n'
                   << "Backend:       "
-                  << transformer_lab::execution_backend_name(
-                         transformer_lab::execution_backend()
+                  << riftco_transformer::execution_backend_name(
+                         riftco_transformer::execution_backend()
                      )
                   << '\n'
                   << "Attention:     "
                   << (
                          command_line.attention ==
-                                 transformer_lab::
+                                 riftco_transformer::
                                      FullSequenceAttentionKind::Flash
                              ? "flash"
                              : "materialized"
@@ -294,7 +294,7 @@ int main(int argc, char** argv) {
                   << "Checkpointing: "
                   << (
                          command_line.activation_checkpointing ==
-                                 transformer_lab::
+                                 riftco_transformer::
                                      ActivationCheckpointingKind::
                                          TransformerBlock
                              ? "block"
@@ -305,7 +305,7 @@ int main(int argc, char** argv) {
                   << "\n\n";
 
         const auto result = training.run(
-            [&](const transformer_lab::training::TrainingStepMetrics&
+            [&](const riftco_transformer::training::TrainingStepMetrics&
                     metrics) {
                 metrics_csv.write(metrics);
                 if (should_report(

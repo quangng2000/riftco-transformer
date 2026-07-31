@@ -1,6 +1,6 @@
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
-#include "transformer_lab/model/transformer_block.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
+#include "riftco_transformer/model/transformer_block.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -17,12 +17,12 @@
 
 namespace {
 
-using transformer_lab::ExecutionBackend;
-using transformer_lab::Parameter;
-using transformer_lab::Tensor;
-using transformer_lab::TransformerBlock;
-using transformer_lab::Variable;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::Parameter;
+using riftco_transformer::Tensor;
+using riftco_transformer::TransformerBlock;
+using riftco_transformer::Variable;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
 static_assert(!std::is_copy_constructible_v<TransformerBlock>);
 static_assert(!std::is_copy_assignable_v<TransformerBlock>);
@@ -36,7 +36,7 @@ void require(bool condition, const std::string& message) {
 }
 
 void require_parameter_backend(
-    const transformer_lab::ParameterList& parameters,
+    const riftco_transformer::ParameterList& parameters,
     ExecutionBackend backend,
     const std::string& message
 ) {
@@ -288,7 +288,7 @@ void test_getters_shape_and_parameter_registration() {
         feed_forward_width +
         9 * model_width;
     require(
-        transformer_lab::parameter_count(parameters) ==
+        riftco_transformer::parameter_count(parameters) ==
             expected_scalar_count,
         "block scalar parameter count"
     );
@@ -453,7 +453,7 @@ void test_gradients_with_centered_finite_differences() {
     {
         const Variable input(input_values);
         const Variable output = block.forward(input);
-        transformer_lab::sum(
+        riftco_transformer::sum(
             output * Variable(output_weights, false)
         ).backward();
 
@@ -703,7 +703,7 @@ void test_invalid_dimensions_and_shapes() {
 }
 
 void test_module_device_transfer() {
-    const transformer_lab::ScopedExecutionBackend cpu_backend(
+    const riftco_transformer::ScopedExecutionBackend cpu_backend(
         ExecutionBackend::Cpu
     );
     std::mt19937 random(227U);
@@ -716,7 +716,7 @@ void test_module_device_transfer() {
         "transformer block CPU transfer"
     );
 
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;

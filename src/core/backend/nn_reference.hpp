@@ -2,7 +2,7 @@
 
 #include "adapter.hpp"
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 void nn_reference_unary_elementwise(
     const UnaryElementwiseRequest& request
@@ -44,4 +44,4 @@ void nn_reference_cross_entropy_forward(
     const CrossEntropyForwardRequest& request
 );
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

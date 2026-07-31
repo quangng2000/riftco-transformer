@@ -14,13 +14,13 @@ import sys
 import tempfile
 from typing import Iterator
 
-from transformer_lab._atomic_publish import publish_directory_no_replace
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab.data import (
+from riftco_transformer._atomic_publish import publish_directory_no_replace
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.data import (
     PreparedDataset,
     verify_prepared_dataset,
 )
-from transformer_lab.experiments import (
+from riftco_transformer.experiments import (
     LoraRankExperimentConfig,
     compare_lora_ranks,
     load_prepared_instruction_splits,
@@ -156,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--base",
         type=Path,
         required=True,
-        help="Pretrained .tlab model artifact.",
+        help="Pretrained .rift model artifact.",
     )
     parser.add_argument(
         "--data",
@@ -287,7 +287,7 @@ def main() -> int:
             )
             trial_entries: list[dict[str, object]] = []
             for trial in comparison.trials:
-                artifact_name = f"lora-rank-{trial.rank}.tlab"
+                artifact_name = f"lora-rank-{trial.rank}.rift"
                 trial.bundle.save(staging / artifact_name)
                 trial_entries.append(
                     {

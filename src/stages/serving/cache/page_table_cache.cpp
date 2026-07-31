@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace transformer_lab::stages::serving::cache_detail {
+namespace riftco_transformer::stages::serving::cache_detail {
 namespace {
 
 void require_token_tensor(
@@ -309,4 +309,4 @@ make_leased_page_table_cache(std::shared_ptr<PageStorage> storage) {
     );
 }
 
-}  // namespace transformer_lab::stages::serving::cache_detail
+}  // namespace riftco_transformer::stages::serving::cache_detail

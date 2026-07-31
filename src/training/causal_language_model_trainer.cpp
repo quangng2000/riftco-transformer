@@ -1,13 +1,13 @@
-#include "transformer_lab/training/causal_language_model_trainer.hpp"
+#include "riftco_transformer/training/causal_language_model_trainer.hpp"
 
-#include "transformer_lab/nn/loss.hpp"
+#include "riftco_transformer/nn/loss.hpp"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
 
-namespace transformer_lab::training {
+namespace riftco_transformer::training {
 namespace {
 
 ExecutionBackend model_backend(
@@ -204,4 +204,4 @@ void CausalLanguageModelTrainer::validate_batch(
     }
 }
 
-}  // namespace transformer_lab::training
+}  // namespace riftco_transformer::training

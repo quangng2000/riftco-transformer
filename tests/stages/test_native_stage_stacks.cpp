@@ -1,4 +1,4 @@
-#include "transformer_lab/stages/stages.hpp"
+#include "riftco_transformer/stages/stages.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -11,12 +11,12 @@
 
 namespace {
 
-namespace artifacts = transformer_lab::artifacts;
+namespace artifacts = riftco_transformer::artifacts;
 namespace post_training =
-    transformer_lab::stages::post_training;
+    riftco_transformer::stages::post_training;
 namespace pretraining =
-    transformer_lab::stages::pretraining;
-namespace serving = transformer_lab::stages::serving;
+    riftco_transformer::stages::pretraining;
+namespace serving = riftco_transformer::stages::serving;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -110,14 +110,14 @@ pretraining::PretrainingConfig tiny_pretraining_config() {
     config.block_count = 1;
     config.feed_forward_width = 8;
     config.tokenizer = {
-        transformer_lab::TokenizerMethod::BytePair,
+        riftco_transformer::TokenizerMethod::BytePair,
         260,
         2,
     };
     config.optimizer.learning_rate = 1.0e-2F;
     config.model_seed = 101;
     config.batch_seed = 103;
-    config.backend = transformer_lab::ExecutionBackend::Cpu;
+    config.backend = riftco_transformer::ExecutionBackend::Cpu;
     return config;
 }
 
@@ -129,21 +129,21 @@ void test_pretraining_post_training_and_serving_handoff() {
         "attention mixes useful context.";
     auto pretrain_config = tiny_pretraining_config();
     pretrain_config.attention =
-        transformer_lab::FullSequenceAttentionKind::Flash;
+        riftco_transformer::FullSequenceAttentionKind::Flash;
     pretrain_config.activation_checkpointing =
-        transformer_lab::ActivationCheckpointingKind::TransformerBlock;
+        riftco_transformer::ActivationCheckpointingKind::TransformerBlock;
     pretraining::PretrainingStack pretrain(
         corpus,
         pretrain_config
     );
     require(
         pretrain.model().full_sequence_attention_kind() ==
-            transformer_lab::FullSequenceAttentionKind::Flash,
+            riftco_transformer::FullSequenceAttentionKind::Flash,
         "pretraining should compose the selected Flash attention"
     );
     require(
         pretrain.model().activation_checkpointing_kind() ==
-            transformer_lab::ActivationCheckpointingKind::
+            riftco_transformer::ActivationCheckpointingKind::
                 TransformerBlock,
         "pretraining should compose block activation checkpointing"
     );
@@ -160,7 +160,7 @@ void test_pretraining_post_training_and_serving_handoff() {
 
     std::vector<std::size_t> reported_steps;
     pretraining::PretrainingResult pretrained = pretrain.run(
-        [&](const transformer_lab::training::TrainingStepMetrics& metric) {
+        [&](const riftco_transformer::training::TrainingStepMetrics& metric) {
             reported_steps.push_back(metric.step);
         }
     );
@@ -185,7 +185,7 @@ void test_pretraining_post_training_and_serving_handoff() {
     );
     require(
         pretrained.snapshot.tokenizer.method ==
-            transformer_lab::TokenizerMethod::BytePair,
+            riftco_transformer::TokenizerMethod::BytePair,
         "pretraining should emit exact tokenizer state"
     );
     require_throws<std::logic_error>(
@@ -202,11 +202,11 @@ void test_pretraining_post_training_and_serving_handoff() {
     post_config.batch_size = 1;
     post_config.optimizer.learning_rate = 5.0e-3F;
     post_config.batch_seed = 107;
-    post_config.backend = transformer_lab::ExecutionBackend::Cpu;
+    post_config.backend = riftco_transformer::ExecutionBackend::Cpu;
     post_config.attention =
-        transformer_lab::FullSequenceAttentionKind::Flash;
+        riftco_transformer::FullSequenceAttentionKind::Flash;
     post_config.activation_checkpointing =
-        transformer_lab::ActivationCheckpointingKind::TransformerBlock;
+        riftco_transformer::ActivationCheckpointingKind::TransformerBlock;
     post_training::PostTrainingStack post_train(
         pretrained.snapshot,
         {
@@ -224,12 +224,12 @@ void test_pretraining_post_training_and_serving_handoff() {
     );
     require(
         post_train.model().full_sequence_attention_kind() ==
-            transformer_lab::FullSequenceAttentionKind::Flash,
+            riftco_transformer::FullSequenceAttentionKind::Flash,
         "post-training should compose the selected Flash attention"
     );
     require(
         post_train.model().activation_checkpointing_kind() ==
-            transformer_lab::ActivationCheckpointingKind::
+            riftco_transformer::ActivationCheckpointingKind::
                 TransformerBlock,
         "post-training should compose block activation checkpointing"
     );
@@ -259,7 +259,7 @@ void test_pretraining_post_training_and_serving_handoff() {
 
     serving::ServingConfig serving_config;
     serving_config.backend =
-        transformer_lab::ExecutionBackend::Cpu;
+        riftco_transformer::ExecutionBackend::Cpu;
     serving_config.maximum_new_tokens = 2;
     serving::ServingStack service(
         tuned.snapshot,
@@ -360,16 +360,16 @@ void test_lora_post_training_merges_serving_ready_snapshot() {
     post_config.batch_size = 1;
     post_config.optimizer.learning_rate = 1.0e-2F;
     post_config.batch_seed = 109;
-    post_config.backend = transformer_lab::ExecutionBackend::Cpu;
+    post_config.backend = riftco_transformer::ExecutionBackend::Cpu;
     post_config.fine_tuning_method =
         post_training::FineTuningMethod::Lora;
     post_config.activation_checkpointing =
-        transformer_lab::ActivationCheckpointingKind::TransformerBlock;
+        riftco_transformer::ActivationCheckpointingKind::TransformerBlock;
     post_config.lora = {
         2,
         4.0F,
         113U,
-        transformer_lab::kLoraDefaultTargets,
+        riftco_transformer::kLoraDefaultTargets,
     };
 
     post_training::PostTrainingStack post_train(

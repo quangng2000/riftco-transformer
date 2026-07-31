@@ -1,6 +1,6 @@
-#include "transformer_lab/artifacts/state.hpp"
+#include "riftco_transformer/artifacts/state.hpp"
 
-#include "transformer_lab/nn/parameter.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab::artifacts {
+namespace riftco_transformer::artifacts {
 namespace {
 
 [[nodiscard]] bool same_dimensions(
@@ -278,4 +278,4 @@ ModelSnapshot capture_snapshot(
     };
 }
 
-}  // namespace transformer_lab::artifacts
+}  // namespace riftco_transformer::artifacts

@@ -1,6 +1,6 @@
-#include "transformer_lab/core/autograd.hpp"
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/autograd.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,10 +14,10 @@
 
 namespace {
 
-using transformer_lab::ExecutionBackend;
-using transformer_lab::Tensor;
-using transformer_lab::Variable;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::Tensor;
+using riftco_transformer::Variable;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -149,25 +149,25 @@ void test_cpu_metadata_and_default_selection(
         "CPU should be the default execution backend"
     );
     require(
-        transformer_lab::execution_backend_available(
+        riftco_transformer::execution_backend_available(
             ExecutionBackend::Cpu
         ),
         "CPU execution backend should always be available"
     );
     require(
-        transformer_lab::execution_backend_name(
+        riftco_transformer::execution_backend_name(
             ExecutionBackend::Cpu
         ) == std::string_view("cpu"),
         "CPU execution backend name"
     );
     require(
-        transformer_lab::execution_backend_name(
+        riftco_transformer::execution_backend_name(
             ExecutionBackend::Metal
         ) == std::string_view("metal"),
         "Metal execution backend name"
     );
     require(
-        transformer_lab::execution_backend() ==
+        riftco_transformer::execution_backend() ==
             ExecutionBackend::Cpu,
         "active backend should initially be CPU"
     );
@@ -224,30 +224,30 @@ void test_explicit_cpu_matmul() {
 void test_unknown_backend_is_rejected_transactionally() {
     constexpr auto unknown =
         static_cast<ExecutionBackend>(0xFF);
-    transformer_lab::set_execution_backend(
+    riftco_transformer::set_execution_backend(
         ExecutionBackend::Cpu
     );
 
     require(
-        !transformer_lab::execution_backend_available(unknown),
+        !riftco_transformer::execution_backend_available(unknown),
         "an unknown backend must not report available"
     );
     require_throws_as<std::invalid_argument>(
         [] {
             static_cast<void>(
-                transformer_lab::execution_backend_name(unknown)
+                riftco_transformer::execution_backend_name(unknown)
             );
         },
         "naming an unknown backend should throw invalid_argument"
     );
     require_throws_as<std::invalid_argument>(
         [] {
-            transformer_lab::set_execution_backend(unknown);
+            riftco_transformer::set_execution_backend(unknown);
         },
         "selecting an unknown backend should throw invalid_argument"
     );
     require(
-        transformer_lab::execution_backend() ==
+        riftco_transformer::execution_backend() ==
             ExecutionBackend::Cpu,
         "failed unknown selection should leave CPU active"
     );
@@ -264,31 +264,31 @@ void test_unknown_backend_is_rejected_transactionally() {
         "dispatching an unknown backend should throw invalid_argument"
     );
     require(
-        transformer_lab::execution_backend() ==
+        riftco_transformer::execution_backend() ==
             ExecutionBackend::Cpu,
         "failed explicit dispatch should not change selection"
     );
 }
 
 void test_selection_is_thread_local_if_metal_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
     }
 
-    transformer_lab::set_execution_backend(
+    riftco_transformer::set_execution_backend(
         ExecutionBackend::Metal
     );
     std::exception_ptr worker_failure;
     std::thread worker([&worker_failure] {
         try {
             require(
-                transformer_lab::execution_backend() ==
+                riftco_transformer::execution_backend() ==
                     ExecutionBackend::Cpu,
                 "a new thread should begin with the CPU default"
             );
-            transformer_lab::set_execution_backend(
+            riftco_transformer::set_execution_backend(
                 ExecutionBackend::Cpu
             );
         } catch (...) {
@@ -301,50 +301,50 @@ void test_selection_is_thread_local_if_metal_available() {
     }
 
     require(
-        transformer_lab::execution_backend() ==
+        riftco_transformer::execution_backend() ==
             ExecutionBackend::Metal,
         "worker selection must not change the caller's backend"
     );
-    transformer_lab::set_execution_backend(
+    riftco_transformer::set_execution_backend(
         ExecutionBackend::Cpu
     );
 }
 
 void test_scoped_selection_restores_previous_backend() {
-    transformer_lab::set_execution_backend(
+    riftco_transformer::set_execution_backend(
         ExecutionBackend::Cpu
     );
     {
-        const transformer_lab::ScopedExecutionBackend scope(
+        const riftco_transformer::ScopedExecutionBackend scope(
             ExecutionBackend::Cpu
         );
         require(
-            transformer_lab::execution_backend() ==
+            riftco_transformer::execution_backend() ==
                 ExecutionBackend::Cpu,
             "scoped CPU selection"
         );
     }
     require(
-        transformer_lab::execution_backend() ==
+        riftco_transformer::execution_backend() ==
             ExecutionBackend::Cpu,
         "scoped selection should restore CPU"
     );
 
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         {
-            const transformer_lab::ScopedExecutionBackend scope(
+            const riftco_transformer::ScopedExecutionBackend scope(
                 ExecutionBackend::Metal
             );
             require(
-                transformer_lab::execution_backend() ==
+                riftco_transformer::execution_backend() ==
                     ExecutionBackend::Metal,
                 "scoped Metal selection"
             );
         }
         require(
-            transformer_lab::execution_backend() ==
+            riftco_transformer::execution_backend() ==
                 ExecutionBackend::Cpu,
             "scoped Metal selection should restore CPU"
         );
@@ -361,11 +361,11 @@ AutogradSnapshot run_batched_autograd(
     ExecutionBackend backend,
     bool switch_to_cpu_before_backward
 ) {
-    transformer_lab::set_execution_backend(backend);
+    riftco_transformer::set_execution_backend(backend);
 
     const Variable left(batched_left());
     const Variable right(batched_right());
-    const Variable output = transformer_lab::matmul(left, right);
+    const Variable output = riftco_transformer::matmul(left, right);
     const Tensor seed(
         {2, 2, 2},
         {
@@ -377,7 +377,7 @@ AutogradSnapshot run_batched_autograd(
     );
 
     if (switch_to_cpu_before_backward) {
-        transformer_lab::set_execution_backend(
+        riftco_transformer::set_execution_backend(
             ExecutionBackend::Cpu
         );
     }
@@ -391,22 +391,22 @@ AutogradSnapshot run_batched_autograd(
 }
 
 bool test_metal_parity_if_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
-        transformer_lab::set_execution_backend(
+        riftco_transformer::set_execution_backend(
             ExecutionBackend::Cpu
         );
         require_throws_as<std::runtime_error>(
             [] {
-                transformer_lab::set_execution_backend(
+                riftco_transformer::set_execution_backend(
                     ExecutionBackend::Metal
                 );
             },
             "selecting an unavailable Metal backend should throw"
         );
         require(
-            transformer_lab::execution_backend() ==
+            riftco_transformer::execution_backend() ==
                 ExecutionBackend::Cpu,
             "failed Metal selection should leave CPU active"
         );
@@ -423,7 +423,7 @@ bool test_metal_parity_if_available() {
             "dispatching unavailable Metal should throw runtime_error"
         );
         require(
-            transformer_lab::execution_backend() ==
+            riftco_transformer::execution_backend() ==
                 ExecutionBackend::Cpu,
             "failed explicit Metal dispatch should leave CPU active"
         );
@@ -473,7 +473,7 @@ bool test_metal_parity_if_available() {
         metal_relative_tolerance
     );
 
-    transformer_lab::set_execution_backend(
+    riftco_transformer::set_execution_backend(
         ExecutionBackend::Metal
     );
     const Tensor cpu_executed_on_metal_storage =
@@ -493,7 +493,7 @@ bool test_metal_parity_if_available() {
         "explicit CPU matmul while Metal is selected"
     );
     require(
-        transformer_lab::execution_backend() ==
+        riftco_transformer::execution_backend() ==
             ExecutionBackend::Metal,
         "explicit dispatch must not change the selected backend"
     );
@@ -537,7 +537,7 @@ bool test_metal_parity_if_available() {
     const AutogradSnapshot switched_after_forward =
         run_batched_autograd(ExecutionBackend::Metal, true);
     require(
-        transformer_lab::execution_backend() ==
+        riftco_transformer::execution_backend() ==
             ExecutionBackend::Cpu,
         "capture test should switch the active backend to CPU"
     );
@@ -570,8 +570,8 @@ bool test_metal_parity_if_available() {
 
 int main() {
     const ExecutionBackend initial_backend =
-        transformer_lab::execution_backend();
-    const transformer_lab::ScopedExecutionBackend restore_backend(
+        riftco_transformer::execution_backend();
+    const riftco_transformer::ScopedExecutionBackend restore_backend(
         ExecutionBackend::Cpu
     );
     try {

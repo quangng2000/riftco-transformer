@@ -1,8 +1,8 @@
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/nn/loss.hpp"
-#include "transformer_lab/nn/parameter.hpp"
-#include "transformer_lab/optim/adam.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/nn/loss.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
+#include "riftco_transformer/optim/adam.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -21,19 +21,19 @@
 
 namespace {
 
-using transformer_lab::DecoderOnlyTransformer;
-using transformer_lab::DecoderKeyValueCache;
-using transformer_lab::ExecutionBackend;
-using transformer_lab::FullSequenceAttentionKind;
-using transformer_lab::ActivationCheckpointingKind;
-using transformer_lab::NamedParameter;
-using transformer_lab::Parameter;
-using transformer_lab::Tensor;
-using transformer_lab::TokenId;
-using transformer_lab::TransformerDimensions;
-using transformer_lab::Variable;
-using transformer_lab::cross_entropy;
-using transformer_lab::parameter_count;
+using riftco_transformer::DecoderOnlyTransformer;
+using riftco_transformer::DecoderKeyValueCache;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::FullSequenceAttentionKind;
+using riftco_transformer::ActivationCheckpointingKind;
+using riftco_transformer::NamedParameter;
+using riftco_transformer::Parameter;
+using riftco_transformer::Tensor;
+using riftco_transformer::TokenId;
+using riftco_transformer::TransformerDimensions;
+using riftco_transformer::Variable;
+using riftco_transformer::cross_entropy;
+using riftco_transformer::parameter_count;
 
 constexpr TransformerDimensions kDimensions{
     5,
@@ -51,7 +51,7 @@ void require(bool condition, const std::string& message) {
 }
 
 void require_parameter_backend(
-    const transformer_lab::ParameterList& parameters,
+    const riftco_transformer::ParameterList& parameters,
     ExecutionBackend backend,
     const std::string& message
 ) {
@@ -1020,7 +1020,7 @@ void test_full_sequence_attention_policy_and_parity() {
         );
     }
 
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         std::mt19937 metal_random(seed);
@@ -1204,10 +1204,10 @@ void test_activation_checkpointing_policy_graph_and_gradient_parity() {
             );
         }
 
-        transformer_lab::Adam regular_optimizer(
+        riftco_transformer::Adam regular_optimizer(
             regular_parameters
         );
-        transformer_lab::Adam checkpointed_optimizer(
+        riftco_transformer::Adam checkpointed_optimizer(
             checkpointed_parameters
         );
         static_cast<void>(regular_optimizer.step());
@@ -1252,11 +1252,11 @@ void test_activation_checkpointing_policy_graph_and_gradient_parity() {
 
 void test_activation_checkpointing_lora_and_metal_parity() {
     constexpr std::uint32_t seed = 281U;
-    const transformer_lab::LoraConfig lora{
+    const riftco_transformer::LoraConfig lora{
         1,
         2.0F,
         41U,
-        transformer_lab::kLoraDefaultTargets,
+        riftco_transformer::kLoraDefaultTargets,
     };
     const std::vector<TokenId> token_ids{0, 1, 2};
     const std::vector<TokenId> targets{1, 2, 3};
@@ -1311,7 +1311,7 @@ void test_activation_checkpointing_lora_and_metal_parity() {
         );
     }
 
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -1416,11 +1416,11 @@ void test_activation_checkpoint_graph_lifetime_and_decode_independence() {
         std::vector<TokenId>{1, 2, 3}
     );
     auto stale_parameters = stale_model.parameters();
-    stale_model.attach_lora(transformer_lab::LoraConfig{
+    stale_model.attach_lora(riftco_transformer::LoraConfig{
         1,
         2.0F,
         43U,
-        transformer_lab::kLoraDefaultTargets,
+        riftco_transformer::kLoraDefaultTargets,
     });
     require_throws(
         [&] { stale_loss.backward(); },
@@ -1758,11 +1758,11 @@ void test_incremental_decode_parity_and_validation() {
 void test_incremental_decode_abort_and_lora_parity() {
     std::mt19937 random(227U);
     DecoderOnlyTransformer model(kDimensions, random);
-    model.attach_lora(transformer_lab::LoraConfig{
+    model.attach_lora(riftco_transformer::LoraConfig{
         1,
         2.0F,
         37U,
-        transformer_lab::kLoraDefaultTargets,
+        riftco_transformer::kLoraDefaultTargets,
     });
     for (const auto& named_parameter :
          model.lora_parameters()) {
@@ -1817,7 +1817,7 @@ void test_incremental_decode_abort_and_lora_parity() {
 }
 
 void test_model_device_transfer_and_forward() {
-    const transformer_lab::ScopedExecutionBackend cpu_backend(
+    const riftco_transformer::ScopedExecutionBackend cpu_backend(
         ExecutionBackend::Cpu
     );
     std::mt19937 random(229U);
@@ -1840,7 +1840,7 @@ void test_model_device_transfer_and_forward() {
         "decoder-only transformer CPU transfer"
     );
 
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;

@@ -4,8 +4,8 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "riftco-transformer"
-version = "0.1.0"
-description = "Dependency-free staged Python client for transformer_lab"
+version = "0.2.0"
+description = "Dependency-free staged Python and C++ Transformer framework"
 readme = "python/README.md"
 requires-python = ">=3.10"
 dependencies = []
@@ -38,12 +38,12 @@ sdist.exclude = [
 ]
 sdist.reproducible = true
 wheel.exclude = ["**/__pycache__/**", "**/*.pyc"]
-wheel.packages = ["python/transformer_lab"]
+wheel.packages = ["python/riftco_transformer"]
 wheel.py-api = "py3"
 wheel.reproducible = true
 
 [tool.scikit-build.cmake.define]
 BUILD_TESTING = "OFF"
-TRANSFORMER_LAB_BUILD_CLI = "OFF"
-TRANSFORMER_LAB_BUILD_PYTHON_WHEEL = "ON"
-TRANSFORMER_LAB_BUILD_TESTS = "OFF"
+RIFTCO_TRANSFORMER_BUILD_CLI = "OFF"
+RIFTCO_TRANSFORMER_BUILD_PYTHON_WHEEL = "ON"
+RIFTCO_TRANSFORMER_BUILD_TESTS = "OFF"

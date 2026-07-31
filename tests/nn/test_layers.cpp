@@ -1,10 +1,10 @@
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/nn/embedding.hpp"
-#include "transformer_lab/model/feed_forward.hpp"
-#include "transformer_lab/nn/layer_norm.hpp"
-#include "transformer_lab/nn/linear.hpp"
-#include "transformer_lab/nn/parameter.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/nn/embedding.hpp"
+#include "riftco_transformer/model/feed_forward.hpp"
+#include "riftco_transformer/nn/layer_norm.hpp"
+#include "riftco_transformer/nn/linear.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <cmath>
 #include <exception>
@@ -20,20 +20,20 @@
 
 namespace {
 
-using transformer_lab::Embedding;
-using transformer_lab::ExecutionBackend;
-using transformer_lab::FeedForward;
-using transformer_lab::LayerNorm;
-using transformer_lab::Linear;
-using transformer_lab::Parameter;
-using transformer_lab::Tensor;
-using transformer_lab::TokenId;
-using transformer_lab::Variable;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::Embedding;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::FeedForward;
+using riftco_transformer::LayerNorm;
+using riftco_transformer::Linear;
+using riftco_transformer::Parameter;
+using riftco_transformer::Tensor;
+using riftco_transformer::TokenId;
+using riftco_transformer::Variable;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
 static_assert(!std::is_assignable_v<
               decltype((std::declval<
-                  transformer_lab::NamedParameter&>().parameter)),
+                  riftco_transformer::NamedParameter&>().parameter)),
               Parameter*>);
 
 void require(bool condition, const std::string& message) {
@@ -107,7 +107,7 @@ void require_finite_tensor(
 }
 
 void require_parameter_backend(
-    const transformer_lab::ParameterList& parameters,
+    const riftco_transformer::ParameterList& parameters,
     ExecutionBackend backend,
     const std::string& message
 ) {
@@ -130,7 +130,7 @@ void require_parameter_backend(
 
 void test_parameter_and_registration() {
     Parameter parameter(Tensor({2}, {1.0F, 2.0F}));
-    transformer_lab::sum(
+    riftco_transformer::sum(
         parameter.variable() * parameter.variable()
     ).backward();
     require_tensor_close(
@@ -158,20 +158,20 @@ void test_parameter_and_registration() {
         "parameter replacement should preserve shape"
     );
 
-    transformer_lab::ParameterList list{
+    riftco_transformer::ParameterList list{
         {"example", &parameter},
     };
     require(
-        transformer_lab::parameter_count(list) == 2,
+        riftco_transformer::parameter_count(list) == 2,
         "parameter count mismatch"
     );
     require_throws(
         [] {
-            const transformer_lab::ParameterList invalid{
+            const riftco_transformer::ParameterList invalid{
                 {"missing", nullptr},
             };
             static_cast<void>(
-                transformer_lab::parameter_count(invalid)
+                riftco_transformer::parameter_count(invalid)
             );
         },
         "null registered parameter should throw"
@@ -179,12 +179,12 @@ void test_parameter_and_registration() {
 }
 
 void test_parameter_handle_lifetime_move_and_identity() {
-    transformer_lab::ParameterList retained;
+    riftco_transformer::ParameterList retained;
     Parameter* canonical_parameter = nullptr;
     {
         Parameter original(Tensor({2}, {1.0F, 2.0F}));
         retained = {{"value", &original}};
-        const transformer_lab::ParameterList copied = retained;
+        const riftco_transformer::ParameterList copied = retained;
         canonical_parameter = retained.front().parameter;
         require(
             canonical_parameter != nullptr &&
@@ -193,7 +193,7 @@ void test_parameter_handle_lifetime_move_and_identity() {
         );
 
         Parameter moved(std::move(original));
-        const transformer_lab::ParameterList after_move{
+        const riftco_transformer::ParameterList after_move{
             {"value", &moved},
         };
         require(
@@ -209,7 +209,7 @@ void test_parameter_handle_lifetime_move_and_identity() {
         );
 
         Parameter rebound(Tensor({1}, 9.0F));
-        const transformer_lab::ParameterList rebound_state{
+        const riftco_transformer::ParameterList rebound_state{
             {"old", &rebound},
         };
         rebound = std::move(moved);
@@ -252,7 +252,7 @@ void test_parameter_handle_lifetime_move_and_identity() {
         "rejected canonical rebind preserves retained state"
     );
 
-    transformer_lab::ParameterList module_parameters;
+    riftco_transformer::ParameterList module_parameters;
     Parameter* module_identity = nullptr;
     {
         Embedding embedding(
@@ -418,7 +418,7 @@ void test_linear_finite_differences() {
 
     Linear linear(weight_values, bias_values);
     const Variable input(input_values);
-    const Variable loss = transformer_lab::sum(
+    const Variable loss = riftco_transformer::sum(
         linear.forward(input) * Variable(output_weights, false)
     );
     loss.backward();
@@ -528,7 +528,7 @@ void test_initialization_and_feed_forward() {
         output.value().shape() == Tensor::Shape({2, 2, 3}),
         "feed-forward should preserve model shape"
     );
-    transformer_lab::sum(
+    riftco_transformer::sum(
         output * Variable(output_weights, false)
     ).backward();
     require_finite_tensor(
@@ -558,7 +558,7 @@ void test_initialization_and_feed_forward() {
         "feed-forward registration names"
     );
     require(
-        transformer_lab::parameter_count(parameters) == 38,
+        riftco_transformer::parameter_count(parameters) == 38,
         "feed-forward scalar parameter count"
     );
 
@@ -626,7 +626,7 @@ void test_initialization_and_feed_forward() {
 }
 
 void test_module_device_transfer() {
-    const transformer_lab::ScopedExecutionBackend cpu_backend(
+    const riftco_transformer::ScopedExecutionBackend cpu_backend(
         ExecutionBackend::Cpu
     );
     std::mt19937 random(211U);
@@ -644,7 +644,7 @@ void test_module_device_transfer() {
                 name + " CPU transfer"
             );
 
-            if (!transformer_lab::execution_backend_available(
+            if (!riftco_transformer::execution_backend_available(
                     ExecutionBackend::Metal
                 )) {
                 return;

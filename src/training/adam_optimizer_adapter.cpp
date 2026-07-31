@@ -1,6 +1,6 @@
-#include "transformer_lab/training/adam_optimizer_adapter.hpp"
+#include "riftco_transformer/training/adam_optimizer_adapter.hpp"
 
-namespace transformer_lab::training {
+namespace riftco_transformer::training {
 
 AdamOptimizerAdapter::AdamOptimizerAdapter(Adam& adam) noexcept
     : adam_(adam) {}
@@ -34,4 +34,4 @@ const Adam& AdamOptimizerAdapter::adam() const noexcept {
     return adam_;
 }
 
-}  // namespace transformer_lab::training
+}  // namespace riftco_transformer::training

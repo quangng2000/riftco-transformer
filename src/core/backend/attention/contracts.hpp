@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <span>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 // Baseline full-sequence training/autograd attention. This contract
 // deliberately exposes its materialized probability tensor; the sibling
@@ -105,4 +105,4 @@ struct PagedDecodeAttentionForwardRequest {
     PagedDecodeAttentionDimensions dimensions;
 };
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

@@ -1,4 +1,4 @@
-#include "transformer_lab/core/backend.hpp"
+#include "riftco_transformer/core/backend.hpp"
 
 #include "adapter.hpp"
 
@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 thread_local ExecutionBackend active_backend =
@@ -1026,4 +1026,4 @@ void dispatch_adam_update(
 }
 
 }  // namespace backend_detail
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

@@ -98,17 +98,17 @@ stable C ABI method value, and expose the corresponding Python option. Model,
 batch, loss, and optimizer code continue to consume ordinary token IDs and do
 not depend on the tokenization algorithm.
 
-The method values in C ABI 1.3 are stable fixed-width integers:
+The method values in C ABI 2.0 are stable fixed-width integers:
 
 ```text
-TL_TOKENIZER_METHOD_BYTE = 0
-TL_TOKENIZER_METHOD_BPE  = 1
+RT_TOKENIZER_METHOD_BYTE = 0
+RT_TOKENIZER_METHOD_BPE  = 1
 ```
 
 ## Python API
 
 ```python
-from transformer_lab import Tokenizer
+from riftco_transformer import Tokenizer
 
 corpus = "hello transformer, hello tokenizer"
 
@@ -142,7 +142,7 @@ including embedded NUL bytes. `vocabulary` returns a `tuple[bytes, ...]` for
 either strategy. The older `vocabulary_bytes` property is retained for byte
 mode; BPE callers use `vocabulary` because its pieces have variable lengths.
 
-These wrappers use C ABI 1.4's size-query and state-restoration functions.
+These wrappers use C ABI 2.0's size-query and state-restoration functions.
 Variable-length results
 are validated before being copied, and a changed result size between the query
 and copy passes is treated as an error.

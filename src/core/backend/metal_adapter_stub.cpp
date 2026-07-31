@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 [[noreturn]] void throw_metal_unavailable() {
@@ -194,4 +194,4 @@ MetalAdamPathCounts metal_adam_path_counts() noexcept {
     return {0, 0};
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

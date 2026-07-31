@@ -1,11 +1,11 @@
 #pragma once
 
-namespace transformer_lab::backend_detail::attention_metal_detail {
+namespace riftco_transformer::backend_detail::attention_metal_detail {
 
 // Baseline full-sequence attention with an explicit [B,H,T,T] probability
 // tensor. FlashAttention is a separate source fragment and contract.
 inline constexpr char kMaterializedCausalAttentionKernelSource[] = R"METAL(
-kernel void tl_materialized_causal_attention_probabilities(
+kernel void rt_materialized_causal_attention_probabilities(
     device const float* queries [[buffer(0)]],
     device const float* keys [[buffer(1)]],
     device float* probabilities [[buffer(2)]],
@@ -51,7 +51,7 @@ kernel void tl_materialized_causal_attention_probabilities(
         probabilities[probability_base + key] = 0.0f;
     }
     if (!valid || maximum == -INFINITY) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         for (ulong key = 0; key <= query; ++key) {
             probabilities[probability_base + key] = 0.0f;
         }
@@ -60,7 +60,7 @@ kernel void tl_materialized_causal_attention_probabilities(
     float denominator_sum = 0.0f;
     float denominator_correction = 0.0f;
     for (ulong key = 0; key <= query; ++key) {
-        tl_compensated_add(
+        rt_compensated_add(
             exp(
                 probabilities[probability_base + key] -
                 maximum
@@ -72,7 +72,7 @@ kernel void tl_materialized_causal_attention_probabilities(
     const float denominator =
         denominator_sum + denominator_correction;
     if (!(denominator > 0.0f) || !isfinite(denominator)) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         return;
     }
     for (ulong key = 0; key <= query; ++key) {
@@ -85,7 +85,7 @@ kernel void tl_materialized_causal_attention_probabilities(
     }
 }
 
-kernel void tl_materialized_causal_attention_context(
+kernel void rt_materialized_causal_attention_context(
     device const float* probabilities [[buffer(0)]],
     device const float* values [[buffer(1)]],
     device float* context [[buffer(2)]],
@@ -111,7 +111,7 @@ kernel void tl_materialized_causal_attention_context(
     context[context_index] = total;
 }
 
-kernel void tl_materialized_causal_attention_context_score_backward(
+kernel void rt_materialized_causal_attention_context_score_backward(
     device const float* probabilities [[buffer(0)]],
     device const float* values [[buffer(1)]],
     device const float* upstream_context [[buffer(2)]],
@@ -147,7 +147,7 @@ kernel void tl_materialized_causal_attention_context_score_backward(
         }
         score_gradient[probability_base + key] =
             probability_gradient;
-        tl_compensated_add(
+        rt_compensated_add(
             probabilities[probability_base + key] *
                 probability_gradient,
             probability_dot_sum,
@@ -170,7 +170,7 @@ kernel void tl_materialized_causal_attention_context_score_backward(
     }
 }
 
-kernel void tl_materialized_causal_attention_probability_score_backward(
+kernel void rt_materialized_causal_attention_probability_score_backward(
     device const float* probabilities [[buffer(0)]],
     device const float* upstream_probabilities [[buffer(1)]],
     device float* score_gradient [[buffer(2)]],
@@ -187,7 +187,7 @@ kernel void tl_materialized_causal_attention_probability_score_backward(
     float dot_sum = 0.0f;
     float dot_correction = 0.0f;
     for (ulong key = 0; key <= query; ++key) {
-        tl_compensated_add(
+        rt_compensated_add(
             probabilities[base + key] *
                 upstream_probabilities[base + key],
             dot_sum,
@@ -205,7 +205,7 @@ kernel void tl_materialized_causal_attention_probability_score_backward(
     }
 }
 
-kernel void tl_materialized_causal_attention_query_backward(
+kernel void rt_materialized_causal_attention_query_backward(
     device const float* keys [[buffer(0)]],
     device const float* score_gradient [[buffer(1)]],
     device float* query_gradient [[buffer(2)]],
@@ -231,7 +231,7 @@ kernel void tl_materialized_causal_attention_query_backward(
     query_gradient[output_index] = total;
 }
 
-kernel void tl_materialized_causal_attention_key_backward(
+kernel void rt_materialized_causal_attention_key_backward(
     device const float* queries [[buffer(0)]],
     device const float* score_gradient [[buffer(1)]],
     device float* key_gradient [[buffer(2)]],
@@ -258,7 +258,7 @@ kernel void tl_materialized_causal_attention_key_backward(
     key_gradient[output_index] = total;
 }
 
-kernel void tl_materialized_causal_attention_value_backward(
+kernel void rt_materialized_causal_attention_value_backward(
     device const float* probabilities [[buffer(0)]],
     device const float* upstream_context [[buffer(1)]],
     device float* value_gradient [[buffer(2)]],
@@ -285,4 +285,4 @@ kernel void tl_materialized_causal_attention_value_backward(
 }
 )METAL";
 
-}  // namespace transformer_lab::backend_detail::attention_metal_detail
+}  // namespace riftco_transformer::backend_detail::attention_metal_detail

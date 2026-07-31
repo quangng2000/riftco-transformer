@@ -11,7 +11,10 @@ LoRA, save portable artifacts, and serve through paged attention.
 
 | Install | Import | Third-party Python dependencies |
 | --- | --- | --- |
-| `riftco-transformer` | `transformer_lab` | None |
+| `riftco-transformer` | `riftco_transformer` | None |
+
+This breaking rename exposes only the `riftco_transformer` Python package;
+no legacy package-name alias is installed.
 
 ## Architecture
 
@@ -26,13 +29,13 @@ flowchart LR
         Adam -->|update| Model
     end
 
-    Model --> Base[("Base .tlab<br/>ModelBundle")]
+    Model --> Base[("Base .rift<br/>ModelBundle")]
     Tokens -->|tokenizer state| Base
 
     subgraph T["2 · Post-training"]
         Base --> Tune["Full fine-tuning<br/>or LoRA"]
         Instructions["Prompt / response<br/>JSONL"] --> Tune
-        Tune -->|capture; merge LoRA first| Child[("Child .tlab<br/>ModelBundle")]
+        Tune -->|capture; merge LoRA first| Child[("Child .rift<br/>ModelBundle")]
     end
 
     subgraph S["3 · Serving"]
@@ -59,7 +62,7 @@ sequenceDiagram
     participant T as Tokenizer
     participant M as Transformer
     participant O as Autograd + Adam
-    participant A as .tlab artifact
+    participant A as .rift artifact
     participant S as Serving
     participant U as User
 
@@ -96,7 +99,7 @@ sequenceDiagram
 
 ```bash
 python3 -m pip install riftco-transformer
-python3 -c "from transformer_lab import Context; print(Context().backend)"
+python3 -c "from riftco_transformer import Context; print(Context().backend)"
 ```
 
 Python 3.10+ is supported on Linux, macOS, and Windows. Released wheels include
@@ -124,7 +127,7 @@ Source builds require CMake 3.24+, Ninja, and a C++20 compiler.
 ## One training step
 
 ```python
-from transformer_lab import (
+from riftco_transformer import (
     Adam,
     DecoderOnlyTransformer,
     Tokenizer,
@@ -175,13 +178,13 @@ python3 examples/python/post_train_stage.py \
 python3 examples/python/serve_stage.py --backend cpu
 ```
 
-Open `http://127.0.0.1:8000/`. The stages exchange immutable `.tlab` bundles in
+Open `http://127.0.0.1:8000/`. The stages exchange immutable `.rift` bundles in
 `results/stages/`; serving uses a paged KV cache by default.
 
 ## Native trainer
 
 ```bash
-./build/debug/transformer_lab \
+./build/debug/riftco-transformer \
   --config configs/tiny.conf \
   --steps 20 \
   --backend cpu \
@@ -206,13 +209,13 @@ Open `http://127.0.0.1:8000/`. The stages exchange immutable `.tlab` bundles in
 ## CMake consumers
 
 ```cmake
-find_package(transformer_lab 0.1 CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE transformer_lab::library)
+find_package(riftco_transformer 0.2 CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE riftco_transformer::library)
 ```
 
 Install Riftco Transformer first, then configure the consuming project with
 `-DCMAKE_PREFIX_PATH=/path/to/riftco-transformer/install`. The public C API is
-`transformer_lab::c_api`. See
+`riftco_transformer::c_api`. See
 [CPU, Metal, and Python](docs/BACKENDS_AND_PYTHON.md) for the stable ABI and
 backend boundary.
 

@@ -14,35 +14,35 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import zipfile
 
-from transformer_lab import (
+from riftco_transformer import (
     DecoderOnlyTransformer,
     LoraConfig,
     Tokenizer,
     TransformerConfig,
 )
-from transformer_lab.artifacts import (
+from riftco_transformer.artifacts import (
     MANIFEST_NAME,
     WEIGHTS_NAME,
     ModelBundle,
 )
-from transformer_lab.post_training import (
+from riftco_transformer.post_training import (
     FULL_SEQUENCE_OBJECTIVE,
     InstructionExample,
     PlainChatFormatter,
     PostTrainingConfig,
     post_train,
 )
-from transformer_lab.pretraining import (
+from riftco_transformer.pretraining import (
     PretrainingConfig,
     pretrain_files,
     pretrain_splits,
     pretrain_text,
 )
-from transformer_lab.serving import (
+from riftco_transformer.serving import (
     ServingConfig,
     create_http_server,
 )
-from transformer_lab.training import (
+from riftco_transformer.training import (
     ExampleWindowBatchSource,
     RandomWindowBatchSource,
     SequenceWindowBatchSource,
@@ -157,15 +157,15 @@ class ArtifactTests(unittest.TestCase):
     def test_artifact_handoff_to_fresh_process_generates_json(self) -> None:
         bundle = make_tiny_bundle()
         environment = os.environ.copy()
-        self.assertIn("TRANSFORMER_LAB_LIBRARY", environment)
+        self.assertIn("RIFTCO_TRANSFORMER_LIBRARY", environment)
         self.assertIn("PYTHONPATH", environment)
         child_program = """
 import json
 from pathlib import Path
 import sys
 
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab.serving import ModelService, ServingConfig
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.serving import ModelService, ServingConfig
 
 bundle = ModelBundle.load(Path(sys.argv[1]))
 with ModelService(
@@ -194,7 +194,7 @@ with ModelService(
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            artifact_path = bundle.save(root / "handoff.tlab")
+            artifact_path = bundle.save(root / "handoff.rift")
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -248,7 +248,7 @@ with ModelService(
         self.assertEqual(bundle.tokenizer.method, "bpe")
         self.assertEqual(len(bundle.tokenizer.merge_rules), 1)
         with tempfile.TemporaryDirectory() as directory:
-            artifact_path = bundle.save(Path(directory) / "bpe.tlab")
+            artifact_path = bundle.save(Path(directory) / "bpe.rift")
             loaded = ModelBundle.load(artifact_path)
         with loaded.instantiate("cpu") as runtime:
             self.assertEqual(runtime.tokenizer.method, "bpe")
@@ -263,8 +263,8 @@ with ModelService(
         bundle = make_tiny_bundle()
 
         with tempfile.TemporaryDirectory() as directory:
-            first_path = Path(directory) / "first.tlab"
-            second_path = Path(directory) / "second.tlab"
+            first_path = Path(directory) / "first.rift"
+            second_path = Path(directory) / "second.rift"
             bundle.save(first_path)
             loaded = ModelBundle.load(first_path)
             loaded.save(second_path)
@@ -305,14 +305,14 @@ with ModelService(
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            valid_path = bundle.save(root / "valid.tlab")
+            valid_path = bundle.save(root / "valid.rift")
             with zipfile.ZipFile(valid_path, mode="r") as archive:
                 manifest = archive.read(MANIFEST_NAME)
                 weights = archive.read(WEIGHTS_NAME)
 
             corrupted_weights = bytearray(weights)
             corrupted_weights[-1] ^= 0x01
-            bad_weights_path = root / "bad-weights.tlab"
+            bad_weights_path = root / "bad-weights.rift"
             write_bundle_parts(
                 bad_weights_path,
                 manifest,
@@ -323,7 +323,7 @@ with ModelService(
 
             manifest_value = json.loads(manifest)
             manifest_value["artifact_id"] = "0" * 64
-            bad_manifest_path = root / "bad-manifest.tlab"
+            bad_manifest_path = root / "bad-manifest.rift"
             write_bundle_parts(
                 bad_manifest_path,
                 json.dumps(
@@ -336,7 +336,7 @@ with ModelService(
             with self.assertRaisesRegex(ValueError, "artifact ID"):
                 ModelBundle.load(bad_manifest_path)
 
-            invalid_zip_path = root / "not-a-bundle.tlab"
+            invalid_zip_path = root / "not-a-bundle.rift"
             invalid_zip_path.write_bytes(b"not a zip artifact")
             with self.assertRaisesRegex(ValueError, "valid ZIP"):
                 ModelBundle.load(invalid_zip_path)
@@ -696,7 +696,7 @@ class PipelineStageTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             artifact_path = post_training.bundle.save(
-                Path(directory) / "assistant.tlab"
+                Path(directory) / "assistant.rift"
             )
             reloaded = ModelBundle.load(artifact_path)
         self.assertEqual(

@@ -28,7 +28,7 @@ belong to the training loop described in [TRAINING.md](TRAINING.md).
 The optimizer is declared in:
 
 ```text
-include/transformer_lab/optim/adam.hpp
+include/riftco_transformer/optim/adam.hpp
 ```
 
 `AdamOptions` contains:
@@ -44,14 +44,14 @@ include/transformer_lab/optim/adam.hpp
 A typical caller constructs the optimizer from the model's named parameters:
 
 ```cpp
-transformer_lab::AdamOptions options;
+riftco_transformer::AdamOptions options;
 options.learning_rate = config.learning_rate;
 options.beta1 = config.adam_beta1;
 options.beta2 = config.adam_beta2;
 options.epsilon = config.adam_epsilon;
 options.maximum_gradient_norm = config.gradient_clip;
 
-transformer_lab::Adam optimizer(model.parameters(), options);
+riftco_transformer::Adam optimizer(model.parameters(), options);
 ```
 
 The optimizer copies the `ParameterList`. Each `NamedParameter` owns a

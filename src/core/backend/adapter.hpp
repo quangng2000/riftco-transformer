@@ -3,7 +3,7 @@
 #include "core/backend/attention/capability.hpp"
 #include "core/backend/attention/dispatch.hpp"
 #include "storage.hpp"
-#include "transformer_lab/core/backend.hpp"
+#include "riftco_transformer/core/backend.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 struct MatmulDimensions {
     std::size_t batch_count;
@@ -479,4 +479,4 @@ void dispatch_adam_update(
     const AdamUpdateRequest& request
 );
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

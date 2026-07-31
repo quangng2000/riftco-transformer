@@ -1,4 +1,4 @@
-#include "transformer_lab/stages/serving/kv_cache.hpp"
+#include "riftco_transformer/stages/serving/kv_cache.hpp"
 
 #include "stages/serving/cache/detail/page_storage.hpp"
 #include "stages/serving/cache/detail/page_table_cache.hpp"
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-namespace transformer_lab::stages::serving {
+namespace riftco_transformer::stages::serving {
 
 struct ContiguousKvCacheFactory::Implementation {
     TransformerDimensions dimensions;
@@ -51,4 +51,4 @@ ContiguousKvCacheFactory::create() const {
     );
 }
 
-}  // namespace transformer_lab::stages::serving
+}  // namespace riftco_transformer::stages::serving

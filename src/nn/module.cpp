@@ -1,4 +1,4 @@
-#include "transformer_lab/nn/module.hpp"
+#include "riftco_transformer/nn/module.hpp"
 
 #include <limits>
 #include <stdexcept>
@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 struct RegisteredStructure {
@@ -346,4 +346,4 @@ bool ModuleList::empty() const noexcept {
     return modules_.empty();
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

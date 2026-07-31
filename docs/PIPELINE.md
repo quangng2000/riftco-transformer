@@ -21,7 +21,7 @@ UTF-8 corpus
 ```
 
 The composition roots live below
-`include/transformer_lab/stages/{pretraining,post_training,serving}` with
+`include/riftco_transformer/stages/{pretraining,post_training,serving}` with
 matching implementations below `src/stages/`.
 
 ### Pretraining
@@ -32,7 +32,7 @@ source for one run. It returns metrics and a `ModelSnapshot` after performing
 the repeated forward → cross-entropy → backward → global clipping → Adam
 transaction.
 
-The `transformer_lab` command-line executable, whose source is
+The `riftco-transformer` command-line executable, whose source is
 `apps/pretraining/train.cpp`, now constructs this stack rather than assembling
 the training loop itself. It can write CSV metrics, but its snapshot remains
 in memory and disappears when the process exits.
@@ -107,15 +107,15 @@ and the three native composition paths.
 This example keeps both snapshots in one process:
 
 ```cpp
-#include "transformer_lab/stages/stages.hpp"
+#include "riftco_transformer/stages/stages.hpp"
 
 #include <iostream>
 #include <string>
 #include <vector>
 
-namespace pre = transformer_lab::stages::pretraining;
-namespace post = transformer_lab::stages::post_training;
-namespace serve = transformer_lab::stages::serving;
+namespace pre = riftco_transformer::stages::pretraining;
+namespace post = riftco_transformer::stages::post_training;
+namespace serve = riftco_transformer::stages::serving;
 
 int main() {
     pre::PretrainingConfig pre_config;
@@ -127,9 +127,9 @@ int main() {
     pre_config.block_count = 1;
     pre_config.feed_forward_width = 8;
     pre_config.attention =
-        transformer_lab::FullSequenceAttentionKind::Flash;
+        riftco_transformer::FullSequenceAttentionKind::Flash;
     pre_config.tokenizer = {
-        transformer_lab::TokenizerMethod::BytePair,
+        riftco_transformer::TokenizerMethod::BytePair,
         260,
         2,
     };
@@ -145,7 +145,7 @@ int main() {
     post_config.context_size = 3;
     post_config.batch_size = 1;
     post_config.attention =
-        transformer_lab::FullSequenceAttentionKind::Flash;
+        riftco_transformer::FullSequenceAttentionKind::Flash;
     post_config.fine_tuning_method = post::FineTuningMethod::Lora;
     post_config.lora.rank = 2;
     post_config.lora.alpha = 4.0F;
@@ -209,7 +209,7 @@ read-only result passed to the next Python stage or to serving.
 
 ### External dataset preparation
 
-`python/transformer_lab/data` is an input-boundary package, not part of the
+`python/riftco_transformer/data` is an input-boundary package, not part of the
 training engine. It uses the standard-library `urllib` and `json` modules to
 read bounded slices from Hugging Face's official Dataset Viewer API. Dataset
 adapters and serializers convert three audited presets:
@@ -275,7 +275,9 @@ post-training, and serving. Saving it creates a versioned ZIP artifact
 containing exactly `manifest.json` and `weights.f32le`. Loading validates the
 format version, tokenizer/model compatibility, parameter identities and
 shapes, byte count, weight checksum, and artifact ID before a live model is
-created.
+created. The manifest's canonical format identifier is
+`riftco-transformer-model-bundle`, and persisted bundles use the `.rift`
+extension.
 
 Post-training never mutates its input bundle. It instantiates a live copy,
 trains that copy, and captures a new child bundle whose
@@ -323,8 +325,8 @@ training. Selecting `"lora"` and supplying a native `LoraConfig` restricts
 Adam to adapter parameters:
 
 ```python
-from transformer_lab import LoraConfig
-from transformer_lab.post_training import PostTrainingConfig
+from riftco_transformer import LoraConfig
+from riftco_transformer.post_training import PostTrainingConfig
 
 config = PostTrainingConfig(
     attention="flash",
@@ -352,7 +354,7 @@ loss commonly used by production post-training systems.
 
 ### Controlled LoRA-rank selection
 
-`python/transformer_lab/experiments` adds a reproducible rank sweep above the
+`python/riftco_transformer/experiments` adds a reproducible rank sweep above the
 post-training API. `load_prepared_instruction_splits()` verifies the prepared
 manifest and file hashes before loading disjoint train, validation, and test
 JSONL. It rejects both exact record overlap and overlap in the formatted,
@@ -387,8 +389,8 @@ chosen/rejected pairs as SFT examples.
 ### Python generation and local serving
 
 `TextGenerator` performs single-request autoregressive generation. For a
-native `DecoderOnlyTransformer`, it uses the current stable ABI 1.8
-`DecodeSession` surface (introduced in ABI 1.6), prefills one token at a time,
+native `DecoderOnlyTransformer`, it uses the current stable ABI 2.0
+`DecodeSession` surface, prefills one token at a time,
 and then appends one generated token per step.
 Paged caching with 16-token pages is the default; callers can select the
 contiguous reference strategy. Protocol-style alternate models retain the
@@ -443,7 +445,7 @@ Pretrain the bundled text and save the base artifact:
 ```bash
 python3 examples/python/pretrain_stage.py \
   --file data/pretraining/tiny_corpus.txt \
-  --output results/stages/tiny_pretrained.tlab \
+  --output results/stages/tiny_pretrained.rift \
   --backend auto \
   --attention flash \
   --steps 10
@@ -453,9 +455,9 @@ Post-train it on the bundled instruction records and save a child artifact:
 
 ```bash
 python3 examples/python/post_train_stage.py \
-  --base results/stages/tiny_pretrained.tlab \
+  --base results/stages/tiny_pretrained.rift \
   --instructions data/post_training/tiny_instructions.jsonl \
-  --output results/stages/tiny_post_trained.tlab \
+  --output results/stages/tiny_post_trained.rift \
   --backend auto \
   --attention flash \
   --steps 5
@@ -465,7 +467,7 @@ Start the loopback-only Python server:
 
 ```bash
 python3 examples/python/serve_stage.py \
-  --bundle results/stages/tiny_post_trained.tlab \
+  --bundle results/stages/tiny_post_trained.rift \
   --host 127.0.0.1 \
   --port 8000 \
   --backend auto

@@ -1,15 +1,15 @@
-#include "transformer_lab/stages/serving/stack.hpp"
+#include "riftco_transformer/stages/serving/stack.hpp"
 
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/data/tokenizer.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/stages/serving/kv_cache.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/data/tokenizer.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/stages/serving/kv_cache.hpp"
 
 #include <memory>
 #include <random>
 #include <stdexcept>
 
-namespace transformer_lab::stages::serving {
+namespace riftco_transformer::stages::serving {
 
 struct ServingStack::Implementation {
     ServingConfig config;
@@ -128,4 +128,4 @@ void ServingStack::validate_request(
     }
 }
 
-}  // namespace transformer_lab::stages::serving
+}  // namespace riftco_transformer::stages::serving

@@ -1,7 +1,7 @@
-#include "transformer_lab/artifacts/state.hpp"
+#include "riftco_transformer/artifacts/state.hpp"
 
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/nn/parameter.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -17,23 +17,23 @@
 
 namespace {
 
-using transformer_lab::BpeMergeRule;
-using transformer_lab::BytePairTokenizer;
-using transformer_lab::ByteTokenizer;
-using transformer_lab::DecoderOnlyTransformer;
-using transformer_lab::ExecutionBackend;
-using transformer_lab::LoraConfig;
-using transformer_lab::Tensor;
-using transformer_lab::TokenId;
-using transformer_lab::TokenizerMethod;
-using transformer_lab::TransformerDimensions;
-using transformer_lab::artifacts::ModelState;
-using transformer_lab::artifacts::TokenizerState;
-using transformer_lab::artifacts::capture_model_state;
-using transformer_lab::artifacts::capture_snapshot;
-using transformer_lab::artifacts::capture_tokenizer_state;
-using transformer_lab::artifacts::load_model_state;
-using transformer_lab::artifacts::restore_tokenizer;
+using riftco_transformer::BpeMergeRule;
+using riftco_transformer::BytePairTokenizer;
+using riftco_transformer::ByteTokenizer;
+using riftco_transformer::DecoderOnlyTransformer;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::LoraConfig;
+using riftco_transformer::Tensor;
+using riftco_transformer::TokenId;
+using riftco_transformer::TokenizerMethod;
+using riftco_transformer::TransformerDimensions;
+using riftco_transformer::artifacts::ModelState;
+using riftco_transformer::artifacts::TokenizerState;
+using riftco_transformer::artifacts::capture_model_state;
+using riftco_transformer::artifacts::capture_snapshot;
+using riftco_transformer::artifacts::capture_tokenizer_state;
+using riftco_transformer::artifacts::load_model_state;
+using riftco_transformer::artifacts::restore_tokenizer;
 
 constexpr TransformerDimensions kDimensions{
     258,
@@ -225,7 +225,7 @@ void test_model_and_snapshot_round_trip() {
         "loaded forward parity"
     );
 
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         target.to(ExecutionBackend::Metal);
@@ -257,7 +257,7 @@ void test_active_lora_requires_merge_before_state_handoff() {
         2,
         4.0F,
         107U,
-        transformer_lab::kLoraDefaultTargets,
+        riftco_transformer::kLoraDefaultTargets,
     });
     require(model.has_lora(), "LoRA should be active before merge");
     require_logic_error(

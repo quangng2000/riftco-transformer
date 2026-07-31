@@ -63,23 +63,23 @@ Python serving ──→ Python ModelBundle + generation ───────�
 - `c_api.h` and `src/c_api.cpp` expose opaque C handles over selected tensor,
   model, LoRA, incremental decode, autograd, loss, and optimizer operations
   without exporting C++ layouts.
-- `python/transformer_lab/native` wraps only the C ABI through the Python
+- `python/riftco_transformer/native` wraps only the C ABI through the Python
   standard library's `ctypes`; it does not bind the C++ ABI. The package root
-  re-exports this API for backward compatibility.
-- `python/transformer_lab/artifacts` is the immutable handoff contract between
+  re-exports this public API without installing a legacy package-name alias.
+- `python/riftco_transformer/artifacts` is the immutable handoff contract between
   stages.
-- `python/transformer_lab/data` owns the dependency-free Hugging Face client,
+- `python/riftco_transformer/data` owns the dependency-free Hugging Face client,
   dataset-specific row adapters, deterministic content-hash splitting,
   serialization, provenance manifests, and prepared-file verification. It
   does not own a training objective.
-- `python/transformer_lab/experiments` composes existing artifact,
+- `python/riftco_transformer/experiments` composes existing artifact,
   post-training, evaluation, and serving APIs into controlled comparisons.
   The LoRA-rank experiment verifies prepared splits, fixes shared controls,
   selects on validation, and defers test evaluation until after selection.
-- `python/transformer_lab/training` owns stage-neutral batching, evaluation,
+- `python/riftco_transformer/training` owns stage-neutral batching, evaluation,
   and optimizer-loop policy. The `pretraining` and `post_training` packages
   configure that engine rather than duplicating it.
-- `python/transformer_lab/serving` owns generation, the in-process model
+- `python/riftco_transformer/serving` owns generation, the in-process model
   service, and the HTTP adapter. It depends on artifacts and the native model,
   not on the training engine.
 
@@ -103,20 +103,20 @@ outside these handoffs.
 
 ## Interface and implementation pairing
 
-Every public interface lives below `include/transformer_lab/`. Its
+Every public interface lives below `include/riftco_transformer/`. Its
 implementation uses the corresponding path below `src/`:
 
 ```text
-include/transformer_lab/core/tensor.hpp
+include/riftco_transformer/core/tensor.hpp
 src/core/tensor.cpp
 
-include/transformer_lab/model/feed_forward.hpp
+include/riftco_transformer/model/feed_forward.hpp
 src/model/feed_forward.cpp
 
-include/transformer_lab/artifacts/state.hpp
+include/riftco_transformer/artifacts/state.hpp
 src/artifacts/state.cpp
 
-include/transformer_lab/stages/serving/stack.hpp
+include/riftco_transformer/stages/serving/stack.hpp
 src/stages/serving/stack.cpp
 ```
 
@@ -127,44 +127,44 @@ contract, implementation, and verification easy to locate.
 
 ```text
 module and parameter lifecycle
-  include/transformer_lab/nn/module.hpp
-  include/transformer_lab/nn/parameter.hpp
+  include/riftco_transformer/nn/module.hpp
+  include/riftco_transformer/nn/parameter.hpp
   src/nn/module.cpp
   src/nn/parameter.cpp
   tests/nn/test_module.cpp
   docs/MODULES.md
 
 public custom-gradient operation
-  include/transformer_lab/core/autograd.hpp
+  include/riftco_transformer/core/autograd.hpp
   src/core/autograd.cpp
   tests/core/test_autograd.cpp
   docs/AUTOGRAD.md
 
 causal attention
-  include/transformer_lab/model/causal_self_attention.hpp
+  include/riftco_transformer/model/causal_self_attention.hpp
   src/model/causal_self_attention.cpp
   tests/model/test_causal_self_attention.cpp
 
 transformer block
-  include/transformer_lab/model/activation_checkpointing.hpp
-  include/transformer_lab/model/transformer_block.hpp
+  include/riftco_transformer/model/activation_checkpointing.hpp
+  include/riftco_transformer/model/transformer_block.hpp
   src/model/transformer_block.cpp
   tests/model/test_transformer_block.cpp
 
 decoder-only transformer
-  include/transformer_lab/model/decoder_kv_cache.hpp
-  include/transformer_lab/model/decoder_only_transformer.hpp
+  include/riftco_transformer/model/decoder_kv_cache.hpp
+  include/riftco_transformer/model/decoder_only_transformer.hpp
   src/model/decoder_only_transformer.cpp
   tests/model/test_decoder_only_transformer.cpp
 
 activation checkpoint primitive
-  include/transformer_lab/core/autograd.hpp
+  include/riftco_transformer/core/autograd.hpp
   src/core/autograd.cpp
   tests/core/test_autograd.cpp
   docs/ACTIVATION_CHECKPOINTING.md
 
 serving KV cache
-  include/transformer_lab/stages/serving/kv_cache.hpp
+  include/riftco_transformer/stages/serving/kv_cache.hpp
   src/stages/serving/cache/
     detail/
       validation.hpp
@@ -178,21 +178,21 @@ serving KV cache
   tests/stages/test_native_serving_generation.cpp
 
 low-rank adaptation
-  include/transformer_lab/nn/low_rank_adapter.hpp
+  include/riftco_transformer/nn/low_rank_adapter.hpp
   src/nn/low_rank_adapter.cpp
-  include/transformer_lab/model/lora.hpp
+  include/riftco_transformer/model/lora.hpp
 
 Adam
-  include/transformer_lab/optim/adam.hpp
+  include/riftco_transformer/optim/adam.hpp
   src/optim/adam.cpp
   tests/optim/test_adam.cpp
 
 native artifact state
-  include/transformer_lab/artifacts/state.hpp
+  include/riftco_transformer/artifacts/state.hpp
   src/artifacts/state.cpp
 
 shared native training
-  include/transformer_lab/training/
+  include/riftco_transformer/training/
     optimizer.hpp
     batch_source.hpp
     causal_language_model_trainer.hpp
@@ -203,7 +203,7 @@ shared native training
     adam_optimizer_adapter.cpp
 
 native stage composition roots
-  include/transformer_lab/stages/
+  include/riftco_transformer/stages/
     pretraining/
     post_training/
     serving/
@@ -220,7 +220,7 @@ native pretraining CLI
   apps/pretraining/train.cpp
 
 execution backends
-  include/transformer_lab/core/backend.hpp
+  include/riftco_transformer/core/backend.hpp
   src/core/backend/storage.hpp
   src/core/backend/adapter.hpp
   src/core/backend/attention/
@@ -254,11 +254,11 @@ execution backends
   tests/core/backend/test_nn_backend.cpp
 
 C ABI and Python
-  include/transformer_lab/c_api.h
+  include/riftco_transformer/c_api.h
   src/c_api.cpp
   tests/abi/test_c_api.c
-  python/transformer_lab/
-    __init__.py                    native compatibility exports
+  python/riftco_transformer/
+    __init__.py                    public native API exports
     native/
       bindings.py                 typed ctypes C ABI client
     artifacts/
@@ -281,8 +281,6 @@ C ABI and Python
       generation.py               sampling and ABI decode-session orchestration
       service.py                  synchronized model runtime
       http.py                     local JSON HTTP adapter
-    artifact.py                   legacy singular import facade
-    generation.py                 legacy top-level import facade
   examples/python/
     prepare_huggingface_data.py   bounded dataset preparation CLI
     compare_lora_ranks.py         reproducible LoRA-rank CLI
@@ -341,14 +339,14 @@ The root `CMakeLists.txt` defines the project targets and delegates focused
 policy to:
 
 ```text
-cmake/TransformerLabBackends.cmake
-cmake/TransformerLabSanitizers.cmake
-cmake/TransformerLabWarnings.cmake
-cmake/TransformerLabInstall.cmake
+cmake/RiftcoTransformerBackends.cmake
+cmake/RiftcoTransformerSanitizers.cmake
+cmake/RiftcoTransformerWarnings.cmake
+cmake/RiftcoTransformerInstall.cmake
 ```
 
-The install module exports `transformer_lab::library` and
-`transformer_lab::c_api`. The private adapter header stays under
+The install module exports `riftco_transformer::library` and
+`riftco_transformer::c_api`. The private adapter header stays under
 `src/core/backend` and is not installed. `tests/CMakeLists.txt` owns test
 registration through one helper function, while `tests/package` verifies that
 fresh C and C++ projects can consume only the installed package.

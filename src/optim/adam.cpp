@@ -1,4 +1,4 @@
-#include "transformer_lab/optim/adam.hpp"
+#include "riftco_transformer/optim/adam.hpp"
 
 #include "core/backend/adapter.hpp"
 
@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 static_assert(std::is_nothrow_move_constructible_v<Tensor>);
@@ -346,4 +346,4 @@ void Adam::zero_gradients() const {
     }
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

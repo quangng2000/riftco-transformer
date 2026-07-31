@@ -1,5 +1,5 @@
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/nn/linear.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/nn/linear.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,12 +14,12 @@
 
 namespace {
 
-using transformer_lab::ExecutionBackend;
-using transformer_lab::Linear;
-using transformer_lab::Parameter;
-using transformer_lab::ParameterList;
-using transformer_lab::Tensor;
-using transformer_lab::Variable;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::Linear;
+using riftco_transformer::Parameter;
+using riftco_transformer::ParameterList;
+using riftco_transformer::Tensor;
+using riftco_transformer::Variable;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -285,10 +285,10 @@ void test_forward_backward_merge_and_retained_storage() {
         "reattachment after merge is rejected"
     );
 
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
-        transformer_lab::Module& module = linear;
+        riftco_transformer::Module& module = linear;
         module.to(ExecutionBackend::Metal);
         require(
             stale_a->value().backend() == ExecutionBackend::Metal &&

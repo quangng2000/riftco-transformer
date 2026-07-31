@@ -23,20 +23,20 @@
 #include <utility>
 #include <vector>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 constexpr const char* kNeuralKernelSource = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
-constant uint TL_STATUS_DOMAIN = 1u;
-constant uint TL_STATUS_INVALID_ROW = 2u;
-constant uint TL_STATUS_OVERFLOW = 4u;
-constant float TL_INV_SQRT_TWO = 0.7071067811865475244f;
-constant float TL_INV_SQRT_TWO_PI = 0.3989422804014326779f;
+constant uint RT_STATUS_DOMAIN = 1u;
+constant uint RT_STATUS_INVALID_ROW = 2u;
+constant uint RT_STATUS_OVERFLOW = 4u;
+constant float RT_INV_SQRT_TWO = 0.7071067811865475244f;
+constant float RT_INV_SQRT_TWO_PI = 0.3989422804014326779f;
 
-inline void tl_flag(
+inline void rt_flag(
     device atomic_uint* status,
     uint value
 ) {
@@ -50,7 +50,7 @@ inline void tl_flag(
 // Metal Shading Language does not expose erf on all supported SDK targets.
 // This Abramowitz-Stegun approximation has a maximum absolute error around
 // 1.5e-7, which is below the framework's float32 parity tolerance.
-inline float tl_erf(float value) {
+inline float rt_erf(float value) {
     if (value == 0.0f) {
         return value;
     }
@@ -72,7 +72,7 @@ inline float tl_erf(float value) {
     return value < 0.0f ? -approximation : approximation;
 }
 
-inline void tl_compensated_add(
+inline void rt_compensated_add(
     float value,
     thread float& sum,
     thread float& correction
@@ -86,7 +86,7 @@ inline void tl_compensated_add(
     sum = combined;
 }
 
-inline ulong tl_axis_offset(
+inline ulong rt_axis_offset(
     ulong slice,
     ulong coordinate,
     ulong width,
@@ -99,7 +99,7 @@ inline ulong tl_axis_offset(
         inner_coordinate;
 }
 
-kernel void tl_unary_elementwise(
+kernel void rt_unary_elementwise(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     device atomic_uint* status [[buffer(2)]],
@@ -120,7 +120,7 @@ kernel void tl_unary_elementwise(
             break;
         case 2u:
             if (value <= 0.0f) {
-                tl_flag(status, TL_STATUS_DOMAIN);
+                rt_flag(status, RT_STATUS_DOMAIN);
                 output[index] = 0.0f;
             } else {
                 output[index] = log(value);
@@ -128,19 +128,19 @@ kernel void tl_unary_elementwise(
             break;
         case 3u:
             if (value < 0.0f) {
-                tl_flag(status, TL_STATUS_DOMAIN);
+                rt_flag(status, RT_STATUS_DOMAIN);
                 output[index] = 0.0f;
             } else {
                 output[index] = sqrt(value);
             }
             break;
         default:
-            output[index] = tl_erf(value);
+            output[index] = rt_erf(value);
             break;
     }
 }
 
-kernel void tl_binary_elementwise(
+kernel void rt_binary_elementwise(
     device const float* left [[buffer(0)]],
     device const float* right [[buffer(1)]],
     device float* output [[buffer(2)]],
@@ -164,7 +164,7 @@ kernel void tl_binary_elementwise(
             break;
         default:
             if (right[index] == 0.0f) {
-                tl_flag(status, TL_STATUS_DOMAIN);
+                rt_flag(status, RT_STATUS_DOMAIN);
                 output[index] = 0.0f;
             } else {
                 output[index] = left[index] / right[index];
@@ -173,7 +173,7 @@ kernel void tl_binary_elementwise(
     }
 }
 
-kernel void tl_scale(
+kernel void rt_scale(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     constant ulong& count [[buffer(2)]],
@@ -185,7 +185,7 @@ kernel void tl_scale(
     }
 }
 
-kernel void tl_gelu_forward(
+kernel void rt_gelu_forward(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     constant ulong& count [[buffer(2)]],
@@ -197,10 +197,10 @@ kernel void tl_gelu_forward(
     const float value = input[index];
     output[index] =
         0.5f * value *
-        (1.0f + tl_erf(value * TL_INV_SQRT_TWO));
+        (1.0f + rt_erf(value * RT_INV_SQRT_TWO));
 }
 
-kernel void tl_gelu_backward(
+kernel void rt_gelu_backward(
     device const float* input [[buffer(0)]],
     device const float* upstream [[buffer(1)]],
     device float* input_gradient [[buffer(2)]],
@@ -213,13 +213,13 @@ kernel void tl_gelu_backward(
     const float value = input[index];
     const float derivative =
         0.5f *
-            (1.0f + tl_erf(value * TL_INV_SQRT_TWO)) +
+            (1.0f + rt_erf(value * RT_INV_SQRT_TWO)) +
         value * exp(-0.5f * value * value) *
-            TL_INV_SQRT_TWO_PI;
+            RT_INV_SQRT_TWO_PI;
     input_gradient[index] = upstream[index] * derivative;
 }
 
-kernel void tl_reduce_axis(
+kernel void rt_reduce_axis(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     constant ulong& outer [[buffer(2)]],
@@ -235,7 +235,7 @@ kernel void tl_reduce_axis(
     float total = 0.0f;
     for (ulong coordinate = 0; coordinate < width; ++coordinate) {
         total += input[
-            tl_axis_offset(
+            rt_axis_offset(
                 slice_index,
                 coordinate,
                 width,
@@ -247,7 +247,7 @@ kernel void tl_reduce_axis(
         mean == 0u ? total : total / float(width);
 }
 
-kernel void tl_copy(
+kernel void rt_copy(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     constant ulong& count [[buffer(2)]],
@@ -258,7 +258,7 @@ kernel void tl_copy(
     }
 }
 
-kernel void tl_permute(
+kernel void rt_permute(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     device const ulong* input_strides [[buffer(2)]],
@@ -283,7 +283,7 @@ kernel void tl_permute(
     output[output_index] = input[input_index];
 }
 
-kernel void tl_broadcast(
+kernel void rt_broadcast(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     device const ulong* input_shape [[buffer(2)]],
@@ -321,7 +321,7 @@ kernel void tl_broadcast(
     output[output_index] = input[input_index];
 }
 
-kernel void tl_sum_to_shape(
+kernel void rt_sum_to_shape(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
     device const ulong* input_strides [[buffer(2)]],
@@ -393,7 +393,7 @@ kernel void tl_sum_to_shape(
     output[output_index] = total;
 }
 
-kernel void tl_softmax_forward(
+kernel void rt_softmax_forward(
     device const float* input [[buffer(0)]],
     device float* probabilities [[buffer(1)]],
     device atomic_uint* status [[buffer(2)]],
@@ -410,7 +410,7 @@ kernel void tl_softmax_forward(
     bool valid = true;
     for (ulong coordinate = 0; coordinate < width; ++coordinate) {
         const float value = input[
-            tl_axis_offset(
+            rt_axis_offset(
                 slice_index,
                 coordinate,
                 width,
@@ -423,10 +423,10 @@ kernel void tl_softmax_forward(
         maximum = max(maximum, value);
     }
     if (!valid || maximum == -INFINITY) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         for (ulong coordinate = 0; coordinate < width; ++coordinate) {
             probabilities[
-                tl_axis_offset(
+                rt_axis_offset(
                     slice_index,
                     coordinate,
                     width,
@@ -439,10 +439,10 @@ kernel void tl_softmax_forward(
     float denominator_sum = 0.0f;
     float denominator_correction = 0.0f;
     for (ulong coordinate = 0; coordinate < width; ++coordinate) {
-        tl_compensated_add(
+        rt_compensated_add(
             exp(
                 input[
-                    tl_axis_offset(
+                    rt_axis_offset(
                         slice_index,
                         coordinate,
                         width,
@@ -457,11 +457,11 @@ kernel void tl_softmax_forward(
     const float denominator =
         denominator_sum + denominator_correction;
     if (!(denominator > 0.0f) || !isfinite(denominator)) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         return;
     }
     for (ulong coordinate = 0; coordinate < width; ++coordinate) {
-        const ulong offset = tl_axis_offset(
+        const ulong offset = rt_axis_offset(
             slice_index,
             coordinate,
             width,
@@ -472,7 +472,7 @@ kernel void tl_softmax_forward(
     }
 }
 
-kernel void tl_softmax_backward(
+kernel void rt_softmax_backward(
     device const float* probabilities [[buffer(0)]],
     device const float* upstream [[buffer(1)]],
     device float* input_gradient [[buffer(2)]],
@@ -488,13 +488,13 @@ kernel void tl_softmax_backward(
     float dot_sum = 0.0f;
     float dot_correction = 0.0f;
     for (ulong coordinate = 0; coordinate < width; ++coordinate) {
-        const ulong offset = tl_axis_offset(
+        const ulong offset = rt_axis_offset(
             slice_index,
             coordinate,
             width,
             inner
         );
-        tl_compensated_add(
+        rt_compensated_add(
             probabilities[offset] * upstream[offset],
             dot_sum,
             dot_correction
@@ -502,7 +502,7 @@ kernel void tl_softmax_backward(
     }
     const float dot = dot_sum + dot_correction;
     for (ulong coordinate = 0; coordinate < width; ++coordinate) {
-        const ulong offset = tl_axis_offset(
+        const ulong offset = rt_axis_offset(
             slice_index,
             coordinate,
             width,
@@ -513,7 +513,7 @@ kernel void tl_softmax_backward(
     }
 }
 
-kernel void tl_causal_softmax_forward(
+kernel void rt_causal_softmax_forward(
     device const float* scores [[buffer(0)]],
     device float* probabilities [[buffer(1)]],
     device atomic_uint* status [[buffer(2)]],
@@ -540,7 +540,7 @@ kernel void tl_causal_softmax_forward(
         probabilities[base + key] = 0.0f;
     }
     if (!valid || maximum == -INFINITY) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         for (ulong key = 0; key <= query; ++key) {
             probabilities[base + key] = 0.0f;
         }
@@ -549,7 +549,7 @@ kernel void tl_causal_softmax_forward(
     float denominator_sum = 0.0f;
     float denominator_correction = 0.0f;
     for (ulong key = 0; key <= query; ++key) {
-        tl_compensated_add(
+        rt_compensated_add(
             exp(
                 scores[base + key] * score_scale -
                 maximum
@@ -561,7 +561,7 @@ kernel void tl_causal_softmax_forward(
     const float denominator =
         denominator_sum + denominator_correction;
     if (!(denominator > 0.0f) || !isfinite(denominator)) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         return;
     }
     for (ulong key = 0; key <= query; ++key) {
@@ -571,7 +571,7 @@ kernel void tl_causal_softmax_forward(
     }
 }
 
-kernel void tl_causal_softmax_backward(
+kernel void rt_causal_softmax_backward(
     device const float* probabilities [[buffer(0)]],
     device const float* upstream [[buffer(1)]],
     device float* score_gradient [[buffer(2)]],
@@ -588,7 +588,7 @@ kernel void tl_causal_softmax_backward(
     float dot_sum = 0.0f;
     float dot_correction = 0.0f;
     for (ulong key = 0; key <= query; ++key) {
-        tl_compensated_add(
+        rt_compensated_add(
             probabilities[base + key] * upstream[base + key],
             dot_sum,
             dot_correction
@@ -605,7 +605,7 @@ kernel void tl_causal_softmax_backward(
     }
 }
 
-kernel void tl_gather_rows(
+kernel void rt_gather_rows(
     device const float* table [[buffer(0)]],
     device const uint* row_indices [[buffer(1)]],
     device float* output [[buffer(2)]],
@@ -623,7 +623,7 @@ kernel void tl_gather_rows(
         table[ulong(row_indices[position]) * width + column];
 }
 
-kernel void tl_scatter_add_rows(
+kernel void rt_scatter_add_rows(
     device const float* upstream [[buffer(0)]],
     device const ulong* row_offsets [[buffer(1)]],
     device const ulong* grouped_positions [[buffer(2)]],
@@ -650,7 +650,7 @@ kernel void tl_scatter_add_rows(
     table_gradient[table_index] = total;
 }
 
-kernel void tl_layer_norm_forward(
+kernel void rt_layer_norm_forward(
     device const float* input [[buffer(0)]],
     device const float* scale [[buffer(1)]],
     device const float* bias [[buffer(2)]],
@@ -688,7 +688,7 @@ kernel void tl_layer_norm_forward(
     }
 }
 
-kernel void tl_layer_norm_input_backward(
+kernel void rt_layer_norm_input_backward(
     device const float* input [[buffer(0)]],
     device const float* scale [[buffer(1)]],
     device const float* mean [[buffer(2)]],
@@ -730,7 +730,7 @@ kernel void tl_layer_norm_input_backward(
     }
 }
 
-kernel void tl_layer_norm_parameter_backward(
+kernel void rt_layer_norm_parameter_backward(
     device const float* input [[buffer(0)]],
     device const float* mean [[buffer(1)]],
     device const float* inverse_standard_deviation [[buffer(2)]],
@@ -758,7 +758,7 @@ kernel void tl_layer_norm_parameter_backward(
     bias_gradient[column] = bias_total;
 }
 
-kernel void tl_cross_entropy_rows(
+kernel void rt_cross_entropy_rows(
     device const float* logits [[buffer(0)]],
     device const uint* targets [[buffer(1)]],
     device float* base_gradient [[buffer(2)]],
@@ -787,7 +787,7 @@ kernel void tl_cross_entropy_rows(
         maximum == -INFINITY ||
         !isfinite(logits[base + ulong(target)])
     ) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         row_losses[position] = 0.0f;
         for (ulong column = 0; column < classes; ++column) {
             base_gradient[base + column] = 0.0f;
@@ -797,7 +797,7 @@ kernel void tl_cross_entropy_rows(
     float denominator_sum = 0.0f;
     float denominator_correction = 0.0f;
     for (ulong column = 0; column < classes; ++column) {
-        tl_compensated_add(
+        rt_compensated_add(
             exp(logits[base + column] - maximum),
             denominator_sum,
             denominator_correction
@@ -806,7 +806,7 @@ kernel void tl_cross_entropy_rows(
     const float denominator =
         denominator_sum + denominator_correction;
     if (!(denominator > 0.0f) || !isfinite(denominator)) {
-        tl_flag(status, TL_STATUS_INVALID_ROW);
+        rt_flag(status, RT_STATUS_INVALID_ROW);
         return;
     }
     const float inverse_positions = 1.0f / float(positions);
@@ -825,14 +825,14 @@ kernel void tl_cross_entropy_rows(
         maximum -
         logits[base + ulong(target)];
     if (!isfinite(loss)) {
-        tl_flag(status, TL_STATUS_OVERFLOW);
+        rt_flag(status, RT_STATUS_OVERFLOW);
         row_losses[position] = 0.0f;
     } else {
         row_losses[position] = loss;
     }
 }
 
-kernel void tl_cross_entropy_reduce(
+kernel void rt_cross_entropy_reduce(
     device const float* row_losses [[buffer(0)]],
     device float* loss [[buffer(1)]],
     device atomic_uint* status [[buffer(2)]],
@@ -853,7 +853,7 @@ kernel void tl_cross_entropy_reduce(
     float ratio_sum = 0.0f;
     float ratio_correction = 0.0f;
     for (ulong position = 0; position < positions; ++position) {
-        tl_compensated_add(
+        rt_compensated_add(
             row_losses[position] / maximum,
             ratio_sum,
             ratio_correction
@@ -866,7 +866,7 @@ kernel void tl_cross_entropy_reduce(
             float(positions)
         );
     if (!isfinite(mean)) {
-        tl_flag(status, TL_STATUS_OVERFLOW);
+        rt_flag(status, RT_STATUS_OVERFLOW);
         loss[0] = 0.0f;
     } else {
         loss[0] = mean;
@@ -1052,7 +1052,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_unary_elementwise",
+                    @"rt_unary_elementwise",
                     "unary elementwise"
                 );
             auto command = command_encoder(
@@ -1097,7 +1097,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_binary_elementwise",
+                    @"rt_binary_elementwise",
                     "binary elementwise"
                 );
             auto command = command_encoder(
@@ -1134,7 +1134,7 @@ public:
         std::lock_guard lock(mutex_);
         @autoreleasepool {
             const auto pipeline =
-                require_pipeline(@"tl_scale", "scale");
+                require_pipeline(@"rt_scale", "scale");
             auto command = command_encoder("scale");
             const std::uint64_t count = request.element_count;
             [command.encoder setComputePipelineState:pipeline];
@@ -1156,7 +1156,7 @@ public:
 
     void gelu_forward(const GeluForwardRequest& request) {
         unary_count_operation(
-            @"tl_gelu_forward",
+            @"rt_gelu_forward",
             "GELU forward",
             request.input,
             request.output,
@@ -1169,7 +1169,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_gelu_backward",
+                    @"rt_gelu_backward",
                     "GELU backward"
                 );
             auto command = command_encoder("GELU backward");
@@ -1193,7 +1193,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_reduce_axis",
+                    @"rt_reduce_axis",
                     "axis reduction"
                 );
             auto command = command_encoder("axis reduction");
@@ -1234,7 +1234,7 @@ public:
 
     void copy(const CopyRequest& request) {
         unary_count_operation(
-            @"tl_copy",
+            @"rt_copy",
             "copy",
             request.input,
             request.output,
@@ -1246,7 +1246,7 @@ public:
         std::lock_guard lock(mutex_);
         @autoreleasepool {
             const auto pipeline =
-                require_pipeline(@"tl_permute", "permute");
+                require_pipeline(@"rt_permute", "permute");
             const auto input_strides =
                 contiguous_strides(request.input_shape);
             std::vector<std::size_t> output_shape;
@@ -1301,7 +1301,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_broadcast",
+                    @"rt_broadcast",
                     "broadcast"
                 );
             const auto input_shape = as_u64(request.input_shape);
@@ -1362,7 +1362,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_sum_to_shape",
+                    @"rt_sum_to_shape",
                     "sum-to-shape"
                 );
             const auto input_strides =
@@ -1446,7 +1446,7 @@ public:
         const SoftmaxForwardRequest& request
     ) {
         softmax_forward_impl(
-            @"tl_softmax_forward",
+            @"rt_softmax_forward",
             "softmax forward",
             request.input,
             request.probabilities,
@@ -1461,7 +1461,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_softmax_backward",
+                    @"rt_softmax_backward",
                     "softmax backward"
                 );
             auto command = command_encoder("softmax backward");
@@ -1494,7 +1494,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_causal_softmax_forward",
+                    @"rt_causal_softmax_forward",
                     "causal softmax forward"
                 );
             auto command = command_encoder(
@@ -1537,7 +1537,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_causal_softmax_backward",
+                    @"rt_causal_softmax_backward",
                     "causal softmax backward"
                 );
             auto command = command_encoder(
@@ -1573,7 +1573,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_gather_rows",
+                    @"rt_gather_rows",
                     "embedding gather"
                 );
             const auto indices =
@@ -1611,7 +1611,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_scatter_add_rows",
+                    @"rt_scatter_add_rows",
                     "embedding scatter-add"
                 );
             const auto grouping = make_scatter_grouping(request);
@@ -1661,7 +1661,7 @@ public:
         @autoreleasepool {
             const auto pipeline =
                 require_pipeline(
-                    @"tl_layer_norm_forward",
+                    @"rt_layer_norm_forward",
                     "LayerNorm forward"
                 );
             auto command = command_encoder("LayerNorm forward");
@@ -1714,12 +1714,12 @@ public:
         @autoreleasepool {
             const auto input_pipeline =
                 require_pipeline(
-                    @"tl_layer_norm_input_backward",
+                    @"rt_layer_norm_input_backward",
                     "LayerNorm input backward"
                 );
             const auto parameter_pipeline =
                 require_pipeline(
-                    @"tl_layer_norm_parameter_backward",
+                    @"rt_layer_norm_parameter_backward",
                     "LayerNorm parameter backward"
                 );
             auto command = command_encoder("LayerNorm backward");
@@ -1807,12 +1807,12 @@ public:
         @autoreleasepool {
             const auto row_pipeline =
                 require_pipeline(
-                    @"tl_cross_entropy_rows",
+                    @"rt_cross_entropy_rows",
                     "cross-entropy rows"
                 );
             const auto reduce_pipeline =
                 require_pipeline(
-                    @"tl_cross_entropy_reduce",
+                    @"rt_cross_entropy_reduce",
                     "cross-entropy reduction"
                 );
             const auto targets = make_span_buffer(request.targets);
@@ -1879,12 +1879,12 @@ public:
         @autoreleasepool {
             const auto probability_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_probabilities",
+                    @"rt_materialized_causal_attention_probabilities",
                     "causal attention probabilities"
                 );
             const auto context_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_context",
+                    @"rt_materialized_causal_attention_context",
                     "causal attention context"
                 );
             const auto status = make_status_buffer();
@@ -1969,19 +1969,19 @@ public:
         std::lock_guard lock(mutex_);
         @autoreleasepool {
             const auto pipeline = require_pipeline(
-                @"tl_flash_causal_attention_forward",
+                @"rt_flash_causal_attention_forward",
                 "Flash causal attention forward"
             );
             const auto delta_pipeline = require_pipeline(
-                @"tl_flash_causal_attention_delta",
+                @"rt_flash_causal_attention_delta",
                 "Flash causal attention delta"
             );
             const auto query_pipeline = require_pipeline(
-                @"tl_flash_causal_attention_query_backward",
+                @"rt_flash_causal_attention_query_backward",
                 "Flash causal attention query backward"
             );
             const auto key_value_pipeline = require_pipeline(
-                @"tl_flash_causal_attention_key_value_backward",
+                @"rt_flash_causal_attention_key_value_backward",
                 "Flash causal attention key/value backward"
             );
             const auto constants =
@@ -2089,15 +2089,15 @@ public:
         std::lock_guard lock(mutex_);
         @autoreleasepool {
             const auto delta_pipeline = require_pipeline(
-                @"tl_flash_causal_attention_delta",
+                @"rt_flash_causal_attention_delta",
                 "Flash causal attention delta"
             );
             const auto query_pipeline = require_pipeline(
-                @"tl_flash_causal_attention_query_backward",
+                @"rt_flash_causal_attention_query_backward",
                 "Flash causal attention query backward"
             );
             const auto key_value_pipeline = require_pipeline(
-                @"tl_flash_causal_attention_key_value_backward",
+                @"rt_flash_causal_attention_key_value_backward",
                 "Flash causal attention key/value backward"
             );
             const auto constants =
@@ -2224,12 +2224,12 @@ public:
         @autoreleasepool {
             const auto probability_pipeline =
                 require_pipeline(
-                    @"tl_paged_decode_attention_probabilities",
+                    @"rt_paged_decode_attention_probabilities",
                     "paged decode attention probabilities"
                 );
             const auto context_pipeline =
                 require_pipeline(
-                    @"tl_paged_decode_attention_context",
+                    @"rt_paged_decode_attention_context",
                     "paged decode attention context"
                 );
             const auto block_table =
@@ -2348,22 +2348,22 @@ public:
         @autoreleasepool {
             const auto score_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_context_score_backward",
+                    @"rt_materialized_causal_attention_context_score_backward",
                     "causal attention context score backward"
                 );
             const auto query_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_query_backward",
+                    @"rt_materialized_causal_attention_query_backward",
                     "causal attention query backward"
                 );
             const auto key_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_key_backward",
+                    @"rt_materialized_causal_attention_key_backward",
                     "causal attention key backward"
                 );
             const auto value_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_value_backward",
+                    @"rt_materialized_causal_attention_value_backward",
                     "causal attention value backward"
                 );
             const auto dimensions =
@@ -2460,17 +2460,17 @@ public:
         @autoreleasepool {
             const auto score_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_probability_score_backward",
+                    @"rt_materialized_causal_attention_probability_score_backward",
                     "causal attention probability backward"
                 );
             const auto query_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_query_backward",
+                    @"rt_materialized_causal_attention_query_backward",
                     "causal attention query backward"
                 );
             const auto key_pipeline =
                 require_pipeline(
-                    @"tl_materialized_causal_attention_key_backward",
+                    @"rt_materialized_causal_attention_key_backward",
                     "causal attention key backward"
                 );
             const auto dimensions =
@@ -3477,4 +3477,4 @@ void metal_nn_paged_decode_attention_forward(
     runtime().paged_decode_attention_forward(request);
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

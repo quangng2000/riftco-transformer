@@ -1,9 +1,9 @@
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/core/tensor.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/nn/parameter.hpp"
-#include "transformer_lab/optim/adam.hpp"
-#include "transformer_lab/training/training.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/core/tensor.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
+#include "riftco_transformer/optim/adam.hpp"
+#include "riftco_transformer/training/training.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -20,23 +20,23 @@
 
 namespace {
 
-using transformer_lab::Adam;
-using transformer_lab::AdamOptions;
-using transformer_lab::DecoderOnlyTransformer;
-using transformer_lab::ExecutionBackend;
-using transformer_lab::ParameterList;
-using transformer_lab::ScopedExecutionBackend;
-using transformer_lab::Tensor;
-using transformer_lab::TokenBatch;
-using transformer_lab::TokenId;
-using transformer_lab::global_gradient_norm;
-using transformer_lab::training::AdamOptimizerAdapter;
-using transformer_lab::training::BatchSource;
-using transformer_lab::training::CausalLanguageModelTrainer;
-using transformer_lab::training::OptimizerStepMetrics;
-using transformer_lab::training::OptimizerStrategy;
-using transformer_lab::training::RandomWindowBatchSource;
-using transformer_lab::training::SequenceWindowBatchSource;
+using riftco_transformer::Adam;
+using riftco_transformer::AdamOptions;
+using riftco_transformer::DecoderOnlyTransformer;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::ParameterList;
+using riftco_transformer::ScopedExecutionBackend;
+using riftco_transformer::Tensor;
+using riftco_transformer::TokenBatch;
+using riftco_transformer::TokenId;
+using riftco_transformer::global_gradient_norm;
+using riftco_transformer::training::AdamOptimizerAdapter;
+using riftco_transformer::training::BatchSource;
+using riftco_transformer::training::CausalLanguageModelTrainer;
+using riftco_transformer::training::OptimizerStepMetrics;
+using riftco_transformer::training::OptimizerStrategy;
+using riftco_transformer::training::RandomWindowBatchSource;
+using riftco_transformer::training::SequenceWindowBatchSource;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {

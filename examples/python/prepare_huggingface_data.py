@@ -6,7 +6,7 @@ import argparse
 import os
 from pathlib import Path
 
-from transformer_lab.data import (
+from riftco_transformer.data import (
     DATASET_PRESETS,
     HuggingFaceDatasetClient,
     SplitFractions,

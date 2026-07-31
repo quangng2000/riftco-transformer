@@ -1,11 +1,11 @@
-#include "transformer_lab/training/batch_source.hpp"
+#include "riftco_transformer/training/batch_source.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab::training {
+namespace riftco_transformer::training {
 namespace {
 
 void validate_batch_shape(
@@ -180,4 +180,4 @@ SequenceWindowBatchSource::valid_window_count() const noexcept {
     return valid_window_count_;
 }
 
-}  // namespace transformer_lab::training
+}  // namespace riftco_transformer::training

@@ -1,13 +1,13 @@
-#include "transformer_lab/nn/embedding.hpp"
+#include "riftco_transformer/nn/embedding.hpp"
 
-#include "transformer_lab/nn/initialization.hpp"
+#include "riftco_transformer/nn/initialization.hpp"
 
 #include <cmath>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 Tensor checked_embedding_weight(Tensor weight) {
@@ -95,4 +95,4 @@ ParameterList Embedding::parameters() {
     return Module::parameters();
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

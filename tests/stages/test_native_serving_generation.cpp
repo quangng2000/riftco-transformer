@@ -1,4 +1,4 @@
-#include "transformer_lab/stages/serving/generation.hpp"
+#include "riftco_transformer/stages/serving/generation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -17,20 +17,20 @@
 
 namespace {
 
-using transformer_lab::ByteTokenizer;
-using transformer_lab::DecoderOnlyTransformer;
-using transformer_lab::Tensor;
-using transformer_lab::TokenId;
-using transformer_lab::TokenizerStrategy;
-using transformer_lab::TransformerDimensions;
-using transformer_lab::stages::serving::GenerationConfig;
-using transformer_lab::stages::serving::GenerationEngine;
-using transformer_lab::stages::serving::GreedySampler;
-using transformer_lab::stages::serving::ContiguousKvCacheFactory;
-using transformer_lab::stages::serving::KeyValueCacheFactory;
-using transformer_lab::stages::serving::PagedKvCachePool;
-using transformer_lab::stages::serving::SamplingStrategy;
-using transformer_lab::stages::serving::TemperatureSampler;
+using riftco_transformer::ByteTokenizer;
+using riftco_transformer::DecoderOnlyTransformer;
+using riftco_transformer::Tensor;
+using riftco_transformer::TokenId;
+using riftco_transformer::TokenizerStrategy;
+using riftco_transformer::TransformerDimensions;
+using riftco_transformer::stages::serving::GenerationConfig;
+using riftco_transformer::stages::serving::GenerationEngine;
+using riftco_transformer::stages::serving::GreedySampler;
+using riftco_transformer::stages::serving::ContiguousKvCacheFactory;
+using riftco_transformer::stages::serving::KeyValueCacheFactory;
+using riftco_transformer::stages::serving::PagedKvCachePool;
+using riftco_transformer::stages::serving::SamplingStrategy;
+using riftco_transformer::stages::serving::TemperatureSampler;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -99,12 +99,12 @@ Tensor cache_token(std::initializer_list<float> values) {
     return Tensor(
         {1, 1, 1, 2},
         std::vector<float>(values),
-        transformer_lab::ExecutionBackend::Cpu
+        riftco_transformer::ExecutionBackend::Cpu
     );
 }
 
 void append_cache_token(
-    transformer_lab::DecoderKeyValueCache& cache,
+    riftco_transformer::DecoderKeyValueCache& cache,
     std::initializer_list<float> first_layer_value,
     std::initializer_list<float> second_layer_value
 ) {
@@ -235,12 +235,12 @@ public:
         return dimensions_;
     }
 
-    transformer_lab::ExecutionBackend
+    riftco_transformer::ExecutionBackend
     backend() const noexcept override {
-        return transformer_lab::ExecutionBackend::Cpu;
+        return riftco_transformer::ExecutionBackend::Cpu;
     }
 
-    std::unique_ptr<transformer_lab::DecoderKeyValueCache>
+    std::unique_ptr<riftco_transformer::DecoderKeyValueCache>
     create() const override {
         throw std::runtime_error("cache creation was requested");
     }
@@ -344,7 +344,7 @@ void test_temperature_sampler() {
 void test_contiguous_and_paged_cache_contracts() {
     const TransformerDimensions dimensions =
         cache_test_dimensions();
-    const auto backend = transformer_lab::ExecutionBackend::Cpu;
+    const auto backend = riftco_transformer::ExecutionBackend::Cpu;
 
     ContiguousKvCacheFactory contiguous(dimensions, backend);
     require(
@@ -448,7 +448,7 @@ void test_paged_pool_exhaustion_and_reuse() {
         cache_test_dimensions();
     PagedKvCachePool pool(
         dimensions,
-        transformer_lab::ExecutionBackend::Cpu,
+        riftco_transformer::ExecutionBackend::Cpu,
         2,
         3
     );
@@ -494,7 +494,7 @@ void test_paged_pool_keeps_sessions_isolated() {
         cache_test_dimensions();
     PagedKvCachePool pool(
         dimensions,
-        transformer_lab::ExecutionBackend::Cpu,
+        riftco_transformer::ExecutionBackend::Cpu,
         2,
         6
     );
@@ -625,7 +625,7 @@ void test_cached_generation_matches_full_forward() {
     auto contiguous =
         std::make_shared<ContiguousKvCacheFactory>(
             model.dimensions(),
-            transformer_lab::ExecutionBackend::Cpu
+            riftco_transformer::ExecutionBackend::Cpu
         );
     GenerationEngine contiguous_engine(
         model,
@@ -641,7 +641,7 @@ void test_cached_generation_matches_full_forward() {
 
     auto paged = std::make_shared<PagedKvCachePool>(
         model.dimensions(),
-        transformer_lab::ExecutionBackend::Cpu,
+        riftco_transformer::ExecutionBackend::Cpu,
         2
     );
     const std::size_t free_before = paged->free_block_count();
@@ -657,10 +657,10 @@ void test_cached_generation_matches_full_forward() {
         "a completed generation request should release every page"
     );
 
-    if (transformer_lab::execution_backend_available(
-            transformer_lab::ExecutionBackend::Metal
+    if (riftco_transformer::execution_backend_available(
+            riftco_transformer::ExecutionBackend::Metal
         )) {
-        model.to(transformer_lab::ExecutionBackend::Metal);
+        model.to(riftco_transformer::ExecutionBackend::Metal);
         const std::vector<TokenId> expected_metal =
             reference_greedy_tokens(
                 model,
@@ -670,7 +670,7 @@ void test_cached_generation_matches_full_forward() {
             );
         auto metal_paged = std::make_shared<PagedKvCachePool>(
             model.dimensions(),
-            transformer_lab::ExecutionBackend::Metal,
+            riftco_transformer::ExecutionBackend::Metal,
             2
         );
         GenerationEngine metal_engine(

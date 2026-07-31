@@ -39,7 +39,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_TESTING": "ON",
-        "TRANSFORMER_LAB_ENABLE_SANITIZERS": "ON"
+        "RIFTCO_TRANSFORMER_ENABLE_SANITIZERS": "ON"
       }
     }
   ],

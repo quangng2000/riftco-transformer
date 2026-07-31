@@ -1,7 +1,7 @@
 # riftco-transformer Python distribution
 
 This package is the typed, runtime-dependency-free `ctypes` interface to
-`libtransformer_lab_c`, plus explicit data preparation, pretraining,
+`libriftco_transformer_c`, plus explicit data preparation, pretraining,
 post-training, experiment, artifact, generation, and local-serving modules.
 A platform wheel carries both the Python modules and its native C ABI library;
 users do not install the native framework separately.
@@ -12,15 +12,15 @@ After a release has been published to PyPI:
 
 ```bash
 python3 -m pip install riftco-transformer
-python3 -c "from transformer_lab import Context; print(Context().backend)"
+python3 -c "from riftco_transformer import Context; print(Context().backend)"
 ```
 
 `riftco-transformer` is the installable distribution name; Python code imports
-the stable `transformer_lab` package.
+the stable `riftco_transformer` package.
 
-The wheel stores `libtransformer_lab_c.so`,
-`libtransformer_lab_c.dylib`, or `transformer_lab_c.dll` under
-`transformer_lab/.libs`. It has no third-party runtime dependencies and needs
+The wheel stores `libriftco_transformer_c.so`,
+`libriftco_transformer_c.dylib`, or `riftco_transformer_c.dll` under
+`riftco_transformer/.libs`. It has no third-party runtime dependencies and needs
 no compiler or environment variable after installation. Initial binary wheels
 cover Linux `x86_64` and `aarch64` for both glibc (`manylinux`) and musl
 (`musllinux`), macOS `x86_64` and `arm64`, and Windows `AMD64`. CPU is
@@ -33,12 +33,12 @@ python3 -m pip install .
 ```
 
 That source build compiles the C++20 implementation, so it needs a supported
-native compiler and platform SDK. `TRANSFORMER_LAB_LIBRARY` remains an advanced
+native compiler and platform SDK. `RIFTCO_TRANSFORMER_LIBRARY` remains an advanced
 development override for selecting a particular local native build; released
 wheels do not require it.
 
-The Python package follows the framework release version (`0.1.0` here), while
-the native C ABI has its own compatibility version (`1.8`). The client accepts
+The Python package follows the framework release version (`0.2.0` here), while
+the native C ABI has its own compatibility version (`2.0`). The client accepts
 the same ABI major and an equal or newer additive minor, and rejects older or
 breaking ABIs before use.
 
@@ -61,7 +61,7 @@ Trusted Publisher is configured.
 `Tokenizer` offers interchangeable byte and byte-pair-encoding strategies:
 
 ```python
-from transformer_lab import Tokenizer
+from riftco_transformer import Tokenizer
 
 with Tokenizer(
     "Hello, café 🙂 Hello again.",
@@ -101,7 +101,7 @@ compatibility property.
 An end-to-end BPE training step uses only public Python objects:
 
 ```python
-from transformer_lab import (
+from riftco_transformer import (
     Adam,
     DecoderOnlyTransformer,
     Tokenizer,
@@ -166,7 +166,7 @@ device rejects a very wide head, use more heads or select
 
 ## Hugging Face data and rank experiments
 
-The `transformer_lab.data` package is also dependency-free. Its default
+The `riftco_transformer.data` package is also dependency-free. Its default
 transport uses `urllib` to read bounded pages from the official Hugging Face
 Dataset Viewer API, while adapters convert TinyStories, Dolly 15K, and
 HH-RLHF into stage-specific files. Preparation removes exact duplicates,
@@ -191,18 +191,18 @@ adapter maps `instruction` plus optional `context` into `prompt`, preserves
 remains chosen/rejected preference data and is not accepted by the current SFT
 pipeline.
 
-The `transformer_lab.experiments` package compares LoRA ranks from the same
+The `riftco_transformer.experiments` package compares LoRA ranks from the same
 immutable base:
 
 ```python
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab.experiments import (
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.experiments import (
     LoraRankExperimentConfig,
     compare_lora_ranks,
     load_prepared_instruction_splits,
 )
 
-base = ModelBundle.load("results/stages/tinystories_pretrained.tlab")
+base = ModelBundle.load("results/stages/tinystories_pretrained.rift")
 splits = load_prepared_instruction_splits(
     "data/external/huggingface/dolly-lora-v1"
 )
@@ -238,14 +238,14 @@ guidance, provenance details, and the CLI rank workflow.
 The high-level modules make the stage boundaries explicit:
 
 ```python
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab import LoraConfig
-from transformer_lab.post_training import (
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer import LoraConfig
+from riftco_transformer.post_training import (
     PostTrainingConfig,
     post_train_jsonl,
 )
-from transformer_lab.pretraining import PretrainingConfig, pretrain_file
-from transformer_lab.serving import ServingConfig, serve_model
+from riftco_transformer.pretraining import PretrainingConfig, pretrain_file
+from riftco_transformer.serving import ServingConfig, serve_model
 
 base = pretrain_file(
     "data/pretraining/tiny_corpus.txt",
@@ -256,9 +256,9 @@ base = pretrain_file(
         activation_checkpointing="block",
     ),
 )
-base.bundle.save("results/stages/tiny_pretrained.tlab")
+base.bundle.save("results/stages/tiny_pretrained.rift")
 
-restored = ModelBundle.load("results/stages/tiny_pretrained.tlab")
+restored = ModelBundle.load("results/stages/tiny_pretrained.rift")
 assistant = post_train_jsonl(
     restored,
     "data/post_training/tiny_instructions.jsonl",
@@ -271,10 +271,10 @@ assistant = post_train_jsonl(
         lora=LoraConfig(rank=4, alpha=8.0),
     ),
 )
-assistant.bundle.save("results/stages/tiny_post_trained.tlab")
+assistant.bundle.save("results/stages/tiny_post_trained.rift")
 
 serve_model(
-    "results/stages/tiny_post_trained.tlab",
+    "results/stages/tiny_post_trained.rift",
     host="127.0.0.1",
     port=8000,
     config=ServingConfig(
@@ -309,16 +309,16 @@ extension.
 
 ## Incremental generation
 
-Native models use the current ABI 1.8 `DecodeSession` surface (introduced in
-ABI 1.6) instead of rerunning the full-sequence training forward for every
-generated token. `TextGenerator` creates a request-local session, prefills the
+Native models use the current ABI 2.0 `DecodeSession` surface instead of
+rerunning the full-sequence training forward for every generated token.
+`TextGenerator` creates a request-local session, prefills the
 prompt one token at a time, and then performs one-token decode:
 
 ```python
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab.serving import TextGenerator
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.serving import TextGenerator
 
-bundle = ModelBundle.load("results/stages/tiny_post_trained.tlab")
+bundle = ModelBundle.load("results/stages/tiny_post_trained.rift")
 with bundle.instantiate("cpu") as runtime:
     result = TextGenerator(
         runtime.model,
@@ -359,7 +359,7 @@ workflow, lifecycle, backend, and error-handling contracts.
 The physical package mirrors the runtime boundaries:
 
 ```text
-transformer_lab/
+riftco_transformer/
 ├── native/          # stable C ABI bindings
 ├── artifacts/       # ModelBundle persistence
 ├── data/            # external dataset adapters and preparation
@@ -370,10 +370,8 @@ transformer_lab/
 └── serving/         # generation, model service, and HTTP
 ```
 
-The package root still re-exports the original low-level API.
-`transformer_lab.artifact` and `transformer_lab.generation` remain
-compatibility facades; new code should prefer `transformer_lab.artifacts` and
-`transformer_lab.serving`.
+The package root re-exports the public low-level API. The breaking rename
+installs only `riftco_transformer`; no legacy package-name alias is provided.
 
 ## License
 

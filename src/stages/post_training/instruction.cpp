@@ -1,9 +1,9 @@
-#include "transformer_lab/stages/post_training/instruction.hpp"
+#include "riftco_transformer/stages/post_training/instruction.hpp"
 
 #include <algorithm>
 #include <stdexcept>
 
-namespace transformer_lab::stages::post_training {
+namespace riftco_transformer::stages::post_training {
 namespace {
 
 // Instruction files are UTF-8 byte strings. Restricting template trimming to
@@ -74,4 +74,4 @@ std::string PlainChatFormatter::format(
            "\n### Assistant:\n" + trim(example.response) + "\n";
 }
 
-}  // namespace transformer_lab::stages::post_training
+}  // namespace riftco_transformer::stages::post_training

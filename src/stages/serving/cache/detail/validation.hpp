@@ -1,11 +1,11 @@
 #pragma once
 
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
 
 #include <cstddef>
 
-namespace transformer_lab::stages::serving::cache_detail {
+namespace riftco_transformer::stages::serving::cache_detail {
 
 [[nodiscard]] TransformerDimensions checked_dimensions(
     TransformerDimensions dimensions
@@ -29,4 +29,4 @@ namespace transformer_lab::stages::serving::cache_detail {
     std::size_t blocks_per_cache
 );
 
-}  // namespace transformer_lab::stages::serving::cache_detail
+}  // namespace riftco_transformer::stages::serving::cache_detail

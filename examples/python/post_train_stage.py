@@ -6,20 +6,20 @@ import argparse
 from pathlib import Path
 import sys
 
-from transformer_lab import LoraConfig
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab.post_training import (
+from riftco_transformer import LoraConfig
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.post_training import (
     PostTrainingConfig,
     post_train_jsonl,
 )
-from transformer_lab.training import TrainingMetric
+from riftco_transformer.training import TrainingMetric
 
 
-DEFAULT_BASE = Path("results/stages/tiny_pretrained.tlab")
+DEFAULT_BASE = Path("results/stages/tiny_pretrained.rift")
 DEFAULT_INSTRUCTIONS = Path(
     "data/post_training/tiny_instructions.jsonl"
 )
-DEFAULT_OUTPUT = Path("results/stages/tiny_post_trained.tlab")
+DEFAULT_OUTPUT = Path("results/stages/tiny_post_trained.rift")
 
 
 def positive_integer(value: str) -> int:
@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--base",
         type=Path,
         default=DEFAULT_BASE,
-        help=f"Pretrained .tlab artifact (default: {DEFAULT_BASE}).",
+        help=f"Pretrained .rift artifact (default: {DEFAULT_BASE}).",
     )
     parser.add_argument(
         "--instructions",
@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
-        help=f"Destination .tlab artifact (default: {DEFAULT_OUTPUT}).",
+        help=f"Destination .rift artifact (default: {DEFAULT_OUTPUT}).",
     )
     parser.add_argument(
         "--backend",

@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 std::size_t paged_attention_offset(
@@ -131,4 +131,4 @@ void reference_paged_decode_attention_forward(
     }
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

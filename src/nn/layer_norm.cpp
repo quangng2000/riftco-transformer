@@ -1,4 +1,4 @@
-#include "transformer_lab/nn/layer_norm.hpp"
+#include "riftco_transformer/nn/layer_norm.hpp"
 
 #include "core/backend/adapter.hpp"
 
@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 float checked_epsilon(float epsilon) {
@@ -188,4 +188,4 @@ ParameterList LayerNorm::parameters() {
     return Module::parameters();
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

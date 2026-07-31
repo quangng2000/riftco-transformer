@@ -1,8 +1,8 @@
-#include "transformer_lab/model/feed_forward.hpp"
+#include "riftco_transformer/model/feed_forward.hpp"
 
-#include "transformer_lab/nn/activations.hpp"
+#include "riftco_transformer/nn/activations.hpp"
 
-namespace transformer_lab {
+namespace riftco_transformer {
 
 FeedForward::FeedForward(
     std::size_t model_width,
@@ -50,4 +50,4 @@ ParameterList FeedForward::lora_parameters() {
     return result;
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

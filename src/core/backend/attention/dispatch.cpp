@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 const BackendAdapter& require_backend_adapter(
@@ -508,4 +508,4 @@ void dispatch_paged_decode_attention_forward(
     adapter.paged_decode_attention_forward(request);
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

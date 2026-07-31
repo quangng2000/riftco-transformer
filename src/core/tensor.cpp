@@ -1,4 +1,4 @@
-#include "transformer_lab/core/tensor.hpp"
+#include "riftco_transformer/core/tensor.hpp"
 
 #include "backend/adapter.hpp"
 
@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 
 Tensor::Tensor(Shape shape)
     : Tensor(std::move(shape), 0.0F, execution_backend()) {}
@@ -263,4 +263,4 @@ const TensorStorage& tensor_storage(const Tensor& tensor) noexcept {
 
 }  // namespace backend_detail
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

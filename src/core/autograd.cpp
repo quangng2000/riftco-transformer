@@ -1,5 +1,5 @@
-#include "transformer_lab/core/autograd.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
+#include "riftco_transformer/core/autograd.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -12,7 +12,7 @@
 #include <unordered_set>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 std::atomic_uint64_t next_node_sequence{0};
@@ -1108,4 +1108,4 @@ Variable checkpoint(
     );
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

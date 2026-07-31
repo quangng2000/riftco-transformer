@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 class CpuTensorStorage final : public TensorStorage {
@@ -288,4 +288,4 @@ const BackendAdapter& cpu_backend_adapter() noexcept {
     return adapter;
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

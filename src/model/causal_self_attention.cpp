@@ -1,4 +1,4 @@
-#include "transformer_lab/model/causal_self_attention.hpp"
+#include "riftco_transformer/model/causal_self_attention.hpp"
 
 #include "core/backend/adapter.hpp"
 
@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 std::size_t checked_head_count(std::size_t model_width,
@@ -439,4 +439,4 @@ ParameterList CausalSelfAttention::lora_parameters() {
   return result;
 }
 
-} // namespace transformer_lab
+} // namespace riftco_transformer

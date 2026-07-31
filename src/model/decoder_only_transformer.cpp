@@ -1,4 +1,4 @@
-#include "transformer_lab/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 TransformerDimensions checked_dimensions(
@@ -682,4 +682,4 @@ DecoderOnlyTransformer::selected_lora_projections(
     return result;
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

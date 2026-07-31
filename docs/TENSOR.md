@@ -16,7 +16,7 @@ kernels to consume the allocation directly.
 The public contract lives in:
 
 ```text
-include/transformer_lab/core/tensor.hpp
+include/riftco_transformer/core/tensor.hpp
 ```
 
 Code using a tensor includes that header and only needs to know the storage and
@@ -29,7 +29,7 @@ src/core/tensor.cpp
 Numerical calculations have their own reusable interface and implementation:
 
 ```text
-include/transformer_lab/core/tensor_ops.hpp
+include/riftco_transformer/core/tensor_ops.hpp
 src/core/tensor_ops.cpp
 ```
 

@@ -1,10 +1,10 @@
-#include "transformer_lab/stages/pretraining/config.hpp"
+#include "riftco_transformer/stages/pretraining/config.hpp"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
-namespace transformer_lab::stages::pretraining {
+namespace riftco_transformer::stages::pretraining {
 namespace {
 
 void validate_backend(ExecutionBackend backend) {
@@ -136,4 +136,4 @@ void PretrainingConfig::validate() const {
     }
 }
 
-}  // namespace transformer_lab::stages::pretraining
+}  // namespace riftco_transformer::stages::pretraining

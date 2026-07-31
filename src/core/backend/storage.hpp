@@ -1,12 +1,12 @@
 #pragma once
 
-#include "transformer_lab/core/backend.hpp"
+#include "riftco_transformer/core/backend.hpp"
 
 #include <cstddef>
 #include <memory>
 #include <span>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 // Private, backend-owned contiguous storage. Metal uses a persistent shared
 // MTLBuffer so both GPU kernels and the existing host reference operations can
@@ -27,4 +27,4 @@ public:
     [[nodiscard]] virtual std::unique_ptr<TensorStorage> clone() const = 0;
 };
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

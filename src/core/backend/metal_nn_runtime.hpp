@@ -2,7 +2,7 @@
 
 #include "adapter.hpp"
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 // Objective-C++ implementation boundary for neural-network Metal kernels.
 // The public backend adapter remains the single facade; this split keeps the
@@ -65,4 +65,4 @@ void metal_nn_paged_decode_attention_forward(
     const PagedDecodeAttentionForwardRequest& request
 );
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

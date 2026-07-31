@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(
-    transformer_lab
-    VERSION 0.1.0
+    riftco_transformer
+    VERSION 0.2.0
     DESCRIPTION "An auditable dependency-free transformer framework"
     LANGUAGES C CXX
 )
@@ -10,43 +10,43 @@ project(
 include(GNUInstallDirs)
 find_package(Threads REQUIRED)
 
-set(TRANSFORMER_LAB_C_ABI_VERSION 1.8.0)
-string(REPLACE "." ";" transformer_lab_c_abi_components
-    "${TRANSFORMER_LAB_C_ABI_VERSION}"
+set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.0.0)
+string(REPLACE "." ";" riftco_transformer_c_abi_components
+    "${RIFTCO_TRANSFORMER_C_ABI_VERSION}"
 )
-list(LENGTH transformer_lab_c_abi_components
-    transformer_lab_c_abi_component_count
+list(LENGTH riftco_transformer_c_abi_components
+    riftco_transformer_c_abi_component_count
 )
-if(NOT transformer_lab_c_abi_component_count EQUAL 3)
+if(NOT riftco_transformer_c_abi_component_count EQUAL 3)
     message(FATAL_ERROR
-        "TRANSFORMER_LAB_C_ABI_VERSION must have major.minor.patch form"
+        "RIFTCO_TRANSFORMER_C_ABI_VERSION must have major.minor.patch form"
     )
 endif()
-list(GET transformer_lab_c_abi_components 0
-    TRANSFORMER_LAB_C_ABI_SOVERSION
+list(GET riftco_transformer_c_abi_components 0
+    RIFTCO_TRANSFORMER_C_ABI_SOVERSION
 )
-list(GET transformer_lab_c_abi_components 1
-    transformer_lab_c_abi_minor_version
+list(GET riftco_transformer_c_abi_components 1
+    riftco_transformer_c_abi_minor_version
 )
 
 file(STRINGS
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/transformer_lab/c_api.h
-    transformer_lab_c_abi_header_major
-    REGEX "^#define TL_ABI_VERSION_MAJOR "
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/riftco_transformer/c_api.h
+    riftco_transformer_c_abi_header_major
+    REGEX "^#define RT_ABI_VERSION_MAJOR "
 )
 file(STRINGS
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/transformer_lab/c_api.h
-    transformer_lab_c_abi_header_minor
-    REGEX "^#define TL_ABI_VERSION_MINOR "
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/riftco_transformer/c_api.h
+    riftco_transformer_c_abi_header_minor
+    REGEX "^#define RT_ABI_VERSION_MINOR "
 )
-if(NOT transformer_lab_c_abi_header_major
+if(NOT riftco_transformer_c_abi_header_major
        STREQUAL
-       "#define TL_ABI_VERSION_MAJOR UINT32_C(${TRANSFORMER_LAB_C_ABI_SOVERSION})"
-   OR NOT transformer_lab_c_abi_header_minor
+       "#define RT_ABI_VERSION_MAJOR UINT32_C(${RIFTCO_TRANSFORMER_C_ABI_SOVERSION})"
+   OR NOT riftco_transformer_c_abi_header_minor
        STREQUAL
-       "#define TL_ABI_VERSION_MINOR UINT32_C(${transformer_lab_c_abi_minor_version})")
+       "#define RT_ABI_VERSION_MINOR UINT32_C(${riftco_transformer_c_abi_minor_version})")
     message(FATAL_ERROR
-        "CMake C ABI version and c_api.h TL_ABI_VERSION must match"
+        "CMake C ABI version and c_api.h RT_ABI_VERSION must match"
     )
 endif()
 
@@ -60,39 +60,39 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 file(STRINGS
     ${CMAKE_CURRENT_SOURCE_DIR}/pyproject.toml
-    transformer_lab_python_version_line
+    riftco_transformer_python_version_line
     REGEX "^version = \"[0-9]+[.][0-9]+[.][0-9]+\"$"
 )
-if(NOT transformer_lab_python_version_line
+if(NOT riftco_transformer_python_version_line
        STREQUAL "version = \"${PROJECT_VERSION}\"")
     message(FATAL_ERROR
         "CMake and Python package versions must match"
     )
 endif()
 
-include(cmake/TransformerLabWarnings.cmake)
-include(cmake/TransformerLabSanitizers.cmake)
-include(cmake/TransformerLabBackends.cmake)
+include(cmake/RiftcoTransformerWarnings.cmake)
+include(cmake/RiftcoTransformerSanitizers.cmake)
+include(cmake/RiftcoTransformerBackends.cmake)
 
 option(
-    TRANSFORMER_LAB_BUILD_CLI
-    "Build the transformer_lab training executable"
+    RIFTCO_TRANSFORMER_BUILD_CLI
+    "Build the riftco-transformer training executable"
     ${PROJECT_IS_TOP_LEVEL}
 )
 option(
-    TRANSFORMER_LAB_ENABLE_INSTALL
+    RIFTCO_TRANSFORMER_ENABLE_INSTALL
     "Generate install rules and an exported CMake package"
     ${PROJECT_IS_TOP_LEVEL}
 )
 option(
-    TRANSFORMER_LAB_BUILD_PYTHON_WHEEL
+    RIFTCO_TRANSFORMER_BUILD_PYTHON_WHEEL
     "Build and install the native runtime for the Python wheel"
     OFF
 )
 
-add_library(transformer_lab_library STATIC
+add_library(riftco_transformer_library STATIC
     src/config.cpp
-    ${transformer_lab_backend_sources}
+    ${riftco_transformer_backend_sources}
     src/artifacts/state.cpp
     src/core/autograd.cpp
     src/core/tensor.cpp
@@ -131,135 +131,140 @@ add_library(transformer_lab_library STATIC
     src/training/causal_language_model_trainer.cpp
 )
 
-set_target_properties(transformer_lab_library
+set_target_properties(riftco_transformer_library
     PROPERTIES
         CXX_VISIBILITY_PRESET hidden
         OBJCXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN YES
         POSITION_INDEPENDENT_CODE ON
         EXPORT_NAME library
-        OUTPUT_NAME transformer_lab
+        OUTPUT_NAME riftco_transformer
 )
 
-add_library(transformer_lab::library ALIAS transformer_lab_library)
+add_library(riftco_transformer::library ALIAS riftco_transformer_library)
 
-target_include_directories(transformer_lab_library
+target_include_directories(riftco_transformer_library
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_compile_features(transformer_lab_library
+target_compile_features(riftco_transformer_library
     PUBLIC
         cxx_std_20
 )
-target_link_libraries(transformer_lab_library
+target_link_libraries(riftco_transformer_library
     PRIVATE
         Threads::Threads
 )
 
-transformer_lab_enable_warnings(transformer_lab_library)
-transformer_lab_enable_sanitizers(transformer_lab_library)
-transformer_lab_propagate_sanitizer_runtime(transformer_lab_library)
+riftco_transformer_enable_warnings(riftco_transformer_library)
+riftco_transformer_enable_sanitizers(riftco_transformer_library)
+riftco_transformer_propagate_sanitizer_runtime(riftco_transformer_library)
 
-if(TRANSFORMER_LAB_ENABLE_METAL)
-    target_link_libraries(transformer_lab_library
+if(RIFTCO_TRANSFORMER_ENABLE_METAL)
+    target_link_libraries(riftco_transformer_library
         PUBLIC
             "-framework Foundation"
             "-framework Metal"
     )
 endif()
 
-add_library(transformer_lab_c SHARED
+add_library(riftco_transformer_c SHARED
     src/c_api.cpp
 )
 
-add_library(transformer_lab::c_api ALIAS transformer_lab_c)
+add_library(riftco_transformer::c_api ALIAS riftco_transformer_c)
 
-target_compile_definitions(transformer_lab_c
+target_compile_definitions(riftco_transformer_c
     PRIVATE
-        TRANSFORMER_LAB_C_EXPORTS
+        RIFTCO_TRANSFORMER_C_EXPORTS
 )
 
-target_include_directories(transformer_lab_c
+target_include_directories(riftco_transformer_c
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
-target_compile_features(transformer_lab_c
+target_compile_features(riftco_transformer_c
     INTERFACE
         c_std_11
 )
 
-target_link_libraries(transformer_lab_c
+target_link_libraries(riftco_transformer_c
     PRIVATE
-        transformer_lab::library
+        riftco_transformer::library
 )
 
-set_target_properties(transformer_lab_c
+set_target_properties(riftco_transformer_c
     PROPERTIES
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN YES
         EXPORT_NAME c_api
-        OUTPUT_NAME transformer_lab_c
+        OUTPUT_NAME riftco_transformer_c
 )
 
-if(NOT TRANSFORMER_LAB_BUILD_PYTHON_WHEEL)
-    set_target_properties(transformer_lab_c
+if(NOT RIFTCO_TRANSFORMER_BUILD_PYTHON_WHEEL)
+    set_target_properties(riftco_transformer_c
         PROPERTIES
-            VERSION ${TRANSFORMER_LAB_C_ABI_VERSION}
-            SOVERSION ${TRANSFORMER_LAB_C_ABI_SOVERSION}
+            VERSION ${RIFTCO_TRANSFORMER_C_ABI_VERSION}
+            SOVERSION ${RIFTCO_TRANSFORMER_C_ABI_SOVERSION}
     )
 endif()
 
-transformer_lab_enable_warnings(transformer_lab_c)
-transformer_lab_enable_sanitizers(transformer_lab_c)
-transformer_lab_propagate_sanitizer_runtime(transformer_lab_c)
+riftco_transformer_enable_warnings(riftco_transformer_c)
+riftco_transformer_enable_sanitizers(riftco_transformer_c)
+riftco_transformer_propagate_sanitizer_runtime(riftco_transformer_c)
 
-if(TRANSFORMER_LAB_BUILD_CLI)
-    add_executable(transformer_lab
+if(RIFTCO_TRANSFORMER_BUILD_CLI)
+    add_executable(riftco_transformer_cli
         apps/pretraining/train.cpp
     )
 
-    target_link_libraries(transformer_lab
+    target_link_libraries(riftco_transformer_cli
         PRIVATE
-            transformer_lab::library
+            riftco_transformer::library
     )
 
-    transformer_lab_enable_warnings(transformer_lab)
-    transformer_lab_enable_sanitizers(transformer_lab)
+    set_target_properties(riftco_transformer_cli
+        PROPERTIES
+            OUTPUT_NAME riftco-transformer
+    )
+
+    riftco_transformer_enable_warnings(riftco_transformer_cli)
+    riftco_transformer_enable_sanitizers(riftco_transformer_cli)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
     include(CTest)
-    set(transformer_lab_tests_default ${BUILD_TESTING})
+    set(riftco_transformer_tests_default ${BUILD_TESTING})
 else()
-    set(transformer_lab_tests_default OFF)
+    set(riftco_transformer_tests_default OFF)
 endif()
 option(
-    TRANSFORMER_LAB_BUILD_TESTS
-    "Build transformer_lab's own test suite"
-    ${transformer_lab_tests_default}
+    RIFTCO_TRANSFORMER_BUILD_TESTS
+    "Build riftco_transformer's own test suite"
+    ${riftco_transformer_tests_default}
 )
 
-if(TRANSFORMER_LAB_BUILD_TESTS)
+if(RIFTCO_TRANSFORMER_BUILD_TESTS)
     if(NOT PROJECT_IS_TOP_LEVEL)
         enable_testing()
     endif()
     add_subdirectory(tests)
-    target_compile_definitions(transformer_lab_c
+    target_compile_definitions(riftco_transformer_c
         PRIVATE
-            TRANSFORMER_LAB_C_API_TESTING
+            RIFTCO_TRANSFORMER_C_API_TESTING
     )
     target_compile_definitions(c_api_tests
         PRIVATE
-            TRANSFORMER_LAB_C_API_TESTING
+            RIFTCO_TRANSFORMER_C_API_TESTING
     )
 endif()
 
-if(TRANSFORMER_LAB_ENABLE_INSTALL OR
-   TRANSFORMER_LAB_BUILD_PYTHON_WHEEL)
-    include(cmake/TransformerLabInstall.cmake)
+if(RIFTCO_TRANSFORMER_ENABLE_INSTALL OR
+   RIFTCO_TRANSFORMER_BUILD_PYTHON_WHEEL)
+    include(cmake/RiftcoTransformerInstall.cmake)
 endif()

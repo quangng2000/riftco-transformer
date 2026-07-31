@@ -1,15 +1,15 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(transformer_lab_package_consumer LANGUAGES C CXX)
+project(riftco_transformer_package_consumer LANGUAGES C CXX)
 
-find_package(transformer_lab 0.1 CONFIG REQUIRED)
+find_package(riftco_transformer 0.2 CONFIG REQUIRED)
 
 add_executable(cpp_package_consumer
     cpp_consumer.cpp
 )
 target_link_libraries(cpp_package_consumer
     PRIVATE
-        transformer_lab::library
+        riftco_transformer::library
 )
 
 add_executable(c_package_consumer
@@ -17,7 +17,7 @@ add_executable(c_package_consumer
 )
 target_link_libraries(c_package_consumer
     PRIVATE
-        transformer_lab::c_api
+        riftco_transformer::c_api
 )
 
 add_executable(cpp_c_api_package_consumer
@@ -25,7 +25,7 @@ add_executable(cpp_c_api_package_consumer
 )
 target_link_libraries(cpp_c_api_package_consumer
     PRIVATE
-        transformer_lab::c_api
+        riftco_transformer::c_api
 )
 
 if(WIN32)
@@ -37,7 +37,7 @@ if(WIN32)
             POST_BUILD
             COMMAND
                 ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:transformer_lab::c_api>
+                $<TARGET_FILE:riftco_transformer::c_api>
                 $<TARGET_FILE_DIR:${consumer}>
             VERBATIM
         )

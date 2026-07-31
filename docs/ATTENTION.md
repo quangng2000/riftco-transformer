@@ -194,23 +194,23 @@ future forwards:
 
 ```cpp
 std::mt19937 random(7);
-transformer_lab::DecoderOnlyTransformer model(
+riftco_transformer::DecoderOnlyTransformer model(
     dimensions,
     random,
     1.0e-5F,
-    transformer_lab::FullSequenceAttentionKind::Flash
+    riftco_transformer::FullSequenceAttentionKind::Flash
 );
 
 model.set_full_sequence_attention_kind(
-    transformer_lab::FullSequenceAttentionKind::Materialized
+    riftco_transformer::FullSequenceAttentionKind::Materialized
 );
 ```
 
-C ABI 1.7 adds stable
-`TL_FULL_SEQUENCE_ATTENTION_MATERIALIZED` and
-`TL_FULL_SEQUENCE_ATTENTION_FLASH` values plus
-`tl_model_set_full_sequence_attention` and
-`tl_model_full_sequence_attention`.
+C ABI 2.0 exposes stable
+`RT_FULL_SEQUENCE_ATTENTION_MATERIALIZED` and
+`RT_FULL_SEQUENCE_ATTENTION_FLASH` values plus
+`rt_model_set_full_sequence_attention` and
+`rt_model_full_sequence_attention`.
 
 Python exposes the same runtime policy:
 

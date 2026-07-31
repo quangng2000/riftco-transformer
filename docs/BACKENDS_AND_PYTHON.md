@@ -4,7 +4,7 @@ The backend layer owns tensor storage and focused accelerated operations
 without changing the transformer or autograd equations:
 
 ```text
-Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 1.8
+Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 2.0
                                          │
                                          ▼
                                 public C++ operations
@@ -39,7 +39,7 @@ backend even if the calling thread's construction default changes before
 The training executable accepts:
 
 ```bash
-./build/release/transformer_lab \
+./build/release/riftco-transformer \
   --config configs/tiny.conf \
   --steps 20 \
   --backend cpu \
@@ -50,7 +50,7 @@ The training executable accepts:
 On a Metal-capable Mac:
 
 ```bash
-./build/release/transformer_lab \
+./build/release/riftco-transformer \
   --config configs/tiny.conf \
   --steps 20 \
   --backend metal \
@@ -67,14 +67,14 @@ retention independently of both selectors.
 The public C++ default-selection interface is:
 
 ```cpp
-#include "transformer_lab/core/backend.hpp"
+#include "riftco_transformer/core/backend.hpp"
 
-using transformer_lab::ExecutionBackend;
+using riftco_transformer::ExecutionBackend;
 
-if (transformer_lab::execution_backend_available(
+if (riftco_transformer::execution_backend_available(
         ExecutionBackend::Metal
     )) {
-    const transformer_lab::ScopedExecutionBackend use_metal(
+    const riftco_transformer::ScopedExecutionBackend use_metal(
         ExecutionBackend::Metal
     );
     // Tensors and modules constructed in this scope default to Metal.
@@ -172,7 +172,7 @@ can be tested explicitly:
 
 ```bash
 cmake -S . -B build/stub \
-  -DTRANSFORMER_LAB_ENABLE_METAL=OFF
+  -DRIFTCO_TRANSFORMER_ENABLE_METAL=OFF
 cmake --build build/stub
 ctest --test-dir build/stub --output-on-failure
 ```
@@ -304,15 +304,15 @@ rollover.
 The language-neutral header is:
 
 ```text
-include/transformer_lab/c_api.h
+include/riftco_transformer/c_api.h
 ```
 
 It builds as:
 
 ```text
-libtransformer_lab_c.dylib   macOS
-libtransformer_lab_c.so      Linux
-transformer_lab_c.dll        Windows
+libriftco_transformer_c.dylib   macOS
+libriftco_transformer_c.so      Linux
+riftco_transformer_c.dll        Windows
 ```
 
 The ABI uses:
@@ -339,11 +339,11 @@ Model-derived handles share native model ownership. An already-created decode
 session, parameter list, variable, or Adam optimizer therefore remains valid
 if the caller releases the public model handle. Adam's copied parameter list
 also owns `ParameterHandle` entries; its internal raw `Parameter*` views refer
-to that retained canonical state. `tl_model_to` rejects a transfer while a
+to that retained canonical state. `rt_model_to` rejects a transfer while a
 decode session, variable graph, or optimizer is alive, preventing backend
 drift under caches, saved graphs, and optimizer moments.
 
-The C training graph is single-use. A successful `tl_variable_backward`
+The C training graph is single-use. A successful `rt_variable_backward`
 consumes the shared graph, and a successful Adam step advances the model's
 parameter epoch so any older, unconsumed graph is rejected. This makes stale
 graph mistakes explicit while preserving the normal
@@ -356,52 +356,26 @@ flight. Python uses one shared reentrant lock for a model and its derived
 objects, which is why its concurrent `close()` behavior is stronger than the
 raw C contract.
 
-ABI version `0x00010008` represents version 1.8: the upper 16 bits are the
-major and the lower 16 bits are the minor. A major change may break callers;
-a minor change may only add compatible API. Clients accept the same major and
-an equal or newer minor. Published status and backend integer values must
-never be renumbered. CMake checks the public header's major/minor against the
-shared-library version during configuration so their metadata cannot drift.
+ABI version `0x00020000` represents version 2.0: the upper 16 bits are the
+major and the lower 16 bits are the minor. Version 2.0 is an intentional
+breaking namespace reset. It exports only the `rt_` function/type prefix and
+`RT_` constants; no legacy symbol-prefix aliases are provided. Future major
+changes may break callers, while a minor change may only add compatible API.
+Clients accept the same major and an equal or newer minor. Published status and
+backend integer values must never be renumbered. CMake checks the public
+header's major/minor against the shared-library version during configuration
+so their metadata cannot drift.
 
-ABI 1.2 added the immutable `tl_tokenizer` handle and binary-safe
-encode/decode size-query APIs. ABI 1.3 adds a size-versioned
-`tl_tokenizer_options`, stable byte/BPE method values, selectable construction,
-method inspection, and a per-token byte-piece query. The original
-`tl_tokenizer_create` remains byte-compatible.
-
-ABI 1.4 adds exact byte-vocabulary and ordered-BPE-merge reconstruction,
-ordered BPE-merge inspection, parameter rank/shape/element-count inspection,
-and deterministic flattened float32 parameter copy/load. Parameter loading is
-transactional, clears gradients, and is rejected while a graph or optimizer
-derived from the model is alive. These additions are the native persistence
-boundary used by Python `ModelBundle`.
-
-ABI 1.5 adds the size-versioned LoRA configuration, stable projection-target
-mask values, adapter attachment and inspection, adapter-only parameter-list
-access for Adam, and one-way merge into base weights. Base parameter names and
-ordering remain unchanged while an adapter is attached. Merge is rejected
-while a variable graph, optimizer, or adapter parameter-list handle is alive.
-
-ABI 1.6 adds a size-versioned decode-session configuration, stable contiguous
-and paged cache-kind values, and the opaque `tl_decode_session` lifecycle. A
-session appends one token per `tl_decode_session_step` and returns the logits
-for the following token. Size, capacity, cache kind, block size, reset, and
-release are explicit. A live session pins its model backend and parameter
-epoch; transfer, parameter loading, LoRA lifecycle changes, and Adam updates
-are rejected until all sessions derived from that model are released.
-
-ABI 1.7 adds stable materialized/Flash full-sequence-attention values plus
-`tl_model_set_full_sequence_attention` and
-`tl_model_full_sequence_attention`. This runtime policy changes future
-full-sequence model forwards without changing weights, artifact schemas, or
-the separate decode-session cache policy.
-
-ABI 1.8 adds stable disabled/transformer-block activation-checkpointing values
-plus `tl_model_set_activation_checkpointing` and
-`tl_model_activation_checkpointing`. This is another future-forward runtime
-policy, so `tl_transformer_config` and the persisted model-state schema remain
-unchanged. Stage pipelines record the selection in descriptive training
-metadata. Decode sessions ignore it.
+The 2.0 surface includes immutable byte/BPE tokenizer handles and binary-safe
+size-query APIs; exact tokenizer reconstruction; deterministic named-parameter
+inspection and transactional float32 copy/load; LoRA attachment, adapter-only
+optimization, and one-way merge; contiguous and paged decode sessions;
+materialized or Flash full-sequence attention; and disabled or block-level
+activation checkpointing. A live decode session pins its model backend and
+parameter epoch. Parameter loading, transfer, LoRA lifecycle changes, and Adam
+updates are rejected while derived state would make the operation unsafe.
+Attention and checkpointing are runtime policies: they do not change weights,
+the persisted artifact schema, or the separate decode-session cache policy.
 
 Tokenizer selection is independent from execution-backend selection. A native
 factory maps the stable method value to a strategy behind one tokenizer
@@ -411,26 +385,27 @@ without changing model, autograd, backend Adapter, or optimizer contracts.
 This is a source-level built-in extension point, not a third-party tokenizer
 plugin ABI.
 
-`tl_tokenizer_options_init`, `tl_transformer_config_init`,
-`tl_lora_config_init`, `tl_decode_session_options_init`, and
-`tl_adam_options_init` receive the caller's actual structure size. Their
+`rt_tokenizer_options_init`, `rt_transformer_config_init`,
+`rt_lora_config_init`, `rt_decode_session_options_init`, and
+`rt_adam_options_init` receive the caller's actual structure size. Their
 fields use explicit fixed-width layouts, including reserved words rather than
 ambiguous tail padding. Future additive minors can inspect the supplied size
 without overwriting an older caller's smaller allocation.
 
-The shared library also carries ABI major version `1` in its platform library
-metadata. CMake install exports `transformer_lab::c_api` and
-`transformer_lab::library`; the private adapter interface is not exported.
+The shared library also carries ABI major version `2` in its platform library
+metadata. CMake install exports `riftco_transformer::c_api` and
+`riftco_transformer::library`; the private adapter interface is not exported.
 
 ## Python client
 
-The runtime-dependency-free client in `transformer_lab.native` uses `ctypes`;
-the package root re-exports this low-level API for compatibility. A released
-platform wheel bundles this same C ABI implementation rather than substituting
-a separate Python numerical path:
+The runtime-dependency-free client in `riftco_transformer.native` uses
+`ctypes`; the package root re-exports this public low-level API without
+installing a legacy package-name alias. A released platform wheel bundles this
+same C ABI implementation rather than substituting a separate Python numerical
+path:
 
 ```python
-from transformer_lab import Context, Tensor, backend_available
+from riftco_transformer import Context, Tensor, backend_available
 
 backend = "metal" if backend_available("metal") else "cpu"
 
@@ -460,7 +435,7 @@ Output:
 The same package exposes the high-level native training objects:
 
 ```python
-from transformer_lab import (
+from riftco_transformer import (
     Adam,
     DecoderOnlyTransformer,
     Tokenizer,
@@ -543,21 +518,21 @@ After a release has been published to PyPI, a normal installation is:
 
 ```bash
 python3 -m pip install riftco-transformer
-python3 -c "from transformer_lab import Context; print(Context().backend)"
+python3 -c "from riftco_transformer import Context; print(Context().backend)"
 ```
 
-Each wheel installs its native library under `transformer_lab/.libs`:
+Each wheel installs its native library under `riftco_transformer/.libs`:
 
 ```text
-transformer_lab/.libs/libtransformer_lab_c.so       Linux
-transformer_lab/.libs/libtransformer_lab_c.dylib    macOS
-transformer_lab/.libs/transformer_lab_c.dll          Windows
+riftco_transformer/.libs/libriftco_transformer_c.so       Linux
+riftco_transformer/.libs/libriftco_transformer_c.dylib    macOS
+riftco_transformer/.libs/riftco_transformer_c.dll          Windows
 ```
 
 The library contains the statically linked framework implementation behind the
 stable C ABI. The installed package has no third-party runtime dependencies;
 users of a matching wheel do not need CMake, a C++ compiler, a system-wide
-native installation, or `TRANSFORMER_LAB_LIBRARY`.
+native installation, or `RIFTCO_TRANSFORMER_LIBRARY`.
 
 The initial binary matrix provides Linux `x86_64` and `aarch64` wheels for
 both glibc (`manylinux`) and musl (`musllinux`), macOS `x86_64` and `arm64`,
@@ -585,11 +560,11 @@ cmake --preset debug
 cmake --build --preset debug
 
 PYTHONPATH=python \
-TRANSFORMER_LAB_LIBRARY=build/debug/libtransformer_lab_c.dylib \
+RIFTCO_TRANSFORMER_LIBRARY=build/debug/libriftco_transformer_c.dylib \
 python3 tests/python/test_python_binding.py
 ```
 
-`TRANSFORMER_LAB_LIBRARY` is an advanced override and takes precedence when it
+`RIFTCO_TRANSFORMER_LIBRARY` is an advanced override and takes precedence when it
 is set. Without it, the loader searches the package-local `.libs` directory,
 standard project build directories (release before debug), and then the system
 library path. It recognizes the configuration postfixes emitted by
@@ -621,7 +596,7 @@ Native operations and `close()` synchronize handle lifetimes, so a concurrent
 close cannot free a handle during an in-flight call. Model-derived objects
 share the model lock and native owner. Native tensors remain valid after their
 context closes, and a decode session, loss, or optimizer remains valid after
-its public model handle closes. Native failures raise `TensorLabError` with
+its public model handle closes. Native failures raise `RiftcoTransformerError` with
 both a stable status code and the copied thread-local diagnostic.
 
 Construct a fresh logits/loss graph for every update. Calling `backward()`
@@ -674,7 +649,7 @@ The intended validation matrix is:
 | Debug with real Metal when available | Assertions, CPU reference tests, Metal kernel routing, and full-model training |
 | Release | Optimized-build behavior and ABI/Python execution |
 | ASan + UBSan | Host memory, lifetime, and undefined-behavior checks around the same interfaces |
-| `TRANSFORMER_LAB_ENABLE_METAL=OFF` | Deterministic recognized-but-unavailable stub behavior |
+| `RIFTCO_TRANSFORMER_ENABLE_METAL=OFF` | Deterministic recognized-but-unavailable stub behavior |
 | Installed-package consumer | Public C++ and C targets without private Adapter headers |
 
 Metal comparisons use documented absolute/relative tolerances. Different

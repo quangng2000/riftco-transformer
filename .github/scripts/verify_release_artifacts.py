@@ -94,12 +94,12 @@ def platform_family(platform_tag: str) -> str:
 
 def expected_library(family: str) -> str:
     if family.startswith("linux-"):
-        filename = "libtransformer_lab_c.so"
+        filename = "libriftco_transformer_c.so"
     elif family.startswith("macos-"):
-        filename = "libtransformer_lab_c.dylib"
+        filename = "libriftco_transformer_c.dylib"
     else:
-        filename = "transformer_lab_c.dll"
-    return f"transformer_lab/.libs/{filename}"
+        filename = "riftco_transformer_c.dll"
+    return f"riftco_transformer/.libs/{filename}"
 
 
 def verify_wheel(
@@ -122,10 +122,15 @@ def verify_wheel(
 
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
+        legacy_package = ("transformer" + "_" + "lab") + "/"
+        if any(name.startswith(legacy_package) for name in names):
+            fail(f"{wheel.name} contains the removed legacy Python package")
+        if "riftco_transformer/__init__.py" not in names:
+            fail(f"{wheel.name} is missing the canonical Python package")
         native_entries = [
             name
             for name in names
-            if name.startswith("transformer_lab/.libs/")
+            if name.startswith("riftco_transformer/.libs/")
             and not name.endswith("/")
         ]
         required_library = expected_library(family)
@@ -201,13 +206,16 @@ def verify_sdist(
         "/PKG-INFO",
         "/pyproject.toml",
         "/src/c_api.cpp",
-        "/python/transformer_lab/native/bindings.py",
+        "/python/riftco_transformer/native/bindings.py",
     }
     archive_root = f"{distribution_name}-{version}"
     license_name = f"{archive_root}/{EXPECTED_LICENSE_FILE}"
     package_metadata_name = f"{archive_root}/PKG-INFO"
     with tarfile.open(sdist, mode="r:gz") as archive:
         names = archive.getnames()
+        legacy_source = "/python/" + ("transformer" + "_" + "lab") + "/"
+        if any(legacy_source in name for name in names):
+            fail("source distribution contains the removed legacy package")
         members = {member.name: member for member in archive.getmembers()}
         license_names = [
             name

@@ -1,10 +1,10 @@
-#include "transformer_lab/stages/serving/config.hpp"
+#include "riftco_transformer/stages/serving/config.hpp"
 
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
 
-namespace transformer_lab::stages::serving {
+namespace riftco_transformer::stages::serving {
 namespace {
 
 void validate_backend(ExecutionBackend backend) {
@@ -58,4 +58,4 @@ void ServingConfig::validate() const {
     }
 }
 
-}  // namespace transformer_lab::stages::serving
+}  // namespace riftco_transformer::stages::serving

@@ -94,7 +94,7 @@ python3 -m pip install .
 
 After a release is published, `python3 -m pip install riftco-transformer` installs
 the matching self-contained platform wheel instead. Neither installation adds
-third-party runtime dependencies. `TRANSFORMER_LAB_LIBRARY` remains available
+third-party runtime dependencies. `RIFTCO_TRANSFORMER_LIBRARY` remains available
 only as an explicit override for testing a particular local native build.
 
 Inspect the exact preparation controls at any time:
@@ -138,7 +138,7 @@ python3 examples/python/pretrain_stage.py \
   --file data/external/huggingface/tinystories-train/train.txt \
   --validation-file \
     data/external/huggingface/tinystories-validation/validation.txt \
-  --output results/stages/tinystories_pretrained.tlab \
+  --output results/stages/tinystories_pretrained.rift \
   --backend cpu \
   --steps 100 \
   --context 32 \
@@ -195,7 +195,7 @@ Run the controlled rank sweep from the same immutable pretrained artifact:
 
 ```bash
 python3 examples/python/compare_lora_ranks.py \
-  --base results/stages/tinystories_pretrained.tlab \
+  --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
   --output results/experiments/dolly-lora-ranks \
   --ranks 1,2,4,8 \

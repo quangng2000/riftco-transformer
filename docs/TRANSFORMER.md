@@ -234,12 +234,12 @@ The caller-owned optimizer consumes the model's named parameter list after
 ## Source and tests
 
 ```text
-include/transformer_lab/model/transformer_block.hpp
-include/transformer_lab/model/activation_checkpointing.hpp
+include/riftco_transformer/model/transformer_block.hpp
+include/riftco_transformer/model/activation_checkpointing.hpp
 src/model/transformer_block.cpp
 tests/model/test_transformer_block.cpp
 
-include/transformer_lab/model/decoder_only_transformer.hpp
+include/riftco_transformer/model/decoder_only_transformer.hpp
 src/model/decoder_only_transformer.cpp
 tests/model/test_decoder_only_transformer.cpp
 ```

@@ -2,7 +2,7 @@
 
 #include "core/backend/attention/contracts.hpp"
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 void reference_materialized_causal_attention_forward(
     const MaterializedCausalAttentionForwardRequest& request
@@ -14,4 +14,4 @@ void reference_materialized_causal_attention_probabilities_backward(
     const MaterializedCausalAttentionProbabilitiesBackwardRequest& request
 );
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

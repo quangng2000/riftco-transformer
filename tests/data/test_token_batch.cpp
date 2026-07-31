@@ -1,4 +1,4 @@
-#include "transformer_lab/data/token_batch.hpp"
+#include "riftco_transformer/data/token_batch.hpp"
 
 #include <array>
 #include <exception>
@@ -12,8 +12,8 @@
 
 namespace {
 
-using transformer_lab::TokenBatch;
-using transformer_lab::TokenId;
+using riftco_transformer::TokenBatch;
+using riftco_transformer::TokenId;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -51,7 +51,7 @@ void test_shifted_next_token_windows() {
         0, 1, 2, 3, 4, 5, 6, 7, 8,
     };
     const std::array<std::size_t, 2> starts{0, 3};
-    const TokenBatch batch = transformer_lab::make_next_token_batch(
+    const TokenBatch batch = riftco_transformer::make_next_token_batch(
         tokens,
         starts,
         3
@@ -96,7 +96,7 @@ void test_explicit_overlapping_and_boundary_windows() {
     };
     const std::array<std::size_t, 3> starts{2, 2, 1};
     const TokenBatch overlapping =
-        transformer_lab::make_next_token_batch(tokens, starts, 2);
+        riftco_transformer::make_next_token_batch(tokens, starts, 2);
 
     require_tokens(
         overlapping.inputs(),
@@ -111,7 +111,7 @@ void test_explicit_overlapping_and_boundary_windows() {
 
     const std::array<std::size_t, 1> boundary_start{6};
     const TokenBatch boundary =
-        transformer_lab::make_next_token_batch(
+        riftco_transformer::make_next_token_batch(
             tokens,
             boundary_start,
             2
@@ -138,7 +138,7 @@ void test_seeded_random_sampling_is_deterministic() {
     for (std::size_t row = 0; row < batch_size; ++row) {
         expected_starts.push_back(start_distribution(expected_random));
     }
-    const TokenBatch expected = transformer_lab::make_next_token_batch(
+    const TokenBatch expected = riftco_transformer::make_next_token_batch(
         tokens,
         expected_starts,
         context_size
@@ -146,7 +146,7 @@ void test_seeded_random_sampling_is_deterministic() {
 
     std::mt19937 random(seed);
     const TokenBatch sampled =
-        transformer_lab::sample_next_token_batch(
+        riftco_transformer::sample_next_token_batch(
             tokens,
             batch_size,
             context_size,
@@ -175,7 +175,7 @@ void test_seeded_random_sampling_is_deterministic() {
 
     std::mt19937 replay_random(seed);
     const TokenBatch replay =
-        transformer_lab::sample_next_token_batch(
+        riftco_transformer::sample_next_token_batch(
             tokens,
             batch_size,
             context_size,
@@ -203,7 +203,7 @@ void test_random_sampling_exact_window_uses_replacement() {
     const std::vector<TokenId> tokens{20, 21, 22, 23};
     std::mt19937 random(99U);
     const TokenBatch batch =
-        transformer_lab::sample_next_token_batch(
+        riftco_transformer::sample_next_token_batch(
             tokens,
             4,
             3,
@@ -243,7 +243,7 @@ void test_random_sampling_errors() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::sample_next_token_batch(
+                riftco_transformer::sample_next_token_batch(
                     tokens,
                     0,
                     2,
@@ -256,7 +256,7 @@ void test_random_sampling_errors() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::sample_next_token_batch(
+                riftco_transformer::sample_next_token_batch(
                     tokens,
                     2,
                     0,
@@ -269,7 +269,7 @@ void test_random_sampling_errors() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::sample_next_token_batch(
+                riftco_transformer::sample_next_token_batch(
                     tokens,
                     2,
                     tokens.size(),
@@ -284,7 +284,7 @@ void test_random_sampling_errors() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::sample_next_token_batch(
+                riftco_transformer::sample_next_token_batch(
                     empty_tokens,
                     1,
                     1,
@@ -306,7 +306,7 @@ void test_batch_errors() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::make_next_token_batch(
+                riftco_transformer::make_next_token_batch(
                     tokens,
                     no_starts,
                     2
@@ -318,7 +318,7 @@ void test_batch_errors() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::make_next_token_batch(
+                riftco_transformer::make_next_token_batch(
                     tokens,
                     valid_start,
                     0
@@ -330,7 +330,7 @@ void test_batch_errors() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::make_next_token_batch(
+                riftco_transformer::make_next_token_batch(
                     tokens,
                     too_late_start,
                     2
@@ -342,7 +342,7 @@ void test_batch_errors() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::make_next_token_batch(
+                riftco_transformer::make_next_token_batch(
                     tokens,
                     beyond_end_start,
                     1

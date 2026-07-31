@@ -4,7 +4,7 @@
 #include <limits>
 #include <stdexcept>
 
-namespace transformer_lab::stages::serving::cache_detail {
+namespace riftco_transformer::stages::serving::cache_detail {
 
 TransformerDimensions checked_dimensions(
     TransformerDimensions dimensions
@@ -81,4 +81,4 @@ std::size_t checked_block_count(
     return resolved;
 }
 
-}  // namespace transformer_lab::stages::serving::cache_detail
+}  // namespace riftco_transformer::stages::serving::cache_detail

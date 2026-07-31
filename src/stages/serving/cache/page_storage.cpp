@@ -6,7 +6,7 @@
 #include <limits>
 #include <stdexcept>
 
-namespace transformer_lab::stages::serving::cache_detail {
+namespace riftco_transformer::stages::serving::cache_detail {
 
 PageStorage::PageStorage(
     TransformerDimensions dimensions,
@@ -135,4 +135,4 @@ bool PageStorage::is_pooled() const noexcept {
     return allocation_ == PageAllocation::Pooled;
 }
 
-}  // namespace transformer_lab::stages::serving::cache_detail
+}  // namespace riftco_transformer::stages::serving::cache_detail

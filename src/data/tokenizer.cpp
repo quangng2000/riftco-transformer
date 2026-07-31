@@ -1,4 +1,4 @@
-#include "transformer_lab/data/tokenizer.hpp"
+#include "riftco_transformer/data/tokenizer.hpp"
 
 #include <algorithm>
 #include <array>
@@ -11,7 +11,7 @@
 #include <system_error>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 static_assert(
@@ -529,4 +529,4 @@ std::unique_ptr<TokenizerStrategy> make_tokenizer(
     }
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

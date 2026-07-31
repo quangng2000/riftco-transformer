@@ -1,10 +1,10 @@
-#include "transformer_lab/nn/initialization.hpp"
+#include "riftco_transformer/nn/initialization.hpp"
 
 #include <cmath>
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 
 Tensor uniform_tensor(
     Tensor::Shape shape,
@@ -86,4 +86,4 @@ Tensor xavier_uniform(
     );
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

@@ -11,13 +11,13 @@ from unittest import mock
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "python"))
 
-from transformer_lab import (  # noqa: E402
+from riftco_transformer import (  # noqa: E402
     DecoderOnlyTransformer,
     Tokenizer,
     TransformerConfig,
     backend_available,
 )
-from transformer_lab.generation import (  # noqa: E402
+from riftco_transformer.serving import (  # noqa: E402
     GreedySampler,
     TemperatureSampler,
     TextGenerator,

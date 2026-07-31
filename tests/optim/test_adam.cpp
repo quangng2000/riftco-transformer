@@ -1,7 +1,7 @@
 #include "core/backend/metal_diagnostics.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/nn/loss.hpp"
-#include "transformer_lab/optim/adam.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/nn/loss.hpp"
+#include "riftco_transformer/optim/adam.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -17,22 +17,22 @@
 
 namespace {
 
-using transformer_lab::Adam;
-using transformer_lab::AdamOptions;
-using transformer_lab::AdamStepStats;
-using transformer_lab::DecoderOnlyTransformer;
-using transformer_lab::ExecutionBackend;
-using transformer_lab::NamedParameter;
-using transformer_lab::Parameter;
-using transformer_lab::ParameterList;
-using transformer_lab::Tensor;
-using transformer_lab::TokenId;
-using transformer_lab::Variable;
-using transformer_lab::cross_entropy;
-using transformer_lab::global_gradient_norm;
-using transformer_lab::move_parameters_to;
-using transformer_lab::backend_detail::metal_adam_path_counts;
-using transformer_lab::backend_detail::reset_metal_adam_path_counts;
+using riftco_transformer::Adam;
+using riftco_transformer::AdamOptions;
+using riftco_transformer::AdamStepStats;
+using riftco_transformer::DecoderOnlyTransformer;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::NamedParameter;
+using riftco_transformer::Parameter;
+using riftco_transformer::ParameterList;
+using riftco_transformer::Tensor;
+using riftco_transformer::TokenId;
+using riftco_transformer::Variable;
+using riftco_transformer::cross_entropy;
+using riftco_transformer::global_gradient_norm;
+using riftco_transformer::move_parameters_to;
+using riftco_transformer::backend_detail::metal_adam_path_counts;
+using riftco_transformer::backend_detail::reset_metal_adam_path_counts;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -409,7 +409,7 @@ void test_parameter_transfer_and_gradient_backend() {
         "bulk transfer should reject null parameters"
     );
 
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -445,7 +445,7 @@ void test_parameter_transfer_and_gradient_backend() {
         "backend-changing transfer resets the first gradient"
     );
 
-    const Variable objective = transformer_lab::sum(
+    const Variable objective = riftco_transformer::sum(
         first.variable() * first.variable()
     );
     require(
@@ -482,7 +482,7 @@ void test_parameter_transfer_and_gradient_backend() {
 }
 
 void test_adam_backend_validation_if_metal_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -543,7 +543,7 @@ void test_adam_backend_validation_if_metal_available() {
 void test_cpu_metal_adam_parity_if_available() {
     const AdamBackendTrace cpu =
         run_multi_tensor_adam(ExecutionBackend::Cpu);
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -593,7 +593,7 @@ void test_cpu_metal_adam_parity_if_available() {
 }
 
 void test_metal_fused_path_if_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -673,7 +673,7 @@ ExtremeAdamResult run_extreme_adam(
 }
 
 void test_metal_extreme_clipping_if_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -847,7 +847,7 @@ float run_cancellation_adam(ExecutionBackend backend) {
 }
 
 void test_metal_cancellation_retry_if_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -921,7 +921,7 @@ TwoParameterValues run_mixed_safety_adam(
 }
 
 void test_metal_batch_reference_retry_if_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;
@@ -1768,7 +1768,7 @@ int main() {
         test_update_overflow_failure_is_atomic(
             ExecutionBackend::Cpu
         );
-        if (transformer_lab::execution_backend_available(
+        if (riftco_transformer::execution_backend_available(
                 ExecutionBackend::Metal
             )) {
             test_update_overflow_failure_is_atomic(
@@ -1789,7 +1789,7 @@ int main() {
     }
 
     std::cout << "Adam tests passed";
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         std::cout << " (Metal unavailable; fused parity checks skipped)";

@@ -6,16 +6,16 @@ import argparse
 from pathlib import Path
 import sys
 
-from transformer_lab.pretraining import (
+from riftco_transformer.pretraining import (
     PretrainingConfig,
     pretrain_file,
     pretrain_files,
 )
-from transformer_lab.training import TrainingMetric
+from riftco_transformer.training import TrainingMetric
 
 
 DEFAULT_CORPUS = Path("data/pretraining/tiny_corpus.txt")
-DEFAULT_OUTPUT = Path("results/stages/tiny_pretrained.tlab")
+DEFAULT_OUTPUT = Path("results/stages/tiny_pretrained.rift")
 
 
 def positive_integer(value: str) -> int:
@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
-        help=f"Destination .tlab artifact (default: {DEFAULT_OUTPUT}).",
+        help=f"Destination .rift artifact (default: {DEFAULT_OUTPUT}).",
     )
     parser.add_argument(
         "--backend",

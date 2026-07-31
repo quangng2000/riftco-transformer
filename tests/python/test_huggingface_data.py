@@ -11,8 +11,8 @@ from urllib.error import URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request
 
-from transformer_lab._atomic_publish import publish_directory_no_replace
-from transformer_lab.data import (
+from riftco_transformer._atomic_publish import publish_directory_no_replace
+from riftco_transformer.data import (
     DOLLY_15K,
     HH_RLHF,
     TINY_STORIES,
@@ -30,7 +30,7 @@ from transformer_lab.data import (
     prepare_huggingface_dataset,
     verify_prepared_dataset,
 )
-from transformer_lab.data.client import _RejectRedirectHandler
+from riftco_transformer.data.client import _RejectRedirectHandler
 
 
 class FakeDatasetApiTransport:

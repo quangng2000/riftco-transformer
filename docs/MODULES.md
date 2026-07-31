@@ -24,7 +24,7 @@ and `DecoderOnlyTransformer`.
 A derived module registers owned members in its constructor:
 
 ```cpp
-class ProjectionPair final : public transformer_lab::Module {
+class ProjectionPair final : public riftco_transformer::Module {
 public:
     ProjectionPair(
         std::size_t width,
@@ -36,15 +36,15 @@ public:
         register_module("second", second_);
     }
 
-    [[nodiscard]] transformer_lab::Variable forward(
-        const transformer_lab::Variable& input
+    [[nodiscard]] riftco_transformer::Variable forward(
+        const riftco_transformer::Variable& input
     ) const {
         return second_.forward(first_.forward(input));
     }
 
 private:
-    transformer_lab::Linear first_;
-    transformer_lab::Linear second_;
+    riftco_transformer::Linear first_;
+    riftco_transformer::Linear second_;
 };
 ```
 

@@ -1,9 +1,9 @@
 #pragma once
 
 #include "core/backend/attention/contracts.hpp"
-#include "transformer_lab/core/backend.hpp"
+#include "riftco_transformer/core/backend.hpp"
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 void dispatch_materialized_causal_attention_forward(
     ExecutionBackend backend,
@@ -30,4 +30,4 @@ void dispatch_paged_decode_attention_forward(
     const PagedDecodeAttentionForwardRequest& request
 );
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

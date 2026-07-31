@@ -13,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "python"))
 
-from transformer_lab import (  # noqa: E402
+from riftco_transformer import (  # noqa: E402
     ACTIVATION_CHECKPOINTING_DISABLED,
     ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK,
     Adam,
@@ -31,13 +31,13 @@ from transformer_lab import (  # noqa: E402
     Context,
     DecoderOnlyTransformer,
     Tensor,
-    TensorLabError,
+    RiftcoTransformerError,
     Tokenizer,
     TransformerConfig,
     backend_available,
     cross_entropy,
 )
-from transformer_lab import _abi_version_is_compatible  # noqa: E402
+from riftco_transformer import _abi_version_is_compatible  # noqa: E402
 
 
 class PythonBindingTests(unittest.TestCase):
@@ -47,18 +47,11 @@ class PythonBindingTests(unittest.TestCase):
             raise AssertionError("the CPU backend must be available")
 
     def test_abi_compatibility_policy(self) -> None:
-        self.assertFalse(_abi_version_is_compatible(0x00010002))
-        self.assertFalse(_abi_version_is_compatible(0x00010003))
-        self.assertFalse(_abi_version_is_compatible(0x00010004))
-        self.assertFalse(_abi_version_is_compatible(0x00010005))
-        self.assertFalse(_abi_version_is_compatible(0x00010006))
-        self.assertFalse(_abi_version_is_compatible(0x00010007))
-        self.assertTrue(_abi_version_is_compatible(0x00010008))
-        self.assertTrue(_abi_version_is_compatible(0x00010009))
-        self.assertFalse(_abi_version_is_compatible(0x00010001))
-        self.assertFalse(_abi_version_is_compatible(0x00010000))
-        self.assertFalse(_abi_version_is_compatible(0x000000FF))
-        self.assertFalse(_abi_version_is_compatible(0x00020000))
+        self.assertFalse(_abi_version_is_compatible(0x00010008))
+        self.assertFalse(_abi_version_is_compatible(0x00010009))
+        self.assertTrue(_abi_version_is_compatible(0x00020000))
+        self.assertTrue(_abi_version_is_compatible(0x00020001))
+        self.assertFalse(_abi_version_is_compatible(0x00030000))
 
     def test_tokenizer_deterministic_vocabulary(self) -> None:
         with Tokenizer(b"cab\ncab") as tokenizer:
@@ -171,7 +164,7 @@ class PythonBindingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "BPE"):
                 _ = restored_byte.merge_rules
 
-        with self.assertRaises(TensorLabError):
+        with self.assertRaises(RiftcoTransformerError):
             Tokenizer.from_state(
                 method="bpe",
                 merge_rules=((97, 98, 257),),
@@ -209,7 +202,7 @@ class PythonBindingTests(unittest.TestCase):
             self.assertEqual(tokenizer.encode(""), [])
             self.assertEqual(tokenizer.decode(iter(())), "")
 
-            with self.assertRaises(TensorLabError) as encode_error:
+            with self.assertRaises(RiftcoTransformerError) as encode_error:
                 tokenizer.encode_bytes(b"d")
             self.assertEqual(
                 encode_error.exception.status,
@@ -217,7 +210,7 @@ class PythonBindingTests(unittest.TestCase):
             )
             self.assertIn("absent", encode_error.exception.detail)
 
-            with self.assertRaises(TensorLabError) as decode_error:
+            with self.assertRaises(RiftcoTransformerError) as decode_error:
                 tokenizer.decode_bytes([tokenizer.vocab_size])
             self.assertEqual(
                 decode_error.exception.status,
@@ -225,13 +218,13 @@ class PythonBindingTests(unittest.TestCase):
             )
             self.assertIn("outside", decode_error.exception.detail)
 
-        with self.assertRaises(TensorLabError) as corpus_error:
+        with self.assertRaises(RiftcoTransformerError) as corpus_error:
             Tokenizer(b"")
         self.assertEqual(
             corpus_error.exception.status,
             STATUS_INVALID_ARGUMENT,
         )
-        with self.assertRaises(TensorLabError) as bpe_corpus_error:
+        with self.assertRaises(RiftcoTransformerError) as bpe_corpus_error:
             Tokenizer(b"", method="bpe")
         self.assertEqual(
             bpe_corpus_error.exception.status,
@@ -382,7 +375,7 @@ class PythonBindingTests(unittest.TestCase):
 
     def test_native_errors_become_python_exceptions(self) -> None:
         with Context("cpu") as context:
-            with self.assertRaises(TensorLabError) as creation_error:
+            with self.assertRaises(RiftcoTransformerError) as creation_error:
                 Tensor.from_data(context, (2, 2), [1.0])
             self.assertEqual(
                 creation_error.exception.status,
@@ -392,7 +385,7 @@ class PythonBindingTests(unittest.TestCase):
 
             with Tensor.zeros(context, (2, 3)) as left:
                 with Tensor.zeros(context, (4, 2)) as right:
-                    with self.assertRaises(TensorLabError) as matmul_error:
+                    with self.assertRaises(RiftcoTransformerError) as matmul_error:
                         left @ right
             self.assertEqual(
                 matmul_error.exception.status,
@@ -518,7 +511,7 @@ class PythonBindingTests(unittest.TestCase):
 
     def test_metal_parity_or_unavailable_error(self) -> None:
         if not backend_available("metal"):
-            with self.assertRaises(TensorLabError) as error:
+            with self.assertRaises(RiftcoTransformerError) as error:
                 Context("metal")
             self.assertEqual(
                 error.exception.status,
@@ -569,7 +562,7 @@ class PythonBindingTests(unittest.TestCase):
                                     metal_context,
                                 )
 
-                        with self.assertRaises(TensorLabError) as mixed_error:
+                        with self.assertRaises(RiftcoTransformerError) as mixed_error:
                             cpu_left @ metal_left
                         self.assertEqual(
                             mixed_error.exception.status,
@@ -629,7 +622,7 @@ class PythonBindingTests(unittest.TestCase):
         self.assertEqual(optimizer.parameter_count, 22)
         self.assertEqual(optimizer.step_count, 0)
 
-        with self.assertRaises(TensorLabError) as transfer_error:
+        with self.assertRaises(RiftcoTransformerError) as transfer_error:
             model.to("cpu")
         self.assertEqual(
             transfer_error.exception.status,
@@ -647,7 +640,7 @@ class PythonBindingTests(unittest.TestCase):
         self.assertEqual(optimizer.step_count, 1)
         optimizer.zero_grad()
 
-        with self.assertRaises(TensorLabError) as stale_error:
+        with self.assertRaises(RiftcoTransformerError) as stale_error:
             loss.backward()
         self.assertIn(
             "after backward",
@@ -658,7 +651,7 @@ class PythonBindingTests(unittest.TestCase):
         logits.close()
         stale_logits = model(tokens)
         self.assertEqual(optimizer.step().step, 2)
-        with self.assertRaises(TensorLabError) as epoch_error:
+        with self.assertRaises(RiftcoTransformerError) as epoch_error:
             cross_entropy(stale_logits, targets)
         self.assertIn(
             "after an optimizer step",
@@ -905,7 +898,7 @@ class PythonBindingTests(unittest.TestCase):
                 logits = model([[0, 1]])
                 try:
                     with self.assertRaisesRegex(
-                        TensorLabError,
+                        RiftcoTransformerError,
                         "variable graphs",
                     ):
                         parameters.load_flat_values(values)
@@ -914,7 +907,7 @@ class PythonBindingTests(unittest.TestCase):
 
                 with Adam(parameters) as optimizer:
                     with self.assertRaisesRegex(
-                        TensorLabError,
+                        RiftcoTransformerError,
                         "optimizers",
                     ):
                         parameters.load_flat_values(values)
@@ -1013,7 +1006,7 @@ class PythonBindingTests(unittest.TestCase):
             self.assertFalse(model.lora_attached)
             self.assertIsNone(model.lora_config)
             with self.assertRaisesRegex(
-                TensorLabError,
+                RiftcoTransformerError,
                 "no attached LoRA",
             ):
                 model.adapter_parameters()
@@ -1046,7 +1039,7 @@ class PythonBindingTests(unittest.TestCase):
                         base_values,
                     )
                 with self.assertRaisesRegex(
-                    TensorLabError,
+                    RiftcoTransformerError,
                     "already has",
                 ):
                     model.attach_lora(lora)
@@ -1088,7 +1081,7 @@ class PythonBindingTests(unittest.TestCase):
                 live_logits = model(tokens)
                 try:
                     with self.assertRaisesRegex(
-                        TensorLabError,
+                        RiftcoTransformerError,
                         "variable graphs",
                     ):
                         model.merge_lora()
@@ -1120,7 +1113,7 @@ class PythonBindingTests(unittest.TestCase):
                 )
 
                 with self.assertRaisesRegex(
-                    TensorLabError,
+                    RiftcoTransformerError,
                     "optimizers",
                 ):
                     model.merge_lora()
@@ -1129,7 +1122,7 @@ class PythonBindingTests(unittest.TestCase):
                 with model(tokens) as logits:
                     output_before_merge = logits.tolist()
                 with self.assertRaisesRegex(
-                    TensorLabError,
+                    RiftcoTransformerError,
                     "adapter parameter lists",
                 ):
                     model.merge_lora()
@@ -1139,12 +1132,12 @@ class PythonBindingTests(unittest.TestCase):
                 self.assertFalse(model.lora_attached)
                 self.assertIsNone(model.lora_config)
                 with self.assertRaisesRegex(
-                    TensorLabError,
+                    RiftcoTransformerError,
                     "no attached LoRA",
                 ):
                     model.adapter_parameters()
                 with self.assertRaisesRegex(
-                    TensorLabError,
+                    RiftcoTransformerError,
                     "no attached LoRA",
                 ):
                     model.merge_lora()
@@ -1233,7 +1226,7 @@ class PythonBindingTests(unittest.TestCase):
                         )
                     self.assertEqual(session.size, index + 1)
 
-                with self.assertRaises(TensorLabError) as full_error:
+                with self.assertRaises(RiftcoTransformerError) as full_error:
                     session.step(0)
                 self.assertEqual(
                     full_error.exception.status,
@@ -1242,7 +1235,7 @@ class PythonBindingTests(unittest.TestCase):
                 self.assertEqual(session.size, session.capacity)
                 session.reset()
                 self.assertEqual(session.size, 0)
-                with self.assertRaises(TensorLabError) as token_error:
+                with self.assertRaises(RiftcoTransformerError) as token_error:
                     session.step(config.vocabulary_size)
                 self.assertEqual(
                     token_error.exception.status,
@@ -1258,9 +1251,9 @@ class PythonBindingTests(unittest.TestCase):
         parameters = model.parameters()
         values = parameters.flat_values()
         guarded = model.decode_session()
-        with self.assertRaisesRegex(TensorLabError, "decode sessions"):
+        with self.assertRaisesRegex(RiftcoTransformerError, "decode sessions"):
             model.to("cpu")
-        with self.assertRaisesRegex(TensorLabError, "decode sessions"):
+        with self.assertRaisesRegex(RiftcoTransformerError, "decode sessions"):
             parameters.load_flat_values(values)
         guarded.close()
         parameters.load_flat_values(values)
@@ -1268,7 +1261,7 @@ class PythonBindingTests(unittest.TestCase):
 
         model.attach_lora()
         merge_guard = model.decode_session()
-        with self.assertRaisesRegex(TensorLabError, "decode sessions"):
+        with self.assertRaisesRegex(RiftcoTransformerError, "decode sessions"):
             model.merge_lora()
         merge_guard.close()
         model.merge_lora()
@@ -1364,7 +1357,7 @@ class PythonBindingTests(unittest.TestCase):
                 model([1.5])
 
             with model([[0, 1]]) as logits:
-                with self.assertRaises(TensorLabError) as target_error:
+                with self.assertRaises(RiftcoTransformerError) as target_error:
                     cross_entropy(logits, [1])
                 self.assertEqual(
                     target_error.exception.status,
@@ -1372,7 +1365,7 @@ class PythonBindingTests(unittest.TestCase):
                 )
 
             parameters = model.parameters()
-            with self.assertRaises(TensorLabError) as adam_error:
+            with self.assertRaises(RiftcoTransformerError) as adam_error:
                 Adam(parameters, learning_rate=-1.0)
             self.assertEqual(
                 adam_error.exception.status,
@@ -1395,7 +1388,7 @@ class PythonBindingTests(unittest.TestCase):
         )
         model = DecoderOnlyTransformer(config)
         if not backend_available("metal"):
-            with self.assertRaises(TensorLabError) as error:
+            with self.assertRaises(RiftcoTransformerError) as error:
                 model.to("metal")
             self.assertEqual(
                 error.exception.status,

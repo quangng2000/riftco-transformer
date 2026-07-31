@@ -2,7 +2,7 @@
 
 #include "core/backend/attention/contracts.hpp"
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 // Attention is an independent backend capability so new algorithms can be
 // added without changing storage, optimizer, or serving-cache policy.
@@ -30,4 +30,4 @@ public:
     ) const = 0;
 };
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

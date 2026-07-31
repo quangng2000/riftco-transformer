@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 namespace {
 
 constexpr std::size_t kTileSize = 8;
@@ -492,4 +492,4 @@ void reference_flash_causal_attention_backward(
     }
 }
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

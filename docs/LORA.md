@@ -43,14 +43,14 @@ Embeddings, normalization parameters, and biases are not LoRA targets.
 ## Python post-training
 
 ```python
-from transformer_lab import LoraConfig
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab.post_training import (
+from riftco_transformer import LoraConfig
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.post_training import (
     PostTrainingConfig,
     post_train_jsonl,
 )
 
-base = ModelBundle.load("results/stages/tiny_pretrained.tlab")
+base = ModelBundle.load("results/stages/tiny_pretrained.rift")
 result = post_train_jsonl(
     base,
     "data/post_training/tiny_instructions.jsonl",
@@ -66,7 +66,7 @@ result = post_train_jsonl(
         ),
     ),
 )
-result.bundle.save("results/stages/tiny_lora_merged.tlab")
+result.bundle.save("results/stages/tiny_lora_merged.rift")
 ```
 
 The returned `ModelBundle` is merged and serving-ready. Its metadata records
@@ -81,7 +81,7 @@ PostTrainingConfig(fine_tuning_method="full")
 
 ## Comparing ranks without test leakage
 
-`python/transformer_lab/experiments/lora_rank.py` builds a controlled
+`python/riftco_transformer/experiments/lora_rank.py` builds a controlled
 experiment around the post-training API. It verifies prepared Dolly
 train/validation/test files, starts each candidate from the same immutable
 base artifact, and fixes:
@@ -99,7 +99,7 @@ parameter count.
 ```bash
 PYTHONPATH="$PWD/python" \
 python3 examples/python/compare_lora_ranks.py \
-  --base results/stages/tinystories_pretrained.tlab \
+  --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
   --output results/experiments/dolly-lora-ranks \
   --ranks 1,2,4,8 \
@@ -146,7 +146,7 @@ The low-level API exposes the adapter parameter collection when a custom
 training loop is useful:
 
 ```python
-from transformer_lab import (
+from riftco_transformer import (
     Adam,
     DecoderOnlyTransformer,
     LoraConfig,
@@ -183,20 +183,20 @@ API. `model.adapter_parameters()` returns only active LoRA factors.
 ## Native C++ lifecycle
 
 ```cpp
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/model/lora.hpp"
-#include "transformer_lab/optim/adam.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/model/lora.hpp"
+#include "riftco_transformer/optim/adam.hpp"
 
-transformer_lab::LoraConfig lora;
+riftco_transformer::LoraConfig lora;
 lora.rank = 4;
 lora.alpha = 8.0F;
 lora.targets =
-    transformer_lab::kLoraAttentionQuery |
-    transformer_lab::kLoraAttentionValue;
+    riftco_transformer::kLoraAttentionQuery |
+    riftco_transformer::kLoraAttentionValue;
 
 model.attach_lora(lora);
 {
-    transformer_lab::Adam optimizer(
+    riftco_transformer::Adam optimizer(
         model.lora_parameters(),
         adam_options
     );
@@ -209,13 +209,11 @@ The model-level merge prepares and validates every selected weight before
 committing any of them. It is one-way for that model instance. Create a fresh
 model from a base artifact to run another independent adapter experiment.
 
-The LoRA lifecycle entered the stable C ABI in version 1.5 through
-`tl_model_attach_lora`, `tl_model_lora_parameters`, and
-`tl_model_merge_lora`. The current ABI 1.8 retains that contract; ABI 1.6
-added incremental decode sessions, ABI 1.7 added full-sequence attention
-selection, and ABI 1.8 adds activation-checkpointing
-selection separately. Its size-versioned `tl_lora_config` uses fixed-width
-target-mask bits.
+C ABI 2.0 exposes the LoRA lifecycle through `rt_model_attach_lora`,
+`rt_model_lora_parameters`, and `rt_model_merge_lora`, alongside
+incremental decode sessions, full-sequence attention selection, and
+activation-checkpointing selection. Its size-versioned `rt_lora_config` uses
+fixed-width target-mask bits.
 
 ## Artifacts and current limits
 

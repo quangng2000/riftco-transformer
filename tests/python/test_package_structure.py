@@ -6,67 +6,63 @@ import subprocess
 import sys
 import unittest
 
-import transformer_lab
-import transformer_lab.artifacts
-import transformer_lab.data
-import transformer_lab.experiments
-import transformer_lab.native
-import transformer_lab.post_training
-import transformer_lab.pretraining
-import transformer_lab.serving
-import transformer_lab.training
-from transformer_lab import Tensor
-from transformer_lab.artifact import ModelBundle as LegacyModelBundle
-from transformer_lab.artifacts import ModelBundle
-from transformer_lab.data import HuggingFaceDatasetClient
-from transformer_lab.experiments import LoraRankExperimentConfig
-from transformer_lab.generation import TextGenerator as LegacyTextGenerator
-from transformer_lab.native import Tensor as NativeTensor
-from transformer_lab.post_training import PostTrainingConfig
-from transformer_lab.pretraining import PretrainingConfig
-from transformer_lab.serving import (
+import riftco_transformer
+import riftco_transformer.artifacts
+import riftco_transformer.data
+import riftco_transformer.experiments
+import riftco_transformer.native
+import riftco_transformer.post_training
+import riftco_transformer.pretraining
+import riftco_transformer.serving
+import riftco_transformer.training
+from riftco_transformer import Tensor
+from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.data import HuggingFaceDatasetClient
+from riftco_transformer.experiments import LoraRankExperimentConfig
+from riftco_transformer.native import Tensor as NativeTensor
+from riftco_transformer.post_training import PostTrainingConfig
+from riftco_transformer.pretraining import PretrainingConfig
+from riftco_transformer.serving import (
     ModelService,
     TextGenerator,
     create_http_server,
 )
-from transformer_lab.training import CausalLanguageModelTrainer
+from riftco_transformer.training import CausalLanguageModelTrainer
 
 
 class PackageStructureTests(unittest.TestCase):
     def test_public_types_are_owned_by_responsibility_packages(self) -> None:
         expected_modules = {
-            ModelBundle: "transformer_lab.artifacts.bundle",
-            HuggingFaceDatasetClient: "transformer_lab.data.client",
+            ModelBundle: "riftco_transformer.artifacts.bundle",
+            HuggingFaceDatasetClient: "riftco_transformer.data.client",
             LoraRankExperimentConfig: (
-                "transformer_lab.experiments.lora_rank"
+                "riftco_transformer.experiments.lora_rank"
             ),
-            CausalLanguageModelTrainer: "transformer_lab.training.engine",
-            PretrainingConfig: "transformer_lab.pretraining.pipeline",
-            PostTrainingConfig: "transformer_lab.post_training.pipeline",
-            TextGenerator: "transformer_lab.serving.generation",
-            ModelService: "transformer_lab.serving.service",
-            create_http_server: "transformer_lab.serving.http",
-            NativeTensor: "transformer_lab.native.bindings",
+            CausalLanguageModelTrainer: "riftco_transformer.training.engine",
+            PretrainingConfig: "riftco_transformer.pretraining.pipeline",
+            PostTrainingConfig: "riftco_transformer.post_training.pipeline",
+            TextGenerator: "riftco_transformer.serving.generation",
+            ModelService: "riftco_transformer.serving.service",
+            create_http_server: "riftco_transformer.serving.http",
+            NativeTensor: "riftco_transformer.native.bindings",
         }
         for value, expected_module in expected_modules.items():
             with self.subTest(value=value.__name__):
                 self.assertEqual(value.__module__, expected_module)
 
-    def test_compatibility_facades_reexport_identical_objects(self) -> None:
+    def test_root_reexports_native_objects(self) -> None:
         self.assertIs(Tensor, NativeTensor)
-        self.assertIs(LegacyModelBundle, ModelBundle)
-        self.assertIs(LegacyTextGenerator, TextGenerator)
 
     def test_stage_names_are_physical_packages(self) -> None:
         packages = (
-            transformer_lab.native,
-            transformer_lab.artifacts,
-            transformer_lab.data,
-            transformer_lab.experiments,
-            transformer_lab.training,
-            transformer_lab.pretraining,
-            transformer_lab.post_training,
-            transformer_lab.serving,
+            riftco_transformer.native,
+            riftco_transformer.artifacts,
+            riftco_transformer.data,
+            riftco_transformer.experiments,
+            riftco_transformer.training,
+            riftco_transformer.pretraining,
+            riftco_transformer.post_training,
+            riftco_transformer.serving,
         )
         for package in packages:
             with self.subTest(package=package.__name__):
@@ -79,15 +75,15 @@ class PackageStructureTests(unittest.TestCase):
         program = """
 import json
 import sys
-import transformer_lab.serving
+import riftco_transformer.serving
 
 print(json.dumps(sorted(
     name
     for name in sys.modules
     if name in {
-        "transformer_lab.training",
-        "transformer_lab.pretraining",
-        "transformer_lab.post_training",
+        "riftco_transformer.training",
+        "riftco_transformer.pretraining",
+        "riftco_transformer.post_training",
     }
 )))
 """

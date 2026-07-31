@@ -112,7 +112,7 @@ the K/V cache and therefore is not replay-safe.
 C++:
 
 ```cpp
-using transformer_lab::ActivationCheckpointingKind;
+using riftco_transformer::ActivationCheckpointingKind;
 
 DecoderOnlyTransformer model(
     dimensions,
@@ -166,17 +166,17 @@ multi-block segments, without coupling checkpoint mechanics to the trainer.
 
 ## C ABI
 
-ABI 1.8 adds:
+ABI 2.0 exposes:
 
 ```c
-TL_ACTIVATION_CHECKPOINTING_DISABLED
-TL_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK
+RT_ACTIVATION_CHECKPOINTING_DISABLED
+RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK
 
-tl_model_set_activation_checkpointing(...)
-tl_model_activation_checkpointing(...)
+rt_model_set_activation_checkpointing(...)
+rt_model_activation_checkpointing(...)
 ```
 
-The policy is deliberately absent from `tl_transformer_config` and the
+The policy is deliberately absent from `rt_transformer_config` and the
 persisted model-state schema. Stage pipelines do record the selected policy as
 descriptive training metadata. It changes how a future training graph retains
 activations, not model architecture or weights. It is safe to change while a

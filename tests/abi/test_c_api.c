@@ -1,4 +1,4 @@
-#include "transformer_lab/c_api.h"
+#include "riftco_transformer/c_api.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -20,14 +20,14 @@ static void require_condition(int condition, const char* message) {
     }
 }
 
-static void require_status(tl_status status, const char* operation) {
-    if (status != TL_STATUS_OK) {
+static void require_status(rt_status status, const char* operation) {
+    if (status != RT_STATUS_OK) {
         fprintf(
             stderr,
             "C API test failure: %s: %s (%s)\n",
             operation,
-            tl_status_string(status),
-            tl_last_error()
+            rt_status_string(status),
+            rt_last_error()
         );
         exit(EXIT_FAILURE);
     }
@@ -51,77 +51,77 @@ static void require_close(
 }
 
 static void require_tensor_backend(
-    const tl_tensor* tensor,
-    tl_backend expected,
+    const rt_tensor* tensor,
+    rt_backend expected,
     const char* operation
 ) {
-    tl_backend actual = (tl_backend)-1;
+    rt_backend actual = (rt_backend)-1;
     require_status(
-        tl_tensor_backend(tensor, &actual),
+        rt_tensor_backend(tensor, &actual),
         operation
     );
     require_condition(actual == expected, operation);
 }
 
 typedef struct extended_transformer_config {
-    tl_transformer_config value;
+    rt_transformer_config value;
     uint64_t tail[2];
 } extended_transformer_config;
 
 typedef struct extended_lora_config {
-    tl_lora_config value;
+    rt_lora_config value;
     uint64_t tail[2];
 } extended_lora_config;
 
 typedef struct extended_decode_session_options {
-    tl_decode_session_options value;
+    rt_decode_session_options value;
     uint64_t tail[2];
 } extended_decode_session_options;
 
 typedef struct extended_adam_options {
-    tl_adam_options value;
+    rt_adam_options value;
     uint64_t tail[2];
 } extended_adam_options;
 
 typedef struct extended_adam_step_stats {
-    tl_adam_step_stats value;
+    rt_adam_step_stats value;
     uint64_t tail[2];
 } extended_adam_step_stats;
 
 typedef struct extended_tokenizer_options {
-    tl_tokenizer_options value;
+    rt_tokenizer_options value;
     uint64_t tail[2];
 } extended_tokenizer_options;
 
 _Static_assert(
-    sizeof(tl_tokenizer_options) == 32,
-    "tl_tokenizer_options ABI layout"
+    sizeof(rt_tokenizer_options) == 32,
+    "rt_tokenizer_options ABI layout"
 );
 _Static_assert(
-    sizeof(tl_lora_config) == 40,
-    "tl_lora_config ABI layout"
+    sizeof(rt_lora_config) == 40,
+    "rt_lora_config ABI layout"
 );
 _Static_assert(
-    sizeof(tl_decode_session_options) == 24,
-    "tl_decode_session_options ABI layout"
+    sizeof(rt_decode_session_options) == 24,
+    "rt_decode_session_options ABI layout"
 );
 _Static_assert(
-    sizeof(tl_full_sequence_attention_kind) == 4,
-    "tl_full_sequence_attention_kind ABI layout"
+    sizeof(rt_full_sequence_attention_kind) == 4,
+    "rt_full_sequence_attention_kind ABI layout"
 );
 _Static_assert(
-    sizeof(tl_activation_checkpointing_kind) == 4,
-    "tl_activation_checkpointing_kind ABI layout"
+    sizeof(rt_activation_checkpointing_kind) == 4,
+    "rt_activation_checkpointing_kind ABI layout"
 );
 
 typedef struct error_thread_result {
     int started_with_empty_error;
-    tl_status status;
+    rt_status status;
     char error[256];
 } error_thread_result;
 
 static void copy_last_error(char* output, size_t capacity) {
-    const char* source = tl_last_error();
+    const char* source = rt_last_error();
     size_t length = strlen(source);
     if (length >= capacity) {
         length = capacity - 1;
@@ -137,9 +137,9 @@ static void* record_thread_local_error(void* argument)
 #endif
 {
     error_thread_result* result = (error_thread_result*)argument;
-    tl_backend backend = (tl_backend)-1;
-    result->started_with_empty_error = tl_last_error()[0] == '\0';
-    result->status = tl_context_backend(NULL, &backend);
+    rt_backend backend = (rt_backend)-1;
+    result->started_with_empty_error = rt_last_error()[0] == '\0';
+    result->status = rt_context_backend(NULL, &backend);
     copy_last_error(result->error, sizeof(result->error));
 #if defined(_WIN32)
     return 0;
@@ -151,8 +151,8 @@ static void* record_thread_local_error(void* argument)
 static void test_thread_local_errors(void) {
     int32_t available = -1;
     require_condition(
-        tl_backend_is_available((tl_backend)77, &available) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_backend_is_available((rt_backend)77, &available) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "main thread records an invalid-backend error"
     );
 
@@ -205,7 +205,7 @@ static void test_thread_local_errors(void) {
         "new thread starts with an empty error"
     );
     require_condition(
-        result.status == TL_STATUS_INVALID_ARGUMENT,
+        result.status == RT_STATUS_INVALID_ARGUMENT,
         "worker thread records its own status"
     );
     require_condition(
@@ -217,16 +217,16 @@ static void test_thread_local_errors(void) {
         "worker and main thread errors are distinct"
     );
     require_condition(
-        strcmp(tl_last_error(), main_error) == 0,
+        strcmp(rt_last_error(), main_error) == 0,
         "worker call does not overwrite the main thread error"
     );
 
     require_status(
-        tl_backend_is_available(TL_BACKEND_CPU, &available),
+        rt_backend_is_available(RT_BACKEND_CPU, &available),
         "clear main thread error"
     );
     require_condition(
-        tl_last_error()[0] == '\0',
+        rt_last_error()[0] == '\0',
         "successful main-thread call clears only its error"
     );
 }
@@ -252,10 +252,10 @@ static void test_tokenizer_api(void) {
         0, 9, 8, 10, 7, 6, 5, 4, 1, 11,
     };
 
-    tl_tokenizer* tokenizer = (tl_tokenizer*)(uintptr_t)1;
+    rt_tokenizer* tokenizer = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create(NULL, 1, &tokenizer) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_create(NULL, 1, &tokenizer) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "tokenizer creation rejects null nonempty corpus"
     );
     require_condition(
@@ -263,10 +263,10 @@ static void test_tokenizer_api(void) {
         "failed tokenizer creation clears output"
     );
 
-    tokenizer = (tl_tokenizer*)(uintptr_t)1;
+    tokenizer = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create(NULL, 0, &tokenizer) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_create(NULL, 0, &tokenizer) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "tokenizer creation rejects empty corpus"
     );
     require_condition(
@@ -274,13 +274,13 @@ static void test_tokenizer_api(void) {
         "empty tokenizer corpus clears output"
     );
 
-    tokenizer = (tl_tokenizer*)(uintptr_t)1;
+    tokenizer = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create(
+        rt_tokenizer_create(
             original_corpus,
             0,
             &tokenizer
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "zero corpus size is empty even with a nonnull pointer"
     );
     require_condition(
@@ -288,11 +288,11 @@ static void test_tokenizer_api(void) {
         "zero-size tokenizer corpus clears output"
     );
     require_condition(
-        tl_tokenizer_create(
+        rt_tokenizer_create(
             original_corpus,
             (uint64_t)sizeof(original_corpus),
             NULL
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "tokenizer creation requires an output pointer"
     );
 
@@ -303,7 +303,7 @@ static void test_tokenizer_api(void) {
         sizeof(mutable_corpus)
     );
     require_status(
-        tl_tokenizer_create(
+        rt_tokenizer_create(
             mutable_corpus,
             (uint64_t)sizeof(mutable_corpus),
             &tokenizer
@@ -312,22 +312,22 @@ static void test_tokenizer_api(void) {
     );
     require_condition(tokenizer != NULL, "binary tokenizer handle");
     require_condition(
-        tl_last_error()[0] == '\0',
+        rt_last_error()[0] == '\0',
         "successful tokenizer creation clears the prior error"
     );
 
-    tl_tokenizer_method method = (tl_tokenizer_method)-1;
+    rt_tokenizer_method method = (rt_tokenizer_method)-1;
     require_status(
-        tl_tokenizer_get_method(tokenizer, &method),
+        rt_tokenizer_get_method(tokenizer, &method),
         "query legacy tokenizer method"
     );
     require_condition(
-        method == TL_TOKENIZER_METHOD_BYTE,
+        method == RT_TOKENIZER_METHOD_BYTE,
         "legacy creation selects corpus-byte tokenization"
     );
     require_condition(
-        tl_tokenizer_get_method(tokenizer, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_get_method(tokenizer, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "tokenizer method requires an output"
     );
 
@@ -336,7 +336,7 @@ static void test_tokenizer_api(void) {
 
     uint64_t vocabulary_size = 0;
     require_status(
-        tl_tokenizer_vocabulary_size(
+        rt_tokenizer_vocabulary_size(
             tokenizer,
             &vocabulary_size
         ),
@@ -348,14 +348,14 @@ static void test_tokenizer_api(void) {
         "binary tokenizer vocabulary size"
     );
     require_condition(
-        tl_tokenizer_vocabulary_size(tokenizer, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_vocabulary_size(tokenizer, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "vocabulary size requires an output"
     );
 
     uint64_t required = UINT64_MAX;
     require_status(
-        tl_tokenizer_vocabulary(
+        rt_tokenizer_vocabulary(
             tokenizer,
             NULL,
             0,
@@ -371,7 +371,7 @@ static void test_tokenizer_api(void) {
     uint8_t legacy_piece[2] = {0x7e, 0x6d};
     required = UINT64_MAX;
     require_status(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             tokenizer,
             0,
             legacy_piece,
@@ -390,12 +390,12 @@ static void test_tokenizer_api(void) {
     uint8_t zero_capacity_byte = 0x5a;
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_vocabulary(
+        rt_tokenizer_vocabulary(
             tokenizer,
             &zero_capacity_byte,
             0,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "nonnull zero vocabulary capacity is insufficient"
     );
     require_condition(
@@ -406,12 +406,12 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_vocabulary(
+        rt_tokenizer_vocabulary(
             tokenizer,
             NULL,
             vocabulary_size,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "null vocabulary output requires zero capacity"
     );
     require_condition(
@@ -423,12 +423,12 @@ static void test_tokenizer_api(void) {
     memset(vocabulary_canary, 0xa5, sizeof(vocabulary_canary));
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_vocabulary(
+        rt_tokenizer_vocabulary(
             tokenizer,
             vocabulary_canary,
             vocabulary_size - 1,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "vocabulary rejects insufficient capacity"
     );
     require_condition(
@@ -445,7 +445,7 @@ static void test_tokenizer_api(void) {
     }
 
     require_status(
-        tl_tokenizer_vocabulary(
+        rt_tokenizer_vocabulary(
             tokenizer,
             vocabulary_canary,
             vocabulary_size,
@@ -477,12 +477,12 @@ static void test_tokenizer_api(void) {
         sizeof(untouched_vocabulary)
     );
     require_condition(
-        tl_tokenizer_vocabulary(
+        rt_tokenizer_vocabulary(
             tokenizer,
             untouched_vocabulary,
             vocabulary_size,
             NULL
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "vocabulary requires a required-count output"
     );
     for (size_t index = 0;
@@ -494,9 +494,9 @@ static void test_tokenizer_api(void) {
         );
     }
 
-    tl_tokenizer* reordered = NULL;
+    rt_tokenizer* reordered = NULL;
     require_status(
-        tl_tokenizer_create(
+        rt_tokenizer_create(
             reordered_corpus,
             (uint64_t)sizeof(reordered_corpus),
             &reordered
@@ -506,7 +506,7 @@ static void test_tokenizer_api(void) {
     uint8_t reordered_vocabulary[sizeof(expected_vocabulary)];
     required = 0;
     require_status(
-        tl_tokenizer_vocabulary(
+        rt_tokenizer_vocabulary(
             reordered,
             reordered_vocabulary,
             (uint64_t)sizeof(reordered_vocabulary),
@@ -526,7 +526,7 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             round_trip_bytes,
             (uint64_t)sizeof(round_trip_bytes),
@@ -549,14 +549,14 @@ static void test_tokenizer_api(void) {
     }
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             round_trip_bytes,
             (uint64_t)sizeof(round_trip_bytes),
             encoded_canary,
             0,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "nonnull zero token capacity is insufficient"
     );
     require_condition(
@@ -574,14 +574,14 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             round_trip_bytes,
             (uint64_t)sizeof(round_trip_bytes),
             NULL,
             1,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "null token output requires zero capacity"
     );
     require_condition(
@@ -591,14 +591,14 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             round_trip_bytes,
             (uint64_t)sizeof(round_trip_bytes),
             encoded_canary,
             (uint64_t)sizeof(round_trip_bytes) - 1,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "encode rejects insufficient capacity"
     );
     require_condition(
@@ -615,7 +615,7 @@ static void test_tokenizer_api(void) {
     }
 
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             round_trip_bytes,
             (uint64_t)sizeof(round_trip_bytes),
@@ -641,14 +641,14 @@ static void test_tokenizer_api(void) {
 
     uint32_t untouched_token = UINT32_C(0x13579bdf);
     require_condition(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             round_trip_bytes,
             (uint64_t)sizeof(round_trip_bytes),
             &untouched_token,
             1,
             NULL
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "encode requires a required-count output"
     );
     require_condition(
@@ -658,14 +658,14 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             NULL,
             1,
             &untouched_token,
             1,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "encode rejects null nonempty text"
     );
     require_condition(
@@ -676,7 +676,7 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             NULL,
             0,
@@ -688,7 +688,7 @@ static void test_tokenizer_api(void) {
     );
     require_condition(required == 0, "empty encode count");
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             NULL,
             0,
@@ -711,14 +711,14 @@ static void test_tokenizer_api(void) {
     };
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             unknown_text,
             (uint64_t)sizeof(unknown_text),
             NULL,
             0,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "encode size query validates every input byte"
     );
     require_condition(
@@ -728,14 +728,14 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             unknown_text,
             (uint64_t)sizeof(unknown_text),
             unknown_output,
             2,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "encode rejects a byte absent from the vocabulary"
     );
     require_condition(
@@ -745,13 +745,13 @@ static void test_tokenizer_api(void) {
         "unknown-byte encode leaves count and output untouched"
     );
     require_condition(
-        strstr(tl_last_error(), "absent") != NULL,
+        strstr(rt_last_error(), "absent") != NULL,
         "unknown-byte encode diagnostic"
     );
 
     required = UINT64_MAX;
     require_status(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             (uint64_t)(
@@ -773,7 +773,7 @@ static void test_tokenizer_api(void) {
     memset(decoded_canary, 0x6d, sizeof(decoded_canary));
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             (uint64_t)(
@@ -783,7 +783,7 @@ static void test_tokenizer_api(void) {
             decoded_canary,
             0,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "nonnull zero decode capacity is insufficient"
     );
     require_condition(
@@ -801,7 +801,7 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             (uint64_t)(
@@ -811,7 +811,7 @@ static void test_tokenizer_api(void) {
             NULL,
             1,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "null decoded output requires zero capacity"
     );
     require_condition(
@@ -821,7 +821,7 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             (uint64_t)(
@@ -831,7 +831,7 @@ static void test_tokenizer_api(void) {
             decoded_canary,
             (uint64_t)sizeof(round_trip_bytes) - 1,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "decode rejects insufficient capacity"
     );
     require_condition(
@@ -848,7 +848,7 @@ static void test_tokenizer_api(void) {
     }
 
     require_status(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             (uint64_t)(
@@ -877,14 +877,14 @@ static void test_tokenizer_api(void) {
 
     uint8_t untouched_decode = 0x4e;
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             1,
             &untouched_decode,
             1,
             NULL
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "decode requires a required-count output"
     );
     require_condition(
@@ -894,14 +894,14 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             NULL,
             1,
             &untouched_decode,
             1,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "decode rejects null nonempty tokens"
     );
     require_condition(
@@ -912,7 +912,7 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_status(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             NULL,
             0,
@@ -924,7 +924,7 @@ static void test_tokenizer_api(void) {
     );
     require_condition(required == 0, "empty decode count");
     require_status(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             NULL,
             0,
@@ -947,7 +947,7 @@ static void test_tokenizer_api(void) {
     uint8_t invalid_decode[3] = {0x21, 0x43, 0x65};
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             invalid_tokens,
             (uint64_t)(
@@ -957,7 +957,7 @@ static void test_tokenizer_api(void) {
             NULL,
             0,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "decode size query validates every token ID"
     );
     require_condition(
@@ -967,7 +967,7 @@ static void test_tokenizer_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             invalid_tokens,
             (uint64_t)(
@@ -977,7 +977,7 @@ static void test_tokenizer_api(void) {
             invalid_decode,
             (uint64_t)sizeof(invalid_decode),
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "decode rejects an invalid token ID"
     );
     require_condition(
@@ -988,24 +988,24 @@ static void test_tokenizer_api(void) {
         "invalid-token decode leaves count and output untouched"
     );
     require_condition(
-        strstr(tl_last_error(), "outside") != NULL,
+        strstr(rt_last_error(), "outside") != NULL,
         "invalid-token decode diagnostic"
     );
 
     require_status(
-        tl_tokenizer_vocabulary_size(
+        rt_tokenizer_vocabulary_size(
             tokenizer,
             &vocabulary_size
         ),
         "successful tokenizer call after an error"
     );
     require_condition(
-        tl_last_error()[0] == '\0',
+        rt_last_error()[0] == '\0',
         "successful tokenizer call clears its prior error"
     );
     require_condition(
-        tl_tokenizer_vocabulary_size(NULL, &vocabulary_size) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_vocabulary_size(NULL, &vocabulary_size) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "vocabulary size rejects a null tokenizer"
     );
 
@@ -1014,9 +1014,9 @@ static void test_tokenizer_api(void) {
     for (size_t index = 0; index < sizeof(all_bytes); ++index) {
         all_bytes[index] = (uint8_t)index;
     }
-    tl_tokenizer* all_byte_tokenizer = NULL;
+    rt_tokenizer* all_byte_tokenizer = NULL;
     require_status(
-        tl_tokenizer_create(
+        rt_tokenizer_create(
             all_bytes,
             (uint64_t)sizeof(all_bytes),
             &all_byte_tokenizer
@@ -1026,7 +1026,7 @@ static void test_tokenizer_api(void) {
     uint32_t all_tokens[256];
     required = 0;
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             all_byte_tokenizer,
             all_bytes,
             (uint64_t)sizeof(all_bytes),
@@ -1051,7 +1051,7 @@ static void test_tokenizer_api(void) {
     }
     uint8_t all_decoded[256];
     require_status(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             all_byte_tokenizer,
             all_tokens,
             (uint64_t)(
@@ -1069,10 +1069,10 @@ static void test_tokenizer_api(void) {
         "all byte values round-trip"
     );
 
-    tl_tokenizer_release(all_byte_tokenizer);
-    tl_tokenizer_release(reordered);
-    tl_tokenizer_release(tokenizer);
-    tl_tokenizer_release(NULL);
+    rt_tokenizer_release(all_byte_tokenizer);
+    rt_tokenizer_release(reordered);
+    rt_tokenizer_release(tokenizer);
+    rt_tokenizer_release(NULL);
 }
 
 static void test_tokenizer_options_and_bpe_api(void) {
@@ -1080,21 +1080,21 @@ static void test_tokenizer_options_and_bpe_api(void) {
     const uint64_t second_canary = UINT64_C(0xfedcba9876543210);
 
     require_condition(
-        tl_tokenizer_options_init(
+        rt_tokenizer_options_init(
             NULL,
-            (uint64_t)sizeof(tl_tokenizer_options)
-        ) == TL_STATUS_INVALID_ARGUMENT,
+            (uint64_t)sizeof(rt_tokenizer_options)
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "tokenizer options initializer rejects null"
     );
 
-    tl_tokenizer_options undersized;
+    rt_tokenizer_options undersized;
     memset(&undersized, 0x5a, sizeof(undersized));
-    const tl_tokenizer_options original_undersized = undersized;
+    const rt_tokenizer_options original_undersized = undersized;
     require_condition(
-        tl_tokenizer_options_init(
+        rt_tokenizer_options_init(
             &undersized,
             (uint64_t)sizeof(undersized) - 1
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "tokenizer options initializer rejects undersized storage"
     );
     require_condition(
@@ -1111,7 +1111,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     extended.tail[0] = first_canary;
     extended.tail[1] = second_canary;
     require_status(
-        tl_tokenizer_options_init(
+        rt_tokenizer_options_init(
             &extended.value,
             (uint64_t)sizeof(extended)
         ),
@@ -1119,7 +1119,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
     require_condition(
         extended.value.struct_size == (uint64_t)sizeof(extended) &&
-            extended.value.method == TL_TOKENIZER_METHOD_BYTE &&
+            extended.value.method == RT_TOKENIZER_METHOD_BYTE &&
             extended.value.reserved == 0 &&
             extended.value.vocabulary_size == 512 &&
             extended.value.minimum_pair_frequency == 2,
@@ -1132,9 +1132,9 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
 
     static const uint8_t byte_corpus[] = {'z', 'a', 'z'};
-    tl_tokenizer* extended_tokenizer = NULL;
+    rt_tokenizer* extended_tokenizer = NULL;
     require_status(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             byte_corpus,
             (uint64_t)sizeof(byte_corpus),
             &extended.value,
@@ -1147,11 +1147,11 @@ static void test_tokenizer_options_and_bpe_api(void) {
             extended.tail[1] == second_canary,
         "tokenizer creation preserves options extension tail"
     );
-    tl_tokenizer_release(extended_tokenizer);
+    rt_tokenizer_release(extended_tokenizer);
 
-    tl_tokenizer* default_tokenizer = NULL;
+    rt_tokenizer* default_tokenizer = NULL;
     require_status(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             byte_corpus,
             (uint64_t)sizeof(byte_corpus),
             NULL,
@@ -1159,18 +1159,18 @@ static void test_tokenizer_options_and_bpe_api(void) {
         ),
         "create tokenizer with null options"
     );
-    tl_tokenizer_method method = (tl_tokenizer_method)-1;
+    rt_tokenizer_method method = (rt_tokenizer_method)-1;
     require_status(
-        tl_tokenizer_get_method(default_tokenizer, &method),
+        rt_tokenizer_get_method(default_tokenizer, &method),
         "query null-options tokenizer method"
     );
     require_condition(
-        method == TL_TOKENIZER_METHOD_BYTE,
+        method == RT_TOKENIZER_METHOD_BYTE,
         "null tokenizer options select legacy bytes"
     );
     uint64_t vocabulary_size = UINT64_MAX;
     require_status(
-        tl_tokenizer_vocabulary_size(
+        rt_tokenizer_vocabulary_size(
             default_tokenizer,
             &vocabulary_size
         ),
@@ -1180,11 +1180,11 @@ static void test_tokenizer_options_and_bpe_api(void) {
         vocabulary_size == 2,
         "null options preserve corpus-derived byte vocabulary"
     );
-    tl_tokenizer_release(default_tokenizer);
+    rt_tokenizer_release(default_tokenizer);
 
-    tl_tokenizer_options options;
+    rt_tokenizer_options options;
     require_status(
-        tl_tokenizer_options_init(
+        rt_tokenizer_options_init(
             &options,
             (uint64_t)sizeof(options)
         ),
@@ -1194,15 +1194,15 @@ static void test_tokenizer_options_and_bpe_api(void) {
         'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b',
     };
 
-    tl_tokenizer* rejected = (tl_tokenizer*)(uintptr_t)1;
+    rt_tokenizer* rejected = (rt_tokenizer*)(uintptr_t)1;
     options.struct_size = (uint64_t)sizeof(options) - 1;
     require_condition(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "tokenizer rejects undersized options"
     );
     require_condition(
@@ -1211,21 +1211,21 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
 
     require_status(
-        tl_tokenizer_options_init(
+        rt_tokenizer_options_init(
             &options,
             (uint64_t)sizeof(options)
         ),
         "reset tokenizer options after size rejection"
     );
     options.reserved = 1;
-    rejected = (tl_tokenizer*)(uintptr_t)1;
+    rejected = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "tokenizer rejects nonzero reserved options"
     );
     require_condition(
@@ -1234,15 +1234,15 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
 
     options.reserved = 0;
-    options.method = (tl_tokenizer_method)99;
-    rejected = (tl_tokenizer*)(uintptr_t)1;
+    options.method = (rt_tokenizer_method)99;
+    rejected = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "tokenizer rejects unknown methods"
     );
     require_condition(
@@ -1250,16 +1250,16 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "unknown tokenizer method clears output"
     );
 
-    options.method = TL_TOKENIZER_METHOD_BPE;
+    options.method = RT_TOKENIZER_METHOD_BPE;
     options.vocabulary_size = 255;
-    rejected = (tl_tokenizer*)(uintptr_t)1;
+    rejected = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "BPE rejects a vocabulary smaller than the byte domain"
     );
     require_condition(
@@ -1268,14 +1268,14 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
 
     options.vocabulary_size = UINT64_MAX;
-    rejected = (tl_tokenizer*)(uintptr_t)1;
+    rejected = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
             &rejected
-        ) == TL_STATUS_OVERFLOW,
+        ) == RT_STATUS_OVERFLOW,
         "BPE rejects a vocabulary beyond the token-ID range"
     );
     require_condition(
@@ -1286,9 +1286,9 @@ static void test_tokenizer_options_and_bpe_api(void) {
     static const uint8_t no_merge_corpus[] = {'x', 'y'};
     options.vocabulary_size = UINT32_MAX;
     options.minimum_pair_frequency = 2;
-    tl_tokenizer* maximum_target = NULL;
+    rt_tokenizer* maximum_target = NULL;
     require_status(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             no_merge_corpus,
             (uint64_t)sizeof(no_merge_corpus),
             &options,
@@ -1298,7 +1298,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
     vocabulary_size = UINT64_MAX;
     require_status(
-        tl_tokenizer_vocabulary_size(
+        rt_tokenizer_vocabulary_size(
             maximum_target,
             &vocabulary_size
         ),
@@ -1308,18 +1308,18 @@ static void test_tokenizer_options_and_bpe_api(void) {
         vocabulary_size == 256,
         "maximum BPE target stops when no merge qualifies"
     );
-    tl_tokenizer_release(maximum_target);
+    rt_tokenizer_release(maximum_target);
 
     options.vocabulary_size = 258;
     options.minimum_pair_frequency = 0;
-    rejected = (tl_tokenizer*)(uintptr_t)1;
+    rejected = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "BPE rejects a zero minimum pair frequency"
     );
     require_condition(
@@ -1328,9 +1328,9 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
 
     options.minimum_pair_frequency = 1;
-    tl_tokenizer* minimum_frequency = NULL;
+    rt_tokenizer* minimum_frequency = NULL;
     require_status(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
@@ -1338,24 +1338,24 @@ static void test_tokenizer_options_and_bpe_api(void) {
         ),
         "BPE accepts a minimum pair frequency of one"
     );
-    tl_tokenizer_release(minimum_frequency);
+    rt_tokenizer_release(minimum_frequency);
 
     options.minimum_pair_frequency = 2;
     require_condition(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
             NULL
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "BPE creation requires an output pointer"
     );
 
     uint8_t mutable_corpus[sizeof(bpe_corpus)];
     memcpy(mutable_corpus, bpe_corpus, sizeof(mutable_corpus));
-    tl_tokenizer* tokenizer = NULL;
+    rt_tokenizer* tokenizer = NULL;
     require_status(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             mutable_corpus,
             (uint64_t)sizeof(mutable_corpus),
             &options,
@@ -1366,24 +1366,24 @@ static void test_tokenizer_options_and_bpe_api(void) {
     require_condition(tokenizer != NULL, "BPE tokenizer handle");
     memset(mutable_corpus, 0xee, sizeof(mutable_corpus));
 
-    method = (tl_tokenizer_method)-1;
+    method = (rt_tokenizer_method)-1;
     require_status(
-        tl_tokenizer_get_method(tokenizer, &method),
+        rt_tokenizer_get_method(tokenizer, &method),
         "query BPE tokenizer method"
     );
     require_condition(
-        method == TL_TOKENIZER_METHOD_BPE,
+        method == RT_TOKENIZER_METHOD_BPE,
         "BPE tokenizer reports its method"
     );
     require_condition(
-        tl_tokenizer_get_method(NULL, &method) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_get_method(NULL, &method) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "tokenizer method rejects a null handle"
     );
 
     vocabulary_size = 0;
     require_status(
-        tl_tokenizer_vocabulary_size(tokenizer, &vocabulary_size),
+        rt_tokenizer_vocabulary_size(tokenizer, &vocabulary_size),
         "query BPE vocabulary size"
     );
     require_condition(
@@ -1394,12 +1394,12 @@ static void test_tokenizer_options_and_bpe_api(void) {
     uint8_t legacy_vocabulary[4] = {0x11, 0x22, 0x33, 0x44};
     uint64_t required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_vocabulary(
+        rt_tokenizer_vocabulary(
             tokenizer,
             legacy_vocabulary,
             (uint64_t)sizeof(legacy_vocabulary),
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "legacy vocabulary API clearly rejects BPE"
     );
     require_condition(
@@ -1411,13 +1411,13 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "rejected BPE legacy vocabulary output is atomic"
     );
     require_condition(
-        strstr(tl_last_error(), "corpus-byte") != NULL,
+        strstr(rt_last_error(), "corpus-byte") != NULL,
         "BPE legacy vocabulary rejection has a clear diagnostic"
     );
 
     required = UINT64_MAX;
     require_status(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             tokenizer,
             UINT32_C(257),
             NULL,
@@ -1431,13 +1431,13 @@ static void test_tokenizer_options_and_bpe_api(void) {
     uint8_t token_canary[6];
     memset(token_canary, 0xa7, sizeof(token_canary));
     require_condition(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             tokenizer,
             UINT32_C(257),
             token_canary,
             0,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "nonnull zero token-piece capacity is insufficient"
     );
     require_condition(
@@ -1452,13 +1452,13 @@ static void test_tokenizer_options_and_bpe_api(void) {
     }
 
     require_condition(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             tokenizer,
             UINT32_C(257),
             NULL,
             4,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "null token-piece output requires zero capacity"
     );
     require_condition(
@@ -1467,13 +1467,13 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
 
     require_condition(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             tokenizer,
             UINT32_C(257),
             token_canary,
             3,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "token-piece output rejects insufficient capacity"
     );
     for (size_t index = 0; index < sizeof(token_canary); ++index) {
@@ -1484,7 +1484,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     }
 
     require_status(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             tokenizer,
             UINT32_C(257),
             token_canary,
@@ -1503,13 +1503,13 @@ static void test_tokenizer_options_and_bpe_api(void) {
 
     uint8_t required_canary = 0x6c;
     require_condition(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             tokenizer,
             UINT32_C(256),
             &required_canary,
             1,
             NULL
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "token-piece output requires a required-count pointer"
     );
     require_condition(
@@ -1519,13 +1519,13 @@ static void test_tokenizer_options_and_bpe_api(void) {
 
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             tokenizer,
             UINT32_MAX,
             token_canary,
             (uint64_t)sizeof(token_canary),
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "token-piece output rejects an invalid token"
     );
     require_condition(
@@ -1533,20 +1533,20 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "invalid token piece leaves required count untouched"
     );
     require_condition(
-        tl_tokenizer_token_bytes(
+        rt_tokenizer_token_bytes(
             NULL,
             0,
             token_canary,
             1,
             &required
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "token-piece output rejects a null handle"
     );
 
     static const uint32_t expected_tokens[] = {257, 257};
     required = UINT64_MAX;
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
@@ -1564,14 +1564,14 @@ static void test_tokenizer_options_and_bpe_api(void) {
         UINT32_C(0xcccccccc),
     };
     require_condition(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             encoded_canary,
             1,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "BPE encode rejects insufficient capacity"
     );
     require_condition(
@@ -1582,7 +1582,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "undersized BPE encode is atomic"
     );
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
@@ -1604,7 +1604,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
 
     required = UINT64_MAX;
     require_status(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             2,
@@ -1621,14 +1621,14 @@ static void test_tokenizer_options_and_bpe_api(void) {
     uint8_t decoded_canary[9];
     memset(decoded_canary, 0x4d, sizeof(decoded_canary));
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             2,
             decoded_canary,
             (uint64_t)sizeof(bpe_corpus) - 1,
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "BPE decode rejects insufficient capacity"
     );
     for (size_t index = 0; index < sizeof(decoded_canary); ++index) {
@@ -1638,7 +1638,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
         );
     }
     require_status(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             expected_tokens,
             2,
@@ -1666,7 +1666,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     };
     uint32_t actual_universal_tokens[3] = {0, 0, 0};
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             tokenizer,
             universal_bytes,
             (uint64_t)sizeof(universal_bytes),
@@ -1687,7 +1687,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
     uint8_t decoded_universal[3] = {0, 0, 0};
     require_status(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             actual_universal_tokens,
             3,
@@ -1712,14 +1712,14 @@ static void test_tokenizer_options_and_bpe_api(void) {
     memset(invalid_decode, 0x72, sizeof(invalid_decode));
     required = UINT64_MAX;
     require_condition(
-        tl_tokenizer_decode(
+        rt_tokenizer_decode(
             tokenizer,
             invalid_tokens,
             2,
             invalid_decode,
             (uint64_t)sizeof(invalid_decode),
             &required
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "BPE decode rejects an invalid token ID"
     );
     require_condition(
@@ -1733,9 +1733,9 @@ static void test_tokenizer_options_and_bpe_api(void) {
         );
     }
 
-    tl_tokenizer* deterministic_copy = NULL;
+    rt_tokenizer* deterministic_copy = NULL;
     require_status(
-        tl_tokenizer_create_with_options(
+        rt_tokenizer_create_with_options(
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
             &options,
@@ -1745,7 +1745,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
     uint32_t copied_tokens[2] = {0, 0};
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             deterministic_copy,
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
@@ -1766,20 +1766,20 @@ static void test_tokenizer_options_and_bpe_api(void) {
 
     uint64_t merge_count = UINT64_MAX;
     require_status(
-        tl_tokenizer_bpe_merge_count(tokenizer, &merge_count),
+        rt_tokenizer_bpe_merge_count(tokenizer, &merge_count),
         "query serialized BPE merge count"
     );
     require_condition(
         merge_count == 2,
         "serialized BPE merge count"
     );
-    tl_bpe_merge_rule merge_rules[2] = {{0, 0, 0}, {0, 0, 0}};
+    rt_bpe_merge_rule merge_rules[2] = {{0, 0, 0}, {0, 0, 0}};
     require_status(
-        tl_tokenizer_bpe_merge_rule(tokenizer, 0, &merge_rules[0]),
+        rt_tokenizer_bpe_merge_rule(tokenizer, 0, &merge_rules[0]),
         "copy first BPE merge rule"
     );
     require_status(
-        tl_tokenizer_bpe_merge_rule(tokenizer, 1, &merge_rules[1]),
+        rt_tokenizer_bpe_merge_rule(tokenizer, 1, &merge_rules[1]),
         "copy second BPE merge rule"
     );
     require_condition(
@@ -1792,19 +1792,19 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "serialized BPE rules preserve learned order"
     );
     require_condition(
-        tl_tokenizer_bpe_merge_rule(tokenizer, 2, &merge_rules[0]) ==
-            TL_STATUS_OUT_OF_RANGE,
+        rt_tokenizer_bpe_merge_rule(tokenizer, 2, &merge_rules[0]) ==
+            RT_STATUS_OUT_OF_RANGE,
         "BPE merge export rejects an out-of-range index"
     );
     require_condition(
-        tl_tokenizer_bpe_merge_rule(tokenizer, 0, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_bpe_merge_rule(tokenizer, 0, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "BPE merge export requires output storage"
     );
 
-    tl_tokenizer* restored_bpe = NULL;
+    rt_tokenizer* restored_bpe = NULL;
     require_status(
-        tl_tokenizer_create_from_bpe_merges(
+        rt_tokenizer_create_from_bpe_merges(
             merge_rules,
             2,
             &restored_bpe
@@ -1813,7 +1813,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
     uint32_t restored_tokens[2] = {0, 0};
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             restored_bpe,
             bpe_corpus,
             (uint64_t)sizeof(bpe_corpus),
@@ -1833,14 +1833,14 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "restored BPE tokenizer preserves token IDs"
     );
 
-    tl_tokenizer* base_bpe = NULL;
+    rt_tokenizer* base_bpe = NULL;
     require_status(
-        tl_tokenizer_create_from_bpe_merges(NULL, 0, &base_bpe),
+        rt_tokenizer_create_from_bpe_merges(NULL, 0, &base_bpe),
         "restore base-only BPE tokenizer"
     );
     vocabulary_size = 0;
     require_status(
-        tl_tokenizer_vocabulary_size(base_bpe, &vocabulary_size),
+        rt_tokenizer_vocabulary_size(base_bpe, &vocabulary_size),
         "query base-only BPE vocabulary"
     );
     require_condition(
@@ -1848,24 +1848,24 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "base-only BPE contains every byte"
     );
 
-    tl_bpe_merge_rule invalid_rule = {97, 98, 257};
-    rejected = (tl_tokenizer*)(uintptr_t)1;
+    rt_bpe_merge_rule invalid_rule = {97, 98, 257};
+    rejected = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create_from_bpe_merges(
+        rt_tokenizer_create_from_bpe_merges(
             &invalid_rule,
             1,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "BPE restoration rejects a nonsequential result"
     );
     require_condition(
         rejected == NULL,
         "failed BPE restoration clears output"
     );
-    rejected = (tl_tokenizer*)(uintptr_t)1;
+    rejected = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create_from_bpe_merges(NULL, 1, &rejected) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_create_from_bpe_merges(NULL, 1, &rejected) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "BPE restoration rejects null nonempty rules"
     );
     require_condition(
@@ -1874,9 +1874,9 @@ static void test_tokenizer_options_and_bpe_api(void) {
     );
 
     static const uint8_t restored_byte_vocabulary[] = {'z', 'a'};
-    tl_tokenizer* restored_byte = NULL;
+    rt_tokenizer* restored_byte = NULL;
     require_status(
-        tl_tokenizer_create_from_byte_vocabulary(
+        rt_tokenizer_create_from_byte_vocabulary(
             restored_byte_vocabulary,
             2,
             &restored_byte
@@ -1886,7 +1886,7 @@ static void test_tokenizer_options_and_bpe_api(void) {
     static const uint8_t restored_byte_text[] = {'a', 'z'};
     uint32_t restored_byte_tokens[2] = {UINT32_MAX, UINT32_MAX};
     require_status(
-        tl_tokenizer_encode(
+        rt_tokenizer_encode(
             restored_byte,
             restored_byte_text,
             2,
@@ -1903,18 +1903,18 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "restored byte tokenizer preserves vocabulary order"
     );
     require_condition(
-        tl_tokenizer_bpe_merge_count(restored_byte, &merge_count) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_tokenizer_bpe_merge_count(restored_byte, &merge_count) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "BPE merge export rejects a byte tokenizer"
     );
     static const uint8_t duplicate_bytes[] = {'a', 'a'};
-    rejected = (tl_tokenizer*)(uintptr_t)1;
+    rejected = (rt_tokenizer*)(uintptr_t)1;
     require_condition(
-        tl_tokenizer_create_from_byte_vocabulary(
+        rt_tokenizer_create_from_byte_vocabulary(
             duplicate_bytes,
             2,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "byte restoration rejects duplicate vocabulary entries"
     );
     require_condition(
@@ -1922,19 +1922,19 @@ static void test_tokenizer_options_and_bpe_api(void) {
         "failed byte restoration clears output"
     );
     require_condition(
-        tl_tokenizer_create_from_byte_vocabulary(
+        rt_tokenizer_create_from_byte_vocabulary(
             restored_byte_vocabulary,
             2,
             NULL
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "byte restoration requires an output pointer"
     );
 
-    tl_tokenizer_release(restored_byte);
-    tl_tokenizer_release(base_bpe);
-    tl_tokenizer_release(restored_bpe);
-    tl_tokenizer_release(deterministic_copy);
-    tl_tokenizer_release(tokenizer);
+    rt_tokenizer_release(restored_byte);
+    rt_tokenizer_release(base_bpe);
+    rt_tokenizer_release(restored_bpe);
+    rt_tokenizer_release(deterministic_copy);
+    rt_tokenizer_release(tokenizer);
 }
 
 static void test_versioned_structures(void) {
@@ -1946,7 +1946,7 @@ static void test_versioned_structures(void) {
     config.tail[0] = first_canary;
     config.tail[1] = second_canary;
     require_status(
-        tl_transformer_config_init(
+        rt_transformer_config_init(
             &config.value,
             (uint64_t)sizeof(config)
         ),
@@ -1969,9 +1969,9 @@ static void test_versioned_structures(void) {
     config.value.block_count = 1;
     config.value.feed_forward_width = 8;
 
-    tl_model* model = NULL;
+    rt_model* model = NULL;
     require_status(
-        tl_model_create(&config.value, &model),
+        rt_model_create(&config.value, &model),
         "consume oversized transformer config"
     );
     require_condition(
@@ -1980,9 +1980,9 @@ static void test_versioned_structures(void) {
         "model creation preserves transformer config extension tail"
     );
 
-    tl_parameter_list* parameters = NULL;
+    rt_parameter_list* parameters = NULL;
     require_status(
-        tl_model_parameters(model, &parameters),
+        rt_model_parameters(model, &parameters),
         "create parameters for versioned Adam structures"
     );
 
@@ -1991,7 +1991,7 @@ static void test_versioned_structures(void) {
     options.tail[0] = second_canary;
     options.tail[1] = first_canary;
     require_status(
-        tl_adam_options_init(
+        rt_adam_options_init(
             &options.value,
             (uint64_t)sizeof(options)
         ),
@@ -2012,13 +2012,13 @@ static void test_versioned_structures(void) {
     );
 
     options.value.reserved = 1;
-    tl_adam* rejected_adam = (tl_adam*)(uintptr_t)1;
+    rt_adam* rejected_adam = (rt_adam*)(uintptr_t)1;
     require_condition(
-        tl_adam_create(
+        rt_adam_create(
             parameters,
             &options.value,
             &rejected_adam
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "Adam rejects a nonzero reserved option"
     );
     require_condition(
@@ -2026,7 +2026,7 @@ static void test_versioned_structures(void) {
         "reserved-option rejection clears Adam output"
     );
     require_condition(
-        strstr(tl_last_error(), "reserved field must be zero") != NULL,
+        strstr(rt_last_error(), "reserved field must be zero") != NULL,
         "reserved-option rejection records a diagnostic"
     );
     require_condition(
@@ -2036,9 +2036,9 @@ static void test_versioned_structures(void) {
     );
 
     options.value.reserved = 0;
-    tl_adam* adam = NULL;
+    rt_adam* adam = NULL;
     require_status(
-        tl_adam_create(parameters, &options.value, &adam),
+        rt_adam_create(parameters, &options.value, &adam),
         "consume oversized Adam options"
     );
     require_condition(
@@ -2047,16 +2047,16 @@ static void test_versioned_structures(void) {
         "Adam creation preserves options extension tail"
     );
 
-    tl_adam_step_stats undersized = {
-        (uint64_t)sizeof(tl_adam_step_stats) - 1,
+    rt_adam_step_stats undersized = {
+        (uint64_t)sizeof(rt_adam_step_stats) - 1,
         UINT64_C(0x1122334455667788),
         -123.0,
         -456.0,
     };
-    const tl_adam_step_stats original_undersized = undersized;
+    const rt_adam_step_stats original_undersized = undersized;
     require_condition(
-        tl_adam_step(adam, &undersized) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_adam_step(adam, &undersized) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "Adam rejects undersized step statistics"
     );
     require_condition(
@@ -2068,13 +2068,13 @@ static void test_versioned_structures(void) {
         "undersized statistics remain untouched on failure"
     );
     require_condition(
-        strstr(tl_last_error(), "structure is too small") != NULL,
+        strstr(rt_last_error(), "structure is too small") != NULL,
         "undersized statistics record a diagnostic"
     );
 
     uint64_t step_count = UINT64_MAX;
     require_status(
-        tl_adam_step_count(adam, &step_count),
+        rt_adam_step_count(adam, &step_count),
         "query Adam after rejected statistics"
     );
     require_condition(
@@ -2091,7 +2091,7 @@ static void test_versioned_structures(void) {
     stats.tail[0] = first_canary;
     stats.tail[1] = second_canary;
     require_status(
-        tl_adam_step(adam, &stats.value),
+        rt_adam_step(adam, &stats.value),
         "write oversized Adam step statistics"
     );
     require_condition(
@@ -2119,15 +2119,15 @@ static void test_versioned_structures(void) {
         "Adam statistics writer preserves extension tail"
     );
 
-    tl_adam_release(adam);
-    tl_parameter_list_release(parameters);
-    tl_model_release(model);
+    rt_adam_release(adam);
+    rt_parameter_list_release(parameters);
+    rt_model_release(model);
 }
 
 static void test_full_sequence_attention_api(void) {
-    tl_transformer_config config;
+    rt_transformer_config config;
     require_status(
-        tl_transformer_config_init(
+        rt_transformer_config_init(
             &config,
             (uint64_t)sizeof(config)
         ),
@@ -2140,74 +2140,74 @@ static void test_full_sequence_attention_api(void) {
     config.block_count = 1;
     config.feed_forward_width = 8;
 
-    tl_model* model = NULL;
+    rt_model* model = NULL;
     require_status(
-        tl_model_create(&config, &model),
+        rt_model_create(&config, &model),
         "create attention-selector model"
     );
 
-    tl_full_sequence_attention_kind kind =
-        (tl_full_sequence_attention_kind)-1;
+    rt_full_sequence_attention_kind kind =
+        (rt_full_sequence_attention_kind)-1;
     require_status(
-        tl_model_full_sequence_attention(model, &kind),
+        rt_model_full_sequence_attention(model, &kind),
         "query default full-sequence attention"
     );
     require_condition(
-        kind == TL_FULL_SEQUENCE_ATTENTION_MATERIALIZED,
+        kind == RT_FULL_SEQUENCE_ATTENTION_MATERIALIZED,
         "model defaults to materialized full-sequence attention"
     );
 
     require_status(
-        tl_model_set_full_sequence_attention(
+        rt_model_set_full_sequence_attention(
             model,
-            TL_FULL_SEQUENCE_ATTENTION_FLASH
+            RT_FULL_SEQUENCE_ATTENTION_FLASH
         ),
         "select Flash full-sequence attention"
     );
     require_status(
-        tl_model_full_sequence_attention(model, &kind),
+        rt_model_full_sequence_attention(model, &kind),
         "query selected full-sequence attention"
     );
     require_condition(
-        kind == TL_FULL_SEQUENCE_ATTENTION_FLASH,
+        kind == RT_FULL_SEQUENCE_ATTENTION_FLASH,
         "model reports selected Flash full-sequence attention"
     );
 
     require_condition(
-        tl_model_set_full_sequence_attention(
+        rt_model_set_full_sequence_attention(
             model,
-            (tl_full_sequence_attention_kind)99
-        ) == TL_STATUS_INVALID_ARGUMENT,
+            (rt_full_sequence_attention_kind)99
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "attention selector rejects unknown kinds"
     );
     require_status(
-        tl_model_full_sequence_attention(model, &kind),
+        rt_model_full_sequence_attention(model, &kind),
         "query attention after invalid selection"
     );
     require_condition(
-        kind == TL_FULL_SEQUENCE_ATTENTION_FLASH,
+        kind == RT_FULL_SEQUENCE_ATTENTION_FLASH,
         "invalid attention selection preserves the prior policy"
     );
     require_condition(
-        tl_model_full_sequence_attention(model, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_full_sequence_attention(model, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "attention getter rejects a null output"
     );
     require_condition(
-        tl_model_set_full_sequence_attention(
+        rt_model_set_full_sequence_attention(
             NULL,
-            TL_FULL_SEQUENCE_ATTENTION_FLASH
-        ) == TL_STATUS_INVALID_ARGUMENT,
+            RT_FULL_SEQUENCE_ATTENTION_FLASH
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "attention setter rejects a null model"
     );
 
-    tl_model_release(model);
+    rt_model_release(model);
 }
 
 static void test_activation_checkpointing_api(void) {
-    tl_transformer_config config;
+    rt_transformer_config config;
     require_status(
-        tl_transformer_config_init(
+        rt_transformer_config_init(
             &config,
             (uint64_t)sizeof(config)
         ),
@@ -2220,91 +2220,91 @@ static void test_activation_checkpointing_api(void) {
     config.block_count = 2;
     config.feed_forward_width = 8;
 
-    tl_model* model = NULL;
+    rt_model* model = NULL;
     require_status(
-        tl_model_create(&config, &model),
+        rt_model_create(&config, &model),
         "create checkpointing model"
     );
 
-    tl_activation_checkpointing_kind kind =
-        (tl_activation_checkpointing_kind)-1;
+    rt_activation_checkpointing_kind kind =
+        (rt_activation_checkpointing_kind)-1;
     require_status(
-        tl_model_activation_checkpointing(model, &kind),
+        rt_model_activation_checkpointing(model, &kind),
         "query default activation checkpointing"
     );
     require_condition(
-        kind == TL_ACTIVATION_CHECKPOINTING_DISABLED,
+        kind == RT_ACTIVATION_CHECKPOINTING_DISABLED,
         "model defaults to disabled activation checkpointing"
     );
     require_status(
-        tl_model_set_activation_checkpointing(
+        rt_model_set_activation_checkpointing(
             model,
-            TL_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK
+            RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK
         ),
         "select transformer-block activation checkpointing"
     );
     require_status(
-        tl_model_activation_checkpointing(model, &kind),
+        rt_model_activation_checkpointing(model, &kind),
         "query selected activation checkpointing"
     );
     require_condition(
-        kind == TL_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK,
+        kind == RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK,
         "model reports transformer-block activation checkpointing"
     );
     require_condition(
-        tl_model_set_activation_checkpointing(
+        rt_model_set_activation_checkpointing(
             model,
-            (tl_activation_checkpointing_kind)99
-        ) == TL_STATUS_INVALID_ARGUMENT,
+            (rt_activation_checkpointing_kind)99
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "activation checkpointing rejects unknown kinds"
     );
     require_status(
-        tl_model_activation_checkpointing(model, &kind),
+        rt_model_activation_checkpointing(model, &kind),
         "query checkpointing after invalid selection"
     );
     require_condition(
-        kind == TL_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK,
+        kind == RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK,
         "invalid checkpointing selection preserves the prior policy"
     );
     require_condition(
-        tl_model_activation_checkpointing(model, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_activation_checkpointing(model, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "checkpointing getter rejects a null output"
     );
     require_condition(
-        tl_model_set_activation_checkpointing(
+        rt_model_set_activation_checkpointing(
             NULL,
-            TL_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK
-        ) == TL_STATUS_INVALID_ARGUMENT,
+            RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "checkpointing setter rejects a null model"
     );
 
-    tl_decode_session* session = NULL;
+    rt_decode_session* session = NULL;
     require_status(
-        tl_model_decode_session_create(model, NULL, &session),
+        rt_model_decode_session_create(model, NULL, &session),
         "create decode session while testing checkpointing"
     );
     require_status(
-        tl_model_set_activation_checkpointing(
+        rt_model_set_activation_checkpointing(
             model,
-            TL_ACTIVATION_CHECKPOINTING_DISABLED
+            RT_ACTIVATION_CHECKPOINTING_DISABLED
         ),
         "change checkpointing while a decode session is alive"
     );
     require_status(
-        tl_model_set_activation_checkpointing(
+        rt_model_set_activation_checkpointing(
             model,
-            TL_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK
+            RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK
         ),
         "restore checkpointing while a decode session is alive"
     );
-    tl_decode_session_release(session);
+    rt_decode_session_release(session);
 
     const uint32_t tokens[] = {0, 1, 2};
     const uint32_t targets[] = {1, 2, 3};
-    tl_variable* logits = NULL;
+    rt_variable* logits = NULL;
     require_status(
-        tl_model_forward(
+        rt_model_forward(
             model,
             tokens,
             3,
@@ -2314,18 +2314,18 @@ static void test_activation_checkpointing_api(void) {
         ),
         "checkpointed C API forward"
     );
-    tl_variable* loss = NULL;
+    rt_variable* loss = NULL;
     require_status(
-        tl_cross_entropy(logits, targets, 3, &loss),
+        rt_cross_entropy(logits, targets, 3, &loss),
         "checkpointed C API loss"
     );
-    tl_variable_release(logits);
-    tl_model_release(model);
+    rt_variable_release(logits);
+    rt_model_release(model);
     require_status(
-        tl_variable_backward(loss),
+        rt_variable_backward(loss),
         "checkpointed C API backward after model handle release"
     );
-    tl_variable_release(loss);
+    rt_variable_release(loss);
 }
 
 static void test_lora_api(void) {
@@ -2333,21 +2333,21 @@ static void test_lora_api(void) {
     const uint64_t second_canary = UINT64_C(0xfdb97531eca86420);
 
     require_condition(
-        tl_lora_config_init(
+        rt_lora_config_init(
             NULL,
-            (uint64_t)sizeof(tl_lora_config)
-        ) == TL_STATUS_INVALID_ARGUMENT,
+            (uint64_t)sizeof(rt_lora_config)
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "LoRA config initializer rejects null"
     );
 
-    tl_lora_config undersized;
+    rt_lora_config undersized;
     memset(&undersized, 0x5a, sizeof(undersized));
-    const tl_lora_config original_undersized = undersized;
+    const rt_lora_config original_undersized = undersized;
     require_condition(
-        tl_lora_config_init(
+        rt_lora_config_init(
             &undersized,
             (uint64_t)sizeof(undersized) - 1
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "LoRA config initializer rejects undersized storage"
     );
     require_condition(
@@ -2364,7 +2364,7 @@ static void test_lora_api(void) {
     extended.tail[0] = first_canary;
     extended.tail[1] = second_canary;
     require_status(
-        tl_lora_config_init(
+        rt_lora_config_init(
             &extended.value,
             (uint64_t)sizeof(extended)
         ),
@@ -2375,7 +2375,7 @@ static void test_lora_api(void) {
             extended.value.rank > 0 &&
             isfinite(extended.value.alpha) &&
             extended.value.alpha > 0.0F &&
-            extended.value.targets == TL_LORA_TARGET_DEFAULT &&
+            extended.value.targets == RT_LORA_TARGET_DEFAULT &&
             extended.value.reserved == 0,
         "LoRA config defaults"
     );
@@ -2385,9 +2385,9 @@ static void test_lora_api(void) {
         "LoRA config initializer preserves extension tail"
     );
 
-    tl_transformer_config model_config;
+    rt_transformer_config model_config;
     require_status(
-        tl_transformer_config_init(
+        rt_transformer_config_init(
             &model_config,
             (uint64_t)sizeof(model_config)
         ),
@@ -2401,14 +2401,14 @@ static void test_lora_api(void) {
     model_config.feed_forward_width = 8;
     model_config.random_seed = 401;
 
-    tl_model* model = NULL;
+    rt_model* model = NULL;
     require_status(
-        tl_model_create(&model_config, &model),
+        rt_model_create(&model_config, &model),
         "create LoRA model"
     );
     uint64_t epoch_before_attachment = UINT64_MAX;
     require_status(
-        tl_test_model_parameter_epoch(
+        rt_test_model_parameter_epoch(
             model,
             &epoch_before_attachment
         ),
@@ -2416,19 +2416,19 @@ static void test_lora_api(void) {
     );
     int32_t attached = -1;
     require_status(
-        tl_model_has_lora(model, &attached),
+        rt_model_has_lora(model, &attached),
         "query initial LoRA state"
     );
     require_condition(attached == 0, "model initially has no LoRA");
 
-    tl_lora_config unavailable_config;
+    rt_lora_config unavailable_config;
     memset(&unavailable_config, 0x3c, sizeof(unavailable_config));
     unavailable_config.struct_size =
         (uint64_t)sizeof(unavailable_config);
     const uint64_t unavailable_rank = unavailable_config.rank;
     require_condition(
-        tl_model_lora_config(model, &unavailable_config) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_lora_config(model, &unavailable_config) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "LoRA config query requires an attached adapter"
     );
     require_condition(
@@ -2436,33 +2436,33 @@ static void test_lora_api(void) {
         "failed LoRA config query preserves output"
     );
 
-    tl_parameter_list* base_parameters = NULL;
+    rt_parameter_list* base_parameters = NULL;
     require_status(
-        tl_model_parameters(model, &base_parameters),
+        rt_model_parameters(model, &base_parameters),
         "query base parameters before LoRA"
     );
     uint64_t base_count = 0;
     require_status(
-        tl_parameter_list_count(base_parameters, &base_count),
+        rt_parameter_list_count(base_parameters, &base_count),
         "count base parameters before LoRA"
     );
 
     const uint32_t token_ids[] = {0, 1};
-    tl_variable* before = NULL;
+    rt_variable* before = NULL;
     require_status(
-        tl_model_forward(model, token_ids, 2, 1, 2, &before),
+        rt_model_forward(model, token_ids, 2, 1, 2, &before),
         "forward before LoRA attachment"
     );
     float before_values[10];
     require_status(
-        tl_variable_copy_to_host_f32(before, before_values, 10),
+        rt_variable_copy_to_host_f32(before, before_values, 10),
         "copy output before LoRA attachment"
     );
-    tl_variable_release(before);
+    rt_variable_release(before);
 
-    tl_lora_config config;
+    rt_lora_config config;
     require_status(
-        tl_lora_config_init(
+        rt_lora_config_init(
             &config,
             (uint64_t)sizeof(config)
         ),
@@ -2472,38 +2472,38 @@ static void test_lora_api(void) {
     config.alpha = 4.0F;
     config.random_seed = 409;
     config.targets =
-        TL_LORA_TARGET_ATTENTION_QUERY |
-        TL_LORA_TARGET_ATTENTION_VALUE;
+        RT_LORA_TARGET_ATTENTION_QUERY |
+        RT_LORA_TARGET_ATTENTION_VALUE;
 
-    tl_lora_config invalid_config = config;
+    rt_lora_config invalid_config = config;
     invalid_config.rank = 0;
     require_condition(
-        tl_model_attach_lora(model, &invalid_config) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_attach_lora(model, &invalid_config) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "LoRA attachment rejects zero rank"
     );
     invalid_config = config;
     invalid_config.targets = UINT64_C(1) << 63;
     require_condition(
-        tl_model_attach_lora(model, &invalid_config) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_attach_lora(model, &invalid_config) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "LoRA attachment rejects unknown target bits"
     );
     invalid_config = config;
     invalid_config.reserved = 1;
     require_condition(
-        tl_model_attach_lora(model, &invalid_config) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_attach_lora(model, &invalid_config) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "LoRA attachment rejects reserved fields"
     );
 
     require_status(
-        tl_model_attach_lora(model, &config),
+        rt_model_attach_lora(model, &config),
         "attach LoRA"
     );
     uint64_t epoch_after_attachment = UINT64_MAX;
     require_status(
-        tl_test_model_parameter_epoch(
+        rt_test_model_parameter_epoch(
             model,
             &epoch_after_attachment
         ),
@@ -2514,13 +2514,13 @@ static void test_lora_api(void) {
         "LoRA attachment increments the parameter epoch once"
     );
     require_status(
-        tl_model_has_lora(model, &attached),
+        rt_model_has_lora(model, &attached),
         "query attached LoRA state"
     );
     require_condition(attached == 1, "model reports attached LoRA");
     require_condition(
-        tl_model_attach_lora(model, &config) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_attach_lora(model, &config) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "model rejects a second LoRA attachment"
     );
 
@@ -2531,7 +2531,7 @@ static void test_lora_api(void) {
     observed_config.tail[0] = first_canary;
     observed_config.tail[1] = second_canary;
     require_status(
-        tl_model_lora_config(model, &observed_config.value),
+        rt_model_lora_config(model, &observed_config.value),
         "query oversized attached LoRA config"
     );
     require_condition(
@@ -2551,14 +2551,14 @@ static void test_lora_api(void) {
         "LoRA config query preserves extension tail"
     );
 
-    tl_parameter_list* base_after_attachment = NULL;
+    rt_parameter_list* base_after_attachment = NULL;
     require_status(
-        tl_model_parameters(model, &base_after_attachment),
+        rt_model_parameters(model, &base_after_attachment),
         "query base parameters after LoRA"
     );
     uint64_t base_count_after_attachment = 0;
     require_status(
-        tl_parameter_list_count(
+        rt_parameter_list_count(
             base_after_attachment,
             &base_count_after_attachment
         ),
@@ -2569,14 +2569,14 @@ static void test_lora_api(void) {
         "LoRA preserves base parameter count"
     );
 
-    tl_parameter_list* adapters = NULL;
+    rt_parameter_list* adapters = NULL;
     require_status(
-        tl_model_lora_parameters(model, &adapters),
+        rt_model_lora_parameters(model, &adapters),
         "query LoRA adapter parameters"
     );
     uint64_t adapter_count = 0;
     require_status(
-        tl_parameter_list_count(adapters, &adapter_count),
+        rt_parameter_list_count(adapters, &adapter_count),
         "count LoRA adapter parameters"
     );
     require_condition(
@@ -2599,7 +2599,7 @@ static void test_lora_api(void) {
         char name[96];
         uint64_t required_capacity = 0;
         require_status(
-            tl_parameter_list_name(
+            rt_parameter_list_name(
                 adapters,
                 index,
                 name,
@@ -2615,11 +2615,11 @@ static void test_lora_api(void) {
         uint64_t rank = 0;
         uint64_t shape[2] = {0, 0};
         require_status(
-            tl_parameter_list_rank(adapters, index, &rank),
+            rt_parameter_list_rank(adapters, index, &rank),
             "query LoRA parameter rank"
         );
         require_status(
-            tl_parameter_list_shape(adapters, index, shape, 2),
+            rt_parameter_list_shape(adapters, index, shape, 2),
             "query LoRA parameter shape"
         );
         require_condition(
@@ -2631,7 +2631,7 @@ static void test_lora_api(void) {
     }
     uint64_t adapter_numel = 0;
     require_status(
-        tl_parameter_list_total_numel(adapters, &adapter_numel),
+        rt_parameter_list_total_numel(adapters, &adapter_numel),
         "count LoRA adapter values"
     );
     require_condition(
@@ -2639,9 +2639,9 @@ static void test_lora_api(void) {
         "LoRA adapter flattened value count"
     );
 
-    tl_variable* attached_output = NULL;
+    rt_variable* attached_output = NULL;
     require_status(
-        tl_model_forward(
+        rt_model_forward(
             model,
             token_ids,
             2,
@@ -2653,7 +2653,7 @@ static void test_lora_api(void) {
     );
     float attached_values[10];
     require_status(
-        tl_variable_copy_to_host_f32(
+        rt_variable_copy_to_host_f32(
             attached_output,
             attached_values,
             10
@@ -2668,38 +2668,38 @@ static void test_lora_api(void) {
         );
     }
     require_condition(
-        tl_model_merge_lora(model) == TL_STATUS_INVALID_ARGUMENT,
+        rt_model_merge_lora(model) == RT_STATUS_INVALID_ARGUMENT,
         "LoRA merge rejects a live variable graph"
     );
-    tl_variable_release(attached_output);
+    rt_variable_release(attached_output);
 
     require_condition(
-        tl_model_merge_lora(model) == TL_STATUS_INVALID_ARGUMENT,
+        rt_model_merge_lora(model) == RT_STATUS_INVALID_ARGUMENT,
         "LoRA merge rejects a live adapter parameter list"
     );
-    tl_adam* optimizer = NULL;
+    rt_adam* optimizer = NULL;
     require_status(
-        tl_adam_create(adapters, NULL, &optimizer),
+        rt_adam_create(adapters, NULL, &optimizer),
         "create Adam for LoRA adapter parameters"
     );
-    tl_parameter_list_release(adapters);
+    rt_parameter_list_release(adapters);
     adapters = NULL;
     require_condition(
-        tl_model_merge_lora(model) == TL_STATUS_INVALID_ARGUMENT,
+        rt_model_merge_lora(model) == RT_STATUS_INVALID_ARGUMENT,
         "LoRA merge rejects a live optimizer"
     );
-    tl_adam_release(optimizer);
+    rt_adam_release(optimizer);
 
     require_status(
-        tl_test_model_set_parameter_epoch(model, UINT64_MAX),
+        rt_test_model_set_parameter_epoch(model, UINT64_MAX),
         "set LoRA epoch to overflow boundary"
     );
     require_condition(
-        tl_model_merge_lora(model) == TL_STATUS_OVERFLOW,
+        rt_model_merge_lora(model) == RT_STATUS_OVERFLOW,
         "LoRA merge rejects parameter epoch overflow"
     );
     require_status(
-        tl_model_has_lora(model, &attached),
+        rt_model_has_lora(model, &attached),
         "query LoRA state after rejected overflow merge"
     );
     require_condition(
@@ -2707,7 +2707,7 @@ static void test_lora_api(void) {
         "rejected overflow merge preserves attached LoRA"
     );
     require_status(
-        tl_test_model_set_parameter_epoch(
+        rt_test_model_set_parameter_epoch(
             model,
             epoch_after_attachment
         ),
@@ -2716,16 +2716,16 @@ static void test_lora_api(void) {
 
     uint64_t epoch_before_merge = UINT64_MAX;
     require_status(
-        tl_test_model_parameter_epoch(model, &epoch_before_merge),
+        rt_test_model_parameter_epoch(model, &epoch_before_merge),
         "query epoch before LoRA merge"
     );
     require_status(
-        tl_model_merge_lora(model),
+        rt_model_merge_lora(model),
         "merge LoRA"
     );
     uint64_t epoch_after_merge = UINT64_MAX;
     require_status(
-        tl_test_model_parameter_epoch(model, &epoch_after_merge),
+        rt_test_model_parameter_epoch(model, &epoch_after_merge),
         "query epoch after LoRA merge"
     );
     require_condition(
@@ -2733,16 +2733,16 @@ static void test_lora_api(void) {
         "LoRA merge increments the parameter epoch once"
     );
     require_status(
-        tl_model_has_lora(model, &attached),
+        rt_model_has_lora(model, &attached),
         "query merged LoRA state"
     );
     require_condition(attached == 0, "merged LoRA is detached");
 
-    tl_parameter_list* rejected =
-        (tl_parameter_list*)(uintptr_t)1;
+    rt_parameter_list* rejected =
+        (rt_parameter_list*)(uintptr_t)1;
     require_condition(
-        tl_model_lora_parameters(model, &rejected) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_lora_parameters(model, &rejected) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "adapter parameter query rejects a merged model"
     );
     require_condition(
@@ -2750,13 +2750,13 @@ static void test_lora_api(void) {
         "failed adapter parameter query clears output"
     );
     require_condition(
-        tl_model_merge_lora(model) == TL_STATUS_INVALID_ARGUMENT,
+        rt_model_merge_lora(model) == RT_STATUS_INVALID_ARGUMENT,
         "model rejects a second LoRA merge"
     );
 
-    tl_variable* merged_output = NULL;
+    rt_variable* merged_output = NULL;
     require_status(
-        tl_model_forward(
+        rt_model_forward(
             model,
             token_ids,
             2,
@@ -2768,7 +2768,7 @@ static void test_lora_api(void) {
     );
     float merged_values[10];
     require_status(
-        tl_variable_copy_to_host_f32(
+        rt_variable_copy_to_host_f32(
             merged_output,
             merged_values,
             10
@@ -2783,33 +2783,33 @@ static void test_lora_api(void) {
         );
     }
 
-    tl_variable_release(merged_output);
-    tl_parameter_list_release(base_after_attachment);
-    tl_parameter_list_release(base_parameters);
-    tl_model_release(model);
+    rt_variable_release(merged_output);
+    rt_parameter_list_release(base_after_attachment);
+    rt_parameter_list_release(base_parameters);
+    rt_model_release(model);
 
     require_condition(
-        tl_model_attach_lora(NULL, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_attach_lora(NULL, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "LoRA attachment rejects a null model"
     );
     require_condition(
-        tl_model_has_lora(NULL, &attached) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_has_lora(NULL, &attached) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "LoRA state query rejects a null model"
     );
 }
 
 static void copy_last_model_logits(
-    const tl_model* model,
+    const rt_model* model,
     const uint32_t* tokens,
     uint64_t token_count,
     float* output,
     uint64_t vocabulary_size
 ) {
-    tl_variable* logits = NULL;
+    rt_variable* logits = NULL;
     require_status(
-        tl_model_forward(
+        rt_model_forward(
             model,
             tokens,
             token_count,
@@ -2827,7 +2827,7 @@ static void copy_last_model_logits(
         "allocate reference decode logits"
     );
     require_status(
-        tl_variable_copy_to_host_f32(
+        rt_variable_copy_to_host_f32(
             logits,
             values,
             value_count
@@ -2840,7 +2840,7 @@ static void copy_last_model_logits(
         (size_t)vocabulary_size * sizeof(float)
     );
     free(values);
-    tl_variable_release(logits);
+    rt_variable_release(logits);
 }
 
 static void test_decode_session_api(void) {
@@ -2848,21 +2848,21 @@ static void test_decode_session_api(void) {
     const uint64_t second_canary = UINT64_C(0x8877665544332211);
 
     require_condition(
-        tl_decode_session_options_init(
+        rt_decode_session_options_init(
             NULL,
-            (uint64_t)sizeof(tl_decode_session_options)
-        ) == TL_STATUS_INVALID_ARGUMENT,
+            (uint64_t)sizeof(rt_decode_session_options)
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "decode-session options initializer rejects null"
     );
 
-    tl_decode_session_options undersized;
+    rt_decode_session_options undersized;
     memset(&undersized, 0x5a, sizeof(undersized));
-    const tl_decode_session_options original_undersized = undersized;
+    const rt_decode_session_options original_undersized = undersized;
     require_condition(
-        tl_decode_session_options_init(
+        rt_decode_session_options_init(
             &undersized,
             (uint64_t)sizeof(undersized) - 1
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "decode-session options initializer rejects undersized storage"
     );
     require_condition(
@@ -2879,7 +2879,7 @@ static void test_decode_session_api(void) {
     extended.tail[0] = first_canary;
     extended.tail[1] = second_canary;
     require_status(
-        tl_decode_session_options_init(
+        rt_decode_session_options_init(
             &extended.value,
             (uint64_t)sizeof(extended)
         ),
@@ -2887,7 +2887,7 @@ static void test_decode_session_api(void) {
     );
     require_condition(
         extended.value.struct_size == (uint64_t)sizeof(extended) &&
-            extended.value.kind == TL_KV_CACHE_PAGED &&
+            extended.value.kind == RT_KV_CACHE_PAGED &&
             extended.value.reserved == 0 &&
             extended.value.block_size == 16,
         "decode-session option defaults"
@@ -2898,9 +2898,9 @@ static void test_decode_session_api(void) {
         "decode-session option initializer preserves extension tail"
     );
 
-    tl_transformer_config config;
+    rt_transformer_config config;
     require_status(
-        tl_transformer_config_init(
+        rt_transformer_config_init(
             &config,
             (uint64_t)sizeof(config)
         ),
@@ -2914,23 +2914,23 @@ static void test_decode_session_api(void) {
     config.feed_forward_width = 8;
     config.random_seed = 1013;
 
-    tl_model* model = NULL;
+    rt_model* model = NULL;
     require_status(
-        tl_model_create(&config, &model),
+        rt_model_create(&config, &model),
         "create decode-session model"
     );
 
-    tl_decode_session* rejected =
-        (tl_decode_session*)(uintptr_t)1;
-    tl_decode_session_options invalid = extended.value;
+    rt_decode_session* rejected =
+        (rt_decode_session*)(uintptr_t)1;
+    rt_decode_session_options invalid = extended.value;
     invalid.struct_size = (uint64_t)sizeof(invalid);
-    invalid.kind = (tl_kv_cache_kind)77;
+    invalid.kind = (rt_kv_cache_kind)77;
     require_condition(
-        tl_model_decode_session_create(
+        rt_model_decode_session_create(
             model,
             &invalid,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "decode session rejects unknown cache kind"
     );
     require_condition(
@@ -2940,76 +2940,76 @@ static void test_decode_session_api(void) {
     invalid = extended.value;
     invalid.struct_size = (uint64_t)sizeof(invalid);
     invalid.reserved = 1;
-    rejected = (tl_decode_session*)(uintptr_t)1;
+    rejected = (rt_decode_session*)(uintptr_t)1;
     require_condition(
-        tl_model_decode_session_create(
+        rt_model_decode_session_create(
             model,
             &invalid,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT &&
+        ) == RT_STATUS_INVALID_ARGUMENT &&
             rejected == NULL,
         "decode session rejects reserved options"
     );
     invalid = extended.value;
     invalid.struct_size = (uint64_t)sizeof(invalid);
     invalid.block_size = 0;
-    rejected = (tl_decode_session*)(uintptr_t)1;
+    rejected = (rt_decode_session*)(uintptr_t)1;
     require_condition(
-        tl_model_decode_session_create(
+        rt_model_decode_session_create(
             model,
             &invalid,
             &rejected
-        ) == TL_STATUS_INVALID_ARGUMENT &&
+        ) == RT_STATUS_INVALID_ARGUMENT &&
             rejected == NULL,
         "decode session rejects zero block size"
     );
 
-    tl_decode_session* default_session = NULL;
+    rt_decode_session* default_session = NULL;
     require_status(
-        tl_model_decode_session_create(
+        rt_model_decode_session_create(
             model,
             NULL,
             &default_session
         ),
         "create default decode session"
     );
-    tl_kv_cache_kind kind = (tl_kv_cache_kind)-1;
+    rt_kv_cache_kind kind = (rt_kv_cache_kind)-1;
     uint64_t block_size = 0;
     require_status(
-        tl_decode_session_cache_kind(default_session, &kind),
+        rt_decode_session_cache_kind(default_session, &kind),
         "query default decode cache kind"
     );
     require_status(
-        tl_decode_session_block_size(
+        rt_decode_session_block_size(
             default_session,
             &block_size
         ),
         "query default decode block size"
     );
     require_condition(
-        kind == TL_KV_CACHE_PAGED && block_size == 16,
+        kind == RT_KV_CACHE_PAGED && block_size == 16,
         "default decode session is paged with block size 16"
     );
-    tl_decode_session_release(default_session);
+    rt_decode_session_release(default_session);
 
     const uint32_t prefix[] = {1, 2, 3, 4};
     for (int cache_index = 0; cache_index < 2; ++cache_index) {
-        tl_decode_session_options options;
+        rt_decode_session_options options;
         require_status(
-            tl_decode_session_options_init(
+            rt_decode_session_options_init(
                 &options,
                 (uint64_t)sizeof(options)
             ),
             "initialize parity decode-session options"
         );
         options.kind = cache_index == 0
-            ? TL_KV_CACHE_CONTIGUOUS
-            : TL_KV_CACHE_PAGED;
+            ? RT_KV_CACHE_CONTIGUOUS
+            : RT_KV_CACHE_PAGED;
         options.block_size = 2;
 
-        tl_decode_session* session = NULL;
+        rt_decode_session* session = NULL;
         require_status(
-            tl_model_decode_session_create(
+            rt_model_decode_session_create(
                 model,
                 &options,
                 &session
@@ -3017,7 +3017,7 @@ static void test_decode_session_api(void) {
             "create parity decode session"
         );
         require_status(
-            tl_decode_session_cache_kind(session, &kind),
+            rt_decode_session_cache_kind(session, &kind),
             "query parity cache kind"
         );
         require_condition(
@@ -3027,22 +3027,22 @@ static void test_decode_session_api(void) {
         uint64_t capacity = 0;
         uint64_t size = UINT64_MAX;
         require_status(
-            tl_decode_session_capacity(session, &capacity),
+            rt_decode_session_capacity(session, &capacity),
             "query decode-session capacity"
         );
         require_status(
-            tl_decode_session_size(session, &size),
+            rt_decode_session_size(session, &size),
             "query empty decode-session size"
         );
         require_status(
-            tl_decode_session_block_size(session, &block_size),
+            rt_decode_session_block_size(session, &block_size),
             "query parity cache block size"
         );
         require_condition(
             capacity == 4 &&
                 size == 0 &&
                 block_size == (
-                    options.kind == TL_KV_CACHE_PAGED ? 2 : 4
+                    options.kind == RT_KV_CACHE_PAGED ? 2 : 4
                 ),
             "decode-session cache introspection"
         );
@@ -3056,13 +3056,13 @@ static void test_decode_session_api(void) {
         };
         uint64_t required = UINT64_MAX;
         require_condition(
-            tl_decode_session_step(
+            rt_decode_session_step(
                 session,
                 prefix[0],
                 short_output,
                 4,
                 &required
-            ) == TL_STATUS_OUT_OF_RANGE,
+            ) == RT_STATUS_OUT_OF_RANGE,
             "decode step rejects a short output"
         );
         require_condition(
@@ -3072,7 +3072,7 @@ static void test_decode_session_api(void) {
             "short decode output reports size and remains untouched"
         );
         require_status(
-            tl_decode_session_size(session, &size),
+            rt_decode_session_size(session, &size),
             "query size after short decode output"
         );
         require_condition(
@@ -3081,13 +3081,13 @@ static void test_decode_session_api(void) {
         );
         required = UINT64_MAX;
         require_condition(
-            tl_decode_session_step(
+            rt_decode_session_step(
                 session,
                 prefix[0],
                 NULL,
                 0,
                 &required
-            ) == TL_STATUS_INVALID_ARGUMENT,
+            ) == RT_STATUS_INVALID_ARGUMENT,
             "decode step does not support a null size query"
         );
         require_condition(
@@ -3114,7 +3114,7 @@ static void test_decode_session_api(void) {
             );
             required = UINT64_MAX;
             require_status(
-                tl_decode_session_step(
+                rt_decode_session_step(
                     session,
                     prefix[index],
                     actual,
@@ -3135,7 +3135,7 @@ static void test_decode_session_api(void) {
                 );
             }
             require_status(
-                tl_decode_session_size(session, &size),
+                rt_decode_session_size(session, &size),
                 "query appended decode-session size"
             );
             require_condition(
@@ -3147,17 +3147,17 @@ static void test_decode_session_api(void) {
         required = UINT64_MAX;
         float full_output[5];
         require_condition(
-            tl_decode_session_step(
+            rt_decode_session_step(
                 session,
                 0,
                 full_output,
                 5,
                 &required
-            ) == TL_STATUS_OUT_OF_RANGE,
+            ) == RT_STATUS_OUT_OF_RANGE,
             "decode step rejects cache overflow"
         );
         require_status(
-            tl_decode_session_size(session, &size),
+            rt_decode_session_size(session, &size),
             "query size after cache overflow"
         );
         require_condition(
@@ -3166,45 +3166,45 @@ static void test_decode_session_api(void) {
         );
 
         require_status(
-            tl_decode_session_reset(session),
+            rt_decode_session_reset(session),
             "reset decode session"
         );
         require_status(
-            tl_decode_session_size(session, &size),
+            rt_decode_session_size(session, &size),
             "query reset decode-session size"
         );
         require_condition(size == 0, "decode-session reset clears size");
 
         required = UINT64_MAX;
         require_condition(
-            tl_decode_session_step(
+            rt_decode_session_step(
                 session,
                 5,
                 full_output,
                 5,
                 &required
-            ) == TL_STATUS_OUT_OF_RANGE,
+            ) == RT_STATUS_OUT_OF_RANGE,
             "decode step rejects a token outside the vocabulary"
         );
         require_status(
-            tl_decode_session_size(session, &size),
+            rt_decode_session_size(session, &size),
             "query size after invalid token"
         );
         require_condition(
             required == 5 && size == 0,
             "invalid token leaves decode-session state unchanged"
         );
-        tl_decode_session_release(session);
+        rt_decode_session_release(session);
     }
 
-    tl_parameter_list* parameters = NULL;
+    rt_parameter_list* parameters = NULL;
     require_status(
-        tl_model_parameters(model, &parameters),
+        rt_model_parameters(model, &parameters),
         "query parameters for decode-session mutation guards"
     );
     uint64_t total_numel = 0;
     require_status(
-        tl_parameter_list_total_numel(parameters, &total_numel),
+        rt_parameter_list_total_numel(parameters, &total_numel),
         "query parameters for decode-session mutation guards"
     );
     float* parameter_values =
@@ -3214,7 +3214,7 @@ static void test_decode_session_api(void) {
         "allocate decode-session mutation-guard values"
     );
     require_status(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             parameter_values,
             total_numel
@@ -3222,9 +3222,9 @@ static void test_decode_session_api(void) {
         "copy decode-session mutation-guard values"
     );
 
-    tl_decode_session* guarded_session = NULL;
+    rt_decode_session* guarded_session = NULL;
     require_status(
-        tl_model_decode_session_create(
+        rt_model_decode_session_create(
             model,
             NULL,
             &guarded_session
@@ -3232,87 +3232,87 @@ static void test_decode_session_api(void) {
         "create guarded decode session"
     );
     require_condition(
-        tl_model_to(model, TL_BACKEND_CPU) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_to(model, RT_BACKEND_CPU) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "model move rejects a live decode session"
     );
     require_condition(
-        tl_model_attach_lora(model, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_attach_lora(model, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "LoRA attachment rejects a live decode session"
     );
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             parameter_values,
             total_numel
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects a live decode session"
     );
-    tl_adam* adam = NULL;
+    rt_adam* adam = NULL;
     require_status(
-        tl_adam_create(parameters, NULL, &adam),
+        rt_adam_create(parameters, NULL, &adam),
         "create Adam beside a decode session"
     );
-    tl_adam_step_stats stats = {
-        (uint64_t)sizeof(tl_adam_step_stats),
+    rt_adam_step_stats stats = {
+        (uint64_t)sizeof(rt_adam_step_stats),
         0,
         -1.0,
         -1.0,
     };
     require_condition(
-        tl_adam_step(adam, &stats) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_adam_step(adam, &stats) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "Adam step rejects a live decode session"
     );
-    tl_adam_release(adam);
+    rt_adam_release(adam);
 
     uint64_t epoch = 0;
     require_status(
-        tl_test_model_parameter_epoch(model, &epoch),
+        rt_test_model_parameter_epoch(model, &epoch),
         "query decode-session model epoch"
     );
     require_status(
-        tl_test_model_set_parameter_epoch(model, epoch + 1),
+        rt_test_model_set_parameter_epoch(model, epoch + 1),
         "force a stale decode-session epoch"
     );
     float stale_output[5];
     uint64_t required = UINT64_MAX;
     require_condition(
-        tl_decode_session_step(
+        rt_decode_session_step(
             guarded_session,
             0,
             stale_output,
             5,
             &required
-        ) == TL_STATUS_RUNTIME_ERROR,
+        ) == RT_STATUS_RUNTIME_ERROR,
         "decode step rejects stale model parameters"
     );
-    tl_decode_session_release(guarded_session);
+    rt_decode_session_release(guarded_session);
 
     free(parameter_values);
-    tl_parameter_list_release(parameters);
-    tl_model_release(model);
+    rt_parameter_list_release(parameters);
+    rt_model_release(model);
 
-    tl_model* retained_model = NULL;
+    rt_model* retained_model = NULL;
     require_status(
-        tl_model_create(&config, &retained_model),
+        rt_model_create(&config, &retained_model),
         "create retained decode-session model"
     );
-    tl_decode_session* retained_session = NULL;
+    rt_decode_session* retained_session = NULL;
     require_status(
-        tl_model_decode_session_create(
+        rt_model_decode_session_create(
             retained_model,
             NULL,
             &retained_session
         ),
         "create retained decode session"
     );
-    tl_model_release(retained_model);
+    rt_model_release(retained_model);
     float retained_output[5];
     required = UINT64_MAX;
     require_status(
-        tl_decode_session_step(
+        rt_decode_session_step(
             retained_session,
             0,
             retained_output,
@@ -3325,14 +3325,14 @@ static void test_decode_session_api(void) {
         required == 5,
         "retained decode session reports vocabulary size"
     );
-    tl_decode_session_release(retained_session);
-    tl_decode_session_release(NULL);
+    rt_decode_session_release(retained_session);
+    rt_decode_session_release(NULL);
 }
 
 static void test_parameter_state_api(void) {
-    tl_transformer_config config;
+    rt_transformer_config config;
     require_status(
-        tl_transformer_config_init(
+        rt_transformer_config_init(
             &config,
             (uint64_t)sizeof(config)
         ),
@@ -3346,20 +3346,20 @@ static void test_parameter_state_api(void) {
     config.feed_forward_width = 8;
     config.random_seed = 911;
 
-    tl_model* model = NULL;
+    rt_model* model = NULL;
     require_status(
-        tl_model_create(&config, &model),
+        rt_model_create(&config, &model),
         "create parameter-state model"
     );
-    tl_parameter_list* parameters = NULL;
+    rt_parameter_list* parameters = NULL;
     require_status(
-        tl_model_parameters(model, &parameters),
+        rt_model_parameters(model, &parameters),
         "create parameter-state list"
     );
 
     uint64_t parameter_count = 0;
     require_status(
-        tl_parameter_list_count(parameters, &parameter_count),
+        rt_parameter_list_count(parameters, &parameter_count),
         "query parameter-state tensor count"
     );
     require_condition(
@@ -3369,21 +3369,21 @@ static void test_parameter_state_api(void) {
 
     uint64_t rank = UINT64_MAX;
     require_status(
-        tl_parameter_list_rank(parameters, 0, &rank),
+        rt_parameter_list_rank(parameters, 0, &rank),
         "query first parameter rank"
     );
     require_condition(rank == 2, "first parameter rank");
     require_condition(
-        tl_parameter_list_rank(parameters, 0, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_parameter_list_rank(parameters, 0, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "parameter rank requires an output"
     );
     require_condition(
-        tl_parameter_list_rank(
+        rt_parameter_list_rank(
             parameters,
             parameter_count,
             &rank
-        ) == TL_STATUS_OUT_OF_RANGE,
+        ) == RT_STATUS_OUT_OF_RANGE,
         "parameter rank rejects an out-of-range index"
     );
 
@@ -3395,7 +3395,7 @@ static void test_parameter_state_api(void) {
         shape_canary,
     };
     require_status(
-        tl_parameter_list_shape(parameters, 0, shape, 3),
+        rt_parameter_list_shape(parameters, 0, shape, 3),
         "copy first parameter shape"
     );
     require_condition(
@@ -3408,8 +3408,8 @@ static void test_parameter_state_api(void) {
     shape[0] = shape_canary;
     shape[1] = shape_canary;
     require_condition(
-        tl_parameter_list_shape(parameters, 0, shape, 1) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_parameter_list_shape(parameters, 0, shape, 1) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "parameter shape rejects insufficient capacity"
     );
     require_condition(
@@ -3418,14 +3418,14 @@ static void test_parameter_state_api(void) {
         "failed parameter shape copy preserves output"
     );
     require_condition(
-        tl_parameter_list_shape(parameters, 0, NULL, 0) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_parameter_list_shape(parameters, 0, NULL, 0) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "non-scalar parameter shape rejects zero capacity"
     );
 
     uint64_t first_numel = UINT64_MAX;
     require_status(
-        tl_parameter_list_numel(parameters, 0, &first_numel),
+        rt_parameter_list_numel(parameters, 0, &first_numel),
         "query first parameter element count"
     );
     require_condition(
@@ -3433,8 +3433,8 @@ static void test_parameter_state_api(void) {
         "first parameter element count"
     );
     require_condition(
-        tl_parameter_list_numel(parameters, 0, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_parameter_list_numel(parameters, 0, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "parameter numel requires an output"
     );
 
@@ -3446,7 +3446,7 @@ static void test_parameter_state_api(void) {
         uint64_t parameter_shape[4] = {0, 0, 0, 0};
         uint64_t parameter_numel = UINT64_MAX;
         require_status(
-            tl_parameter_list_rank(
+            rt_parameter_list_rank(
                 parameters,
                 index,
                 &parameter_rank
@@ -3458,7 +3458,7 @@ static void test_parameter_state_api(void) {
             "test model parameter rank fits test storage"
         );
         require_status(
-            tl_parameter_list_shape(
+            rt_parameter_list_shape(
                 parameters,
                 index,
                 parameter_shape,
@@ -3467,7 +3467,7 @@ static void test_parameter_state_api(void) {
             "copy indexed parameter shape"
         );
         require_status(
-            tl_parameter_list_numel(
+            rt_parameter_list_numel(
                 parameters,
                 index,
                 &parameter_numel
@@ -3489,7 +3489,7 @@ static void test_parameter_state_api(void) {
 
     uint64_t total_numel = UINT64_MAX;
     require_status(
-        tl_parameter_list_total_numel(
+        rt_parameter_list_total_numel(
             parameters,
             &total_numel
         ),
@@ -3501,8 +3501,8 @@ static void test_parameter_state_api(void) {
         "flattened parameter element count"
     );
     require_condition(
-        tl_parameter_list_total_numel(parameters, NULL) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_parameter_list_total_numel(parameters, NULL) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "total parameter numel requires an output"
     );
 
@@ -3526,7 +3526,7 @@ static void test_parameter_state_api(void) {
     const float value_canary = 12345.5F;
     original[total] = value_canary;
     require_status(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             original,
             total_numel + 1
@@ -3550,11 +3550,11 @@ static void test_parameter_state_api(void) {
 
     float zero_capacity_canary = value_canary;
     require_condition(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             &zero_capacity_canary,
             0
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "flattened copy rejects nonnull zero capacity"
     );
     require_condition(
@@ -3562,19 +3562,19 @@ static void test_parameter_state_api(void) {
         "zero-capacity flattened copy preserves output"
     );
     require_condition(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             NULL,
             0
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "flattened copy rejects null zero capacity"
     );
     require_condition(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             short_output,
             total_numel - 1
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "flattened copy rejects insufficient capacity"
     );
     require_condition(
@@ -3583,22 +3583,22 @@ static void test_parameter_state_api(void) {
         "short flattened copy preserves output"
     );
     require_condition(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             NULL,
             total_numel
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "flattened copy rejects null output"
     );
 
     uint64_t epoch_before = UINT64_MAX;
     uint64_t epoch_after = UINT64_MAX;
     require_status(
-        tl_test_model_parameter_epoch(model, &epoch_before),
+        rt_test_model_parameter_epoch(model, &epoch_before),
         "query epoch before parameter load"
     );
     require_status(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel
@@ -3606,7 +3606,7 @@ static void test_parameter_state_api(void) {
         "load flattened parameter values"
     );
     require_status(
-        tl_test_model_parameter_epoch(model, &epoch_after),
+        rt_test_model_parameter_epoch(model, &epoch_after),
         "query epoch after parameter load"
     );
     require_condition(
@@ -3616,7 +3616,7 @@ static void test_parameter_state_api(void) {
 
     observed[total] = value_canary;
     require_status(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             observed,
             total_numel + 1
@@ -3633,19 +3633,19 @@ static void test_parameter_state_api(void) {
         "loaded parameters round trip in list order"
     );
 
-    tl_backend backend = (tl_backend)-1;
+    rt_backend backend = (rt_backend)-1;
     require_status(
-        tl_parameter_list_backend(parameters, &backend),
+        rt_parameter_list_backend(parameters, &backend),
         "query backend after parameter load"
     );
     require_condition(
-        backend == TL_BACKEND_CPU,
+        backend == RT_BACKEND_CPU,
         "parameter load preserves backend"
     );
     shape[0] = 0;
     shape[1] = 0;
     require_status(
-        tl_parameter_list_shape(parameters, 0, shape, 2),
+        rt_parameter_list_shape(parameters, 0, shape, 2),
         "query shape after parameter load"
     );
     require_condition(
@@ -3655,7 +3655,7 @@ static void test_parameter_state_api(void) {
     char first_name[64];
     uint64_t name_capacity = 0;
     require_status(
-        tl_parameter_list_name(
+        rt_parameter_list_name(
             parameters,
             0,
             first_name,
@@ -3670,7 +3670,7 @@ static void test_parameter_state_api(void) {
     );
 
     require_status(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             original,
             total_numel
@@ -3678,7 +3678,7 @@ static void test_parameter_state_api(void) {
         "restore original parameter snapshot"
     );
     require_status(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             observed,
             total_numel
@@ -3695,57 +3695,57 @@ static void test_parameter_state_api(void) {
     );
 
     require_status(
-        tl_test_model_parameter_epoch(model, &epoch_before),
+        rt_test_model_parameter_epoch(model, &epoch_before),
         "query epoch before rejected loads"
     );
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel - 1
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects a short value count"
     );
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel + 1
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects a long value count"
     );
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             NULL,
             total_numel
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects null values"
     );
 
     const float saved_last_candidate = candidate[total - 1];
     candidate[total - 1] = NAN;
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects NaN"
     );
     candidate[total - 1] = INFINITY;
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects infinity"
     );
     candidate[total - 1] = saved_last_candidate;
 
     require_status(
-        tl_test_model_parameter_epoch(model, &epoch_after),
+        rt_test_model_parameter_epoch(model, &epoch_after),
         "query epoch after rejected loads"
     );
     require_condition(
@@ -3753,7 +3753,7 @@ static void test_parameter_state_api(void) {
         "rejected loads preserve the parameter epoch"
     );
     require_status(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             observed,
             total_numel
@@ -3771,10 +3771,10 @@ static void test_parameter_state_api(void) {
 
     const uint32_t token_ids[] = {0, 1};
     const uint32_t targets[] = {1, 2};
-    tl_variable* logits = NULL;
-    tl_variable* loss = NULL;
+    rt_variable* logits = NULL;
+    rt_variable* loss = NULL;
     require_status(
-        tl_model_forward(
+        rt_model_forward(
             model,
             token_ids,
             2,
@@ -3785,57 +3785,57 @@ static void test_parameter_state_api(void) {
         "create graph before parameter load"
     );
     require_status(
-        tl_cross_entropy(logits, targets, 2, &loss),
+        rt_cross_entropy(logits, targets, 2, &loss),
         "create loss before parameter load"
     );
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects a live variable graph"
     );
     require_condition(
-        strstr(tl_last_error(), "variable graphs") != NULL,
+        strstr(rt_last_error(), "variable graphs") != NULL,
         "live-graph rejection records a diagnostic"
     );
     require_status(
-        tl_variable_backward(loss),
+        rt_variable_backward(loss),
         "populate gradients before parameter load"
     );
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects a consumed graph still held alive"
     );
-    tl_variable_release(loss);
-    tl_variable_release(logits);
+    rt_variable_release(loss);
+    rt_variable_release(logits);
 
-    tl_adam* adam = NULL;
+    rt_adam* adam = NULL;
     require_status(
-        tl_adam_create(parameters, NULL, &adam),
+        rt_adam_create(parameters, NULL, &adam),
         "create optimizer before parameter load"
     );
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "parameter load rejects a live optimizer"
     );
     require_condition(
-        strstr(tl_last_error(), "optimizers") != NULL,
+        strstr(rt_last_error(), "optimizers") != NULL,
         "live-optimizer rejection records a diagnostic"
     );
-    tl_adam_release(adam);
+    rt_adam_release(adam);
 
     require_status(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             observed,
             total_numel
@@ -3852,7 +3852,7 @@ static void test_parameter_state_api(void) {
     );
 
     require_status(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel
@@ -3862,17 +3862,17 @@ static void test_parameter_state_api(void) {
 
     adam = NULL;
     require_status(
-        tl_adam_create(parameters, NULL, &adam),
+        rt_adam_create(parameters, NULL, &adam),
         "create optimizer after parameter load"
     );
-    tl_adam_step_stats stats = {
-        (uint64_t)sizeof(tl_adam_step_stats),
+    rt_adam_step_stats stats = {
+        (uint64_t)sizeof(rt_adam_step_stats),
         0,
         -1.0,
         -1.0,
     };
     require_status(
-        tl_adam_step(adam, &stats),
+        rt_adam_step(adam, &stats),
         "step optimizer after parameter load"
     );
     require_condition(
@@ -3880,7 +3880,7 @@ static void test_parameter_state_api(void) {
         "parameter load clears every gradient"
     );
     require_status(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             observed,
             total_numel
@@ -3895,10 +3895,10 @@ static void test_parameter_state_api(void) {
         ) == 0,
         "zero-gradient Adam step preserves loaded values"
     );
-    tl_adam_release(adam);
+    rt_adam_release(adam);
 
     require_status(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             original,
             total_numel
@@ -3906,19 +3906,19 @@ static void test_parameter_state_api(void) {
         "restore snapshot before epoch-overflow test"
     );
     require_status(
-        tl_test_model_set_parameter_epoch(model, UINT64_MAX),
+        rt_test_model_set_parameter_epoch(model, UINT64_MAX),
         "force maximum parameter epoch"
     );
     require_condition(
-        tl_parameter_list_load_from_host_f32(
+        rt_parameter_list_load_from_host_f32(
             parameters,
             candidate,
             total_numel
-        ) == TL_STATUS_OVERFLOW,
+        ) == RT_STATUS_OVERFLOW,
         "parameter load rejects epoch overflow"
     );
     require_status(
-        tl_parameter_list_copy_to_host_f32(
+        rt_parameter_list_copy_to_host_f32(
             parameters,
             observed,
             total_numel
@@ -3938,14 +3938,14 @@ static void test_parameter_state_api(void) {
     free(observed);
     free(candidate);
     free(original);
-    tl_parameter_list_release(parameters);
-    tl_model_release(model);
+    rt_parameter_list_release(parameters);
+    rt_model_release(model);
 }
 
-static void run_model_training(tl_backend backend) {
-    tl_transformer_config config;
+static void run_model_training(rt_backend backend) {
+    rt_transformer_config config;
     require_status(
-        tl_transformer_config_init(
+        rt_transformer_config_init(
             &config,
             (uint64_t)sizeof(config)
         ),
@@ -3963,22 +3963,22 @@ static void run_model_training(tl_backend backend) {
     config.feed_forward_width = 8;
     config.random_seed = 137;
 
-    tl_model* model = NULL;
+    rt_model* model = NULL;
     require_status(
-        tl_model_create(&config, &model),
+        rt_model_create(&config, &model),
         "create decoder model"
     );
     require_condition(model != NULL, "decoder model handle");
-    if (backend != TL_BACKEND_CPU) {
+    if (backend != RT_BACKEND_CPU) {
         require_status(
-            tl_model_to(model, backend),
+            rt_model_to(model, backend),
             "move decoder model"
         );
     }
 
-    tl_backend actual_backend = (tl_backend)-1;
+    rt_backend actual_backend = (rt_backend)-1;
     require_status(
-        tl_model_backend(model, &actual_backend),
+        rt_model_backend(model, &actual_backend),
         "query decoder model backend"
     );
     require_condition(
@@ -3986,14 +3986,14 @@ static void run_model_training(tl_backend backend) {
         "decoder model backend"
     );
 
-    tl_parameter_list* parameters = NULL;
+    rt_parameter_list* parameters = NULL;
     require_status(
-        tl_model_parameters(model, &parameters),
+        rt_model_parameters(model, &parameters),
         "query decoder parameters"
     );
     uint64_t parameter_count = 0;
     require_status(
-        tl_parameter_list_count(parameters, &parameter_count),
+        rt_parameter_list_count(parameters, &parameter_count),
         "query decoder parameter count"
     );
     require_condition(
@@ -4001,7 +4001,7 @@ static void run_model_training(tl_backend backend) {
         "one-block decoder parameter count"
     );
     require_status(
-        tl_parameter_list_backend(
+        rt_parameter_list_backend(
             parameters,
             &actual_backend
         ),
@@ -4014,7 +4014,7 @@ static void run_model_training(tl_backend backend) {
 
     uint64_t name_capacity = 0;
     require_status(
-        tl_parameter_list_name(
+        rt_parameter_list_name(
             parameters,
             0,
             NULL,
@@ -4033,7 +4033,7 @@ static void run_model_training(tl_backend backend) {
         "allocate first parameter name"
     );
     require_status(
-        tl_parameter_list_name(
+        rt_parameter_list_name(
             parameters,
             0,
             first_name,
@@ -4048,9 +4048,9 @@ static void run_model_training(tl_backend backend) {
     );
     free(first_name);
 
-    tl_adam_options options;
+    rt_adam_options options;
     require_status(
-        tl_adam_options_init(
+        rt_adam_options_init(
             &options,
             (uint64_t)sizeof(options)
         ),
@@ -4063,13 +4063,13 @@ static void run_model_training(tl_backend backend) {
     );
     options.learning_rate = 1.0e-2F;
 
-    tl_adam* adam = NULL;
+    rt_adam* adam = NULL;
     require_status(
-        tl_adam_create(parameters, &options, &adam),
+        rt_adam_create(parameters, &options, &adam),
         "create Adam optimizer"
     );
     require_status(
-        tl_adam_backend(adam, &actual_backend),
+        rt_adam_backend(adam, &actual_backend),
         "query Adam backend"
     );
     require_condition(
@@ -4077,7 +4077,7 @@ static void run_model_training(tl_backend backend) {
         "Adam backend"
     );
     require_status(
-        tl_adam_parameter_count(adam, &parameter_count),
+        rt_adam_parameter_count(adam, &parameter_count),
         "query Adam parameter count"
     );
     require_condition(
@@ -4086,9 +4086,9 @@ static void run_model_training(tl_backend backend) {
     );
 
     const uint32_t token_ids[] = {0, 1};
-    tl_variable* logits = NULL;
+    rt_variable* logits = NULL;
     require_status(
-        tl_model_forward(
+        rt_model_forward(
             model,
             token_ids,
             2,
@@ -4099,7 +4099,7 @@ static void run_model_training(tl_backend backend) {
         "decoder forward"
     );
     require_status(
-        tl_variable_backend(logits, &actual_backend),
+        rt_variable_backend(logits, &actual_backend),
         "query logits backend"
     );
     require_condition(
@@ -4108,7 +4108,7 @@ static void run_model_training(tl_backend backend) {
     );
     uint64_t logits_shape[3] = {0, 0, 0};
     require_status(
-        tl_variable_shape(logits, logits_shape, 3),
+        rt_variable_shape(logits, logits_shape, 3),
         "query logits shape"
     );
     require_condition(
@@ -4119,20 +4119,20 @@ static void run_model_training(tl_backend backend) {
     );
 
     const uint32_t targets[] = {1, 2};
-    tl_variable* loss = NULL;
+    rt_variable* loss = NULL;
     require_status(
-        tl_cross_entropy(logits, targets, 2, &loss),
+        rt_cross_entropy(logits, targets, 2, &loss),
         "cross entropy"
     );
     uint64_t loss_rank = 99;
     require_status(
-        tl_variable_rank(loss, &loss_rank),
+        rt_variable_rank(loss, &loss_rank),
         "query loss rank"
     );
     require_condition(loss_rank == 0, "loss is scalar");
     float loss_value = 0.0F;
     require_status(
-        tl_variable_copy_to_host_f32(loss, &loss_value, 1),
+        rt_variable_copy_to_host_f32(loss, &loss_value, 1),
         "copy loss value"
     );
     require_condition(
@@ -4141,28 +4141,28 @@ static void run_model_training(tl_backend backend) {
     );
 
     require_condition(
-        tl_model_to(model, backend) ==
-            TL_STATUS_INVALID_ARGUMENT,
+        rt_model_to(model, backend) ==
+            RT_STATUS_INVALID_ARGUMENT,
         "model transfer rejects live graph and optimizer"
     );
 
     // Every derived handle owns the shared model state independently.
-    tl_variable_release(logits);
-    tl_parameter_list_release(parameters);
-    tl_model_release(model);
+    rt_variable_release(logits);
+    rt_parameter_list_release(parameters);
+    rt_model_release(model);
 
     require_status(
-        tl_variable_backward(loss),
+        rt_variable_backward(loss),
         "loss backward after parent-handle release"
     );
-    tl_adam_step_stats stats = {
-        (uint64_t)sizeof(tl_adam_step_stats),
+    rt_adam_step_stats stats = {
+        (uint64_t)sizeof(rt_adam_step_stats),
         0,
         0.0,
         0.0,
     };
     require_status(
-        tl_adam_step(adam, &stats),
+        rt_adam_step(adam, &stats),
         "Adam step after model release"
     );
     require_condition(stats.step == 1, "Adam first step");
@@ -4179,27 +4179,27 @@ static void run_model_training(tl_backend backend) {
     );
     uint64_t step_count = 0;
     require_status(
-        tl_adam_step_count(adam, &step_count),
+        rt_adam_step_count(adam, &step_count),
         "query Adam step count"
     );
     require_condition(step_count == 1, "Adam step count");
     require_status(
-        tl_adam_zero_gradients(adam),
+        rt_adam_zero_gradients(adam),
         "zero Adam gradients"
     );
 
     require_condition(
-        tl_variable_backward(loss) == TL_STATUS_RUNTIME_ERROR,
+        rt_variable_backward(loss) == RT_STATUS_RUNTIME_ERROR,
         "backward graph is consumed exactly once"
     );
 
-    tl_variable_release(loss);
-    tl_adam_release(adam);
+    rt_variable_release(loss);
+    rt_adam_release(adam);
 }
 
 int main(void) {
     require_condition(
-        tl_abi_version() == TL_ABI_VERSION,
+        rt_abi_version() == RT_ABI_VERSION,
         "ABI version"
     );
 
@@ -4215,8 +4215,8 @@ int main(void) {
 
     int32_t cpu_available = 0;
     require_status(
-        tl_backend_is_available(
-            TL_BACKEND_CPU,
+        rt_backend_is_available(
+            RT_BACKEND_CPU,
             &cpu_available
         ),
         "query CPU availability"
@@ -4225,19 +4225,19 @@ int main(void) {
 
     int32_t metal_available = 0;
     require_status(
-        tl_backend_is_available(
-            TL_BACKEND_METAL,
+        rt_backend_is_available(
+            RT_BACKEND_METAL,
             &metal_available
         ),
         "query Metal availability"
     );
 
-    tl_tensor* retained_metal = NULL;
-    tl_context* metal_context =
-        (tl_context*)(uintptr_t)1;
-    const tl_status metal_context_status =
-        tl_context_create(
-            TL_BACKEND_METAL,
+    rt_tensor* retained_metal = NULL;
+    rt_context* metal_context =
+        (rt_context*)(uintptr_t)1;
+    const rt_status metal_context_status =
+        rt_context_create(
+            RT_BACKEND_METAL,
             &metal_context
         );
     if (metal_available != 0) {
@@ -4249,16 +4249,16 @@ int main(void) {
             metal_context != NULL,
             "available Metal context handle"
         );
-        tl_backend metal_context_backend = TL_BACKEND_CPU;
+        rt_backend metal_context_backend = RT_BACKEND_CPU;
         require_status(
-            tl_context_backend(
+            rt_context_backend(
                 metal_context,
                 &metal_context_backend
             ),
             "query Metal context backend"
         );
         require_condition(
-            metal_context_backend == TL_BACKEND_METAL,
+            metal_context_backend == RT_BACKEND_METAL,
             "Metal context backend"
         );
 
@@ -4271,10 +4271,10 @@ int main(void) {
             5.0F, 6.0F,
             7.0F, 8.0F,
         };
-        tl_tensor* metal_left = NULL;
-        tl_tensor* metal_right = NULL;
+        rt_tensor* metal_left = NULL;
+        rt_tensor* metal_right = NULL;
         require_status(
-            tl_tensor_create_f32(
+            rt_tensor_create_f32(
                 metal_context,
                 metal_shape,
                 2,
@@ -4285,7 +4285,7 @@ int main(void) {
             "create Metal left tensor"
         );
         require_status(
-            tl_tensor_create_f32(
+            rt_tensor_create_f32(
                 metal_context,
                 metal_shape,
                 2,
@@ -4297,17 +4297,17 @@ int main(void) {
         );
         require_tensor_backend(
             metal_left,
-            TL_BACKEND_METAL,
+            RT_BACKEND_METAL,
             "Metal tensor intrinsic backend"
         );
 
         // The tensor storage owns its backend resources. The context only
         // selects the backend used at construction time.
-        tl_context_release(metal_context);
+        rt_context_release(metal_context);
         metal_context = NULL;
 
         require_status(
-            tl_tensor_matmul(
+            rt_tensor_matmul(
                 metal_left,
                 metal_right,
                 &retained_metal
@@ -4316,14 +4316,14 @@ int main(void) {
         );
         require_tensor_backend(
             retained_metal,
-            TL_BACKEND_METAL,
+            RT_BACKEND_METAL,
             "Metal matmul output backend"
         );
         float metal_product_values[4] = {
             0.0F, 0.0F, 0.0F, 0.0F,
         };
         require_status(
-            tl_tensor_copy_to_host_f32(
+            rt_tensor_copy_to_host_f32(
                 retained_metal,
                 metal_product_values,
                 4
@@ -4341,12 +4341,12 @@ int main(void) {
                 "retained Metal product value"
             );
         }
-        tl_tensor_release(metal_right);
-        tl_tensor_release(metal_left);
+        rt_tensor_release(metal_right);
+        rt_tensor_release(metal_left);
     } else {
         require_condition(
             metal_context_status ==
-                TL_STATUS_BACKEND_UNAVAILABLE,
+                RT_STATUS_BACKEND_UNAVAILABLE,
             "unavailable Metal context status"
         );
         require_condition(
@@ -4355,20 +4355,20 @@ int main(void) {
         );
     }
 
-    tl_context* context = NULL;
+    rt_context* context = NULL;
     require_status(
-        tl_context_create(TL_BACKEND_CPU, &context),
+        rt_context_create(RT_BACKEND_CPU, &context),
         "create CPU context"
     );
     require_condition(context != NULL, "context handle");
 
-    tl_backend context_backend = TL_BACKEND_METAL;
+    rt_backend context_backend = RT_BACKEND_METAL;
     require_status(
-        tl_context_backend(context, &context_backend),
+        rt_context_backend(context, &context_backend),
         "query context backend"
     );
     require_condition(
-        context_backend == TL_BACKEND_CPU,
+        context_backend == RT_BACKEND_CPU,
         "CPU context backend"
     );
 
@@ -4377,9 +4377,9 @@ int main(void) {
         1.0F, 2.0F, 3.0F,
         4.0F, 5.0F, 6.0F,
     };
-    tl_tensor* left = NULL;
+    rt_tensor* left = NULL;
     require_status(
-        tl_tensor_create_f32(
+        rt_tensor_create_f32(
             context,
             left_shape,
             2,
@@ -4391,7 +4391,7 @@ int main(void) {
     );
     require_tensor_backend(
         left,
-        TL_BACKEND_CPU,
+        RT_BACKEND_CPU,
         "left tensor intrinsic backend"
     );
     left_values[0] = 999.0F;
@@ -4402,9 +4402,9 @@ int main(void) {
         9.0F, 10.0F,
         11.0F, 12.0F,
     };
-    tl_tensor* right = NULL;
+    rt_tensor* right = NULL;
     require_status(
-        tl_tensor_create_f32(
+        rt_tensor_create_f32(
             context,
             right_shape,
             2,
@@ -4416,14 +4416,14 @@ int main(void) {
     );
     require_tensor_backend(
         right,
-        TL_BACKEND_CPU,
+        RT_BACKEND_CPU,
         "right tensor intrinsic backend"
     );
 
     const uint64_t zero_shape[] = {2, 2};
-    tl_tensor* zeros = NULL;
+    rt_tensor* zeros = NULL;
     require_status(
-        tl_tensor_zeros_f32(
+        rt_tensor_zeros_f32(
             context,
             zero_shape,
             2,
@@ -4433,14 +4433,14 @@ int main(void) {
     );
     require_tensor_backend(
         zeros,
-        TL_BACKEND_CPU,
+        RT_BACKEND_CPU,
         "zero tensor intrinsic backend"
     );
     float zero_values[4] = {
         1.0F, 1.0F, 1.0F, 1.0F,
     };
     require_status(
-        tl_tensor_copy_to_host_f32(
+        rt_tensor_copy_to_host_f32(
             zeros,
             zero_values,
             4
@@ -4452,9 +4452,9 @@ int main(void) {
     }
 
     const float scalar_value = 3.5F;
-    tl_tensor* scalar = NULL;
+    rt_tensor* scalar = NULL;
     require_status(
-        tl_tensor_create_f32(
+        rt_tensor_create_f32(
             context,
             NULL,
             0,
@@ -4466,47 +4466,47 @@ int main(void) {
     );
     require_tensor_backend(
         scalar,
-        TL_BACKEND_CPU,
+        RT_BACKEND_CPU,
         "scalar tensor intrinsic backend"
     );
     uint64_t scalar_rank = 99;
     require_status(
-        tl_tensor_rank(scalar, &scalar_rank),
+        rt_tensor_rank(scalar, &scalar_rank),
         "query scalar rank"
     );
     require_condition(scalar_rank == 0, "scalar rank");
     require_status(
-        tl_tensor_shape(scalar, NULL, 0),
+        rt_tensor_shape(scalar, NULL, 0),
         "copy scalar shape"
     );
 
     // Tensor storage owns its backend identity and remains usable after the
     // construction context is gone.
-    tl_context_release(context);
+    rt_context_release(context);
     context = NULL;
 
-    tl_tensor* product = NULL;
+    rt_tensor* product = NULL;
     require_status(
-        tl_tensor_matmul(left, right, &product),
+        rt_tensor_matmul(left, right, &product),
         "CPU matmul"
     );
     require_condition(product != NULL, "matmul output handle");
     require_tensor_backend(
         product,
-        TL_BACKEND_CPU,
+        RT_BACKEND_CPU,
         "CPU matmul output intrinsic backend"
     );
 
     uint64_t rank = 0;
     require_status(
-        tl_tensor_rank(product, &rank),
+        rt_tensor_rank(product, &rank),
         "query product rank"
     );
     require_condition(rank == 2, "product rank");
 
     uint64_t product_shape[2] = {0, 0};
     require_status(
-        tl_tensor_shape(product, product_shape, 2),
+        rt_tensor_shape(product, product_shape, 2),
         "copy product shape"
     );
     require_condition(
@@ -4516,14 +4516,14 @@ int main(void) {
 
     uint64_t product_numel = 0;
     require_status(
-        tl_tensor_numel(product, &product_numel),
+        rt_tensor_numel(product, &product_numel),
         "query product element count"
     );
     require_condition(product_numel == 4, "product element count");
 
     float product_values[4] = {0.0F, 0.0F, 0.0F, 0.0F};
     require_status(
-        tl_tensor_copy_to_host_f32(
+        rt_tensor_copy_to_host_f32(
             product,
             product_values,
             4
@@ -4544,7 +4544,7 @@ int main(void) {
 
     float copied_left[6] = {0.0F};
     require_status(
-        tl_tensor_copy_to_host_f32(left, copied_left, 6),
+        rt_tensor_copy_to_host_f32(left, copied_left, 6),
         "copy owned input"
     );
     require_close(
@@ -4554,16 +4554,16 @@ int main(void) {
     );
 
     if (retained_metal != NULL) {
-        tl_tensor* mixed_product =
-            (tl_tensor*)(uintptr_t)1;
-        const tl_status mixed_status =
-            tl_tensor_matmul(
+        rt_tensor* mixed_product =
+            (rt_tensor*)(uintptr_t)1;
+        const rt_status mixed_status =
+            rt_tensor_matmul(
                 left,
                 retained_metal,
                 &mixed_product
             );
         require_condition(
-            mixed_status == TL_STATUS_INVALID_ARGUMENT,
+            mixed_status == RT_STATUS_INVALID_ARGUMENT,
             "mixed-backend matmul status"
         );
         require_condition(
@@ -4572,10 +4572,10 @@ int main(void) {
         );
     }
 
-    tl_tensor* invalid =
-        (tl_tensor*)(uintptr_t)1;
-    const tl_status invalid_status =
-        tl_tensor_create_f32(
+    rt_tensor* invalid =
+        (rt_tensor*)(uintptr_t)1;
+    const rt_status invalid_status =
+        rt_tensor_create_f32(
             NULL,
             left_shape,
             2,
@@ -4584,7 +4584,7 @@ int main(void) {
             &invalid
         );
     require_condition(
-        invalid_status == TL_STATUS_INVALID_ARGUMENT,
+        invalid_status == RT_STATUS_INVALID_ARGUMENT,
         "null context status"
     );
     require_condition(
@@ -4592,56 +4592,56 @@ int main(void) {
         "failed creation clears output handle"
     );
     require_condition(
-        tl_last_error()[0] != '\0',
+        rt_last_error()[0] != '\0',
         "failed call records an error"
     );
     require_status(
-        tl_backend_is_available(
-            TL_BACKEND_CPU,
+        rt_backend_is_available(
+            RT_BACKEND_CPU,
             &cpu_available
         ),
         "successful call after an error"
     );
     require_condition(
-        tl_last_error()[0] == '\0',
+        rt_last_error()[0] == '\0',
         "successful status call clears the prior error"
     );
 
-    tl_tensor_release(product);
-    tl_tensor_release(retained_metal);
-    tl_tensor_release(scalar);
-    tl_tensor_release(zeros);
-    tl_tensor_release(right);
-    tl_tensor_release(left);
-    tl_tensor_release(NULL);
-    tl_context_release(NULL);
+    rt_tensor_release(product);
+    rt_tensor_release(retained_metal);
+    rt_tensor_release(scalar);
+    rt_tensor_release(zeros);
+    rt_tensor_release(right);
+    rt_tensor_release(left);
+    rt_tensor_release(NULL);
+    rt_context_release(NULL);
 
-    run_model_training(TL_BACKEND_CPU);
+    run_model_training(RT_BACKEND_CPU);
     if (metal_available != 0) {
-        run_model_training(TL_BACKEND_METAL);
+        run_model_training(RT_BACKEND_METAL);
     }
 
-    tl_transformer_config invalid_config;
+    rt_transformer_config invalid_config;
     require_condition(
-        tl_transformer_config_init(
+        rt_transformer_config_init(
             &invalid_config,
             (uint64_t)sizeof(invalid_config) - 1
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "config init rejects undersized caller storage"
     );
-    tl_adam_options invalid_options;
+    rt_adam_options invalid_options;
     require_condition(
-        tl_adam_options_init(
+        rt_adam_options_init(
             &invalid_options,
             (uint64_t)sizeof(invalid_options) - 1
-        ) == TL_STATUS_INVALID_ARGUMENT,
+        ) == RT_STATUS_INVALID_ARGUMENT,
         "Adam init rejects undersized caller storage"
     );
 
-    tl_model_release(NULL);
-    tl_parameter_list_release(NULL);
-    tl_variable_release(NULL);
-    tl_adam_release(NULL);
+    rt_model_release(NULL);
+    rt_parameter_list_release(NULL);
+    rt_variable_release(NULL);
+    rt_adam_release(NULL);
 
     puts("C ABI tests passed");
     return EXIT_SUCCESS;

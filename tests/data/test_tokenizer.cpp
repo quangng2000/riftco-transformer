@@ -1,4 +1,4 @@
-#include "transformer_lab/data/tokenizer.hpp"
+#include "riftco_transformer/data/tokenizer.hpp"
 
 #include <algorithm>
 #include <array>
@@ -16,13 +16,13 @@
 
 namespace {
 
-using transformer_lab::BpeMergeRule;
-using transformer_lab::BytePairTokenizer;
-using transformer_lab::ByteTokenizer;
-using transformer_lab::TokenId;
-using transformer_lab::TokenizerMethod;
-using transformer_lab::TokenizerOptions;
-using transformer_lab::TokenizerStrategy;
+using riftco_transformer::BpeMergeRule;
+using riftco_transformer::BytePairTokenizer;
+using riftco_transformer::ByteTokenizer;
+using riftco_transformer::TokenId;
+using riftco_transformer::TokenizerMethod;
+using riftco_transformer::TokenizerOptions;
+using riftco_transformer::TokenizerStrategy;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -184,7 +184,7 @@ void test_strategy_factory_and_swapping() {
 
     const TokenizerOptions default_options;
     std::unique_ptr<TokenizerStrategy> tokenizer =
-        transformer_lab::make_tokenizer(corpus, default_options);
+        riftco_transformer::make_tokenizer(corpus, default_options);
     require(
         tokenizer->method() == TokenizerMethod::CorpusByte,
         "default factory method should preserve corpus-byte behavior"
@@ -198,7 +198,7 @@ void test_strategy_factory_and_swapping() {
     bpe_options.method = TokenizerMethod::BytePair;
     bpe_options.vocabulary_size = 258;
     bpe_options.minimum_pair_frequency = 2;
-    tokenizer = transformer_lab::make_tokenizer(corpus, bpe_options);
+    tokenizer = riftco_transformer::make_tokenizer(corpus, bpe_options);
     require(
         tokenizer->method() == TokenizerMethod::BytePair,
         "factory should select the BPE strategy"
@@ -221,7 +221,7 @@ void test_strategy_factory_and_swapping() {
     irrelevant_byte_options.vocabulary_size = 1;
     irrelevant_byte_options.minimum_pair_frequency = 0;
     tokenizer =
-        transformer_lab::make_tokenizer("abc", irrelevant_byte_options);
+        riftco_transformer::make_tokenizer("abc", irrelevant_byte_options);
     require(
         tokenizer->vocab_size() == 3,
         "BPE-only settings should not alter corpus-byte construction"
@@ -232,7 +232,7 @@ void test_strategy_factory_and_swapping() {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::make_tokenizer(corpus, unknown_options)
+                riftco_transformer::make_tokenizer(corpus, unknown_options)
             );
         },
         "factory should reject an unknown tokenizer method"
@@ -652,7 +652,7 @@ void test_tokenizer_errors() {
 
 void test_corpus_file(const std::filesystem::path& corpus_path) {
     const std::string corpus =
-        transformer_lab::read_file_bytes(corpus_path);
+        riftco_transformer::read_file_bytes(corpus_path);
     require(corpus.size() == 438, "unexpected tiny corpus byte count");
 
     const ByteTokenizer tokenizer(corpus);
@@ -681,7 +681,7 @@ void test_corpus_file(const std::filesystem::path& corpus_path) {
 
     require_throws(
         [&] {
-            static_cast<void>(transformer_lab::read_file_bytes(
+            static_cast<void>(riftco_transformer::read_file_bytes(
                 corpus_path.parent_path() / "missing-corpus.txt"
             ));
         },
@@ -690,7 +690,7 @@ void test_corpus_file(const std::filesystem::path& corpus_path) {
     require_throws(
         [&] {
             static_cast<void>(
-                transformer_lab::read_file_bytes(
+                riftco_transformer::read_file_bytes(
                     corpus_path.parent_path()
                 )
             );

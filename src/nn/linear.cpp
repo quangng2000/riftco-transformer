@@ -1,7 +1,7 @@
-#include "transformer_lab/nn/linear.hpp"
+#include "riftco_transformer/nn/linear.hpp"
 
-#include "transformer_lab/core/tensor_ops.hpp"
-#include "transformer_lab/nn/initialization.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
+#include "riftco_transformer/nn/initialization.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 Tensor checked_linear_weight(Tensor weight) {
@@ -226,4 +226,4 @@ void Linear::discard_unmerged_lora() noexcept {
     }
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

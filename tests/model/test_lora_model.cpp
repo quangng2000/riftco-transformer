@@ -1,8 +1,8 @@
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/model/lora.hpp"
-#include "transformer_lab/nn/loss.hpp"
-#include "transformer_lab/optim/adam.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/model/lora.hpp"
+#include "riftco_transformer/nn/loss.hpp"
+#include "riftco_transformer/optim/adam.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -19,23 +19,23 @@
 
 namespace {
 
-using transformer_lab::Adam;
-using transformer_lab::AdamOptions;
-using transformer_lab::DecoderOnlyTransformer;
-using transformer_lab::ExecutionBackend;
-using transformer_lab::LoraConfig;
-using transformer_lab::NamedParameter;
-using transformer_lab::Parameter;
-using transformer_lab::ParameterList;
-using transformer_lab::Tensor;
-using transformer_lab::TokenId;
-using transformer_lab::TransformerDimensions;
-using transformer_lab::Variable;
-using transformer_lab::cross_entropy;
-using transformer_lab::kLoraAllTargets;
-using transformer_lab::kLoraAttentionQuery;
-using transformer_lab::kLoraAttentionValue;
-using transformer_lab::kLoraDefaultTargets;
+using riftco_transformer::Adam;
+using riftco_transformer::AdamOptions;
+using riftco_transformer::DecoderOnlyTransformer;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::LoraConfig;
+using riftco_transformer::NamedParameter;
+using riftco_transformer::Parameter;
+using riftco_transformer::ParameterList;
+using riftco_transformer::Tensor;
+using riftco_transformer::TokenId;
+using riftco_transformer::TransformerDimensions;
+using riftco_transformer::Variable;
+using riftco_transformer::cross_entropy;
+using riftco_transformer::kLoraAllTargets;
+using riftco_transformer::kLoraAttentionQuery;
+using riftco_transformer::kLoraAttentionValue;
+using riftco_transformer::kLoraDefaultTargets;
 
 constexpr TransformerDimensions kDimensions{
     5,
@@ -285,7 +285,7 @@ void test_validation_is_transactional() {
     invalid = {};
     invalid.targets =
         kLoraAllTargets |
-        (transformer_lab::LoraTargetMask{1} << 40U);
+        (riftco_transformer::LoraTargetMask{1} << 40U);
     require_throws(
         [&] { model.attach_lora(invalid); },
         "unknown model LoRA target bits are rejected"
@@ -508,10 +508,10 @@ void test_adapter_only_optimization_merge_and_transfer() {
         "model rejects reattachment after merge"
     );
 
-    if (transformer_lab::execution_backend_available(
+    if (riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
-        transformer_lab::Module& module = model;
+        riftco_transformer::Module& module = model;
         module.to(ExecutionBackend::Metal);
         for (const auto& parameter : model.parameters()) {
             require(
@@ -582,7 +582,7 @@ void test_model_merge_is_transactional() {
 }
 
 void test_active_metal_lora_training_when_available() {
-    if (!transformer_lab::execution_backend_available(
+    if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Metal
         )) {
         return;

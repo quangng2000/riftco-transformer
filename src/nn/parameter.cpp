@@ -1,4 +1,4 @@
-#include "transformer_lab/nn/parameter.hpp"
+#include "riftco_transformer/nn/parameter.hpp"
 
 #include <limits>
 #include <mutex>
@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 
 class ParameterState final
     : public std::enable_shared_from_this<ParameterState> {
@@ -325,4 +325,4 @@ void move_parameters_to(
     }
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

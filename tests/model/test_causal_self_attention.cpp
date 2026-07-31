@@ -1,6 +1,6 @@
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/core/tensor_ops.hpp"
-#include "transformer_lab/model/causal_self_attention.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
+#include "riftco_transformer/model/causal_self_attention.hpp"
 
 #include <cmath>
 #include <exception>
@@ -15,12 +15,12 @@
 
 namespace {
 
-using transformer_lab::CausalSelfAttention;
-using transformer_lab::ExecutionBackend;
-using transformer_lab::FullSequenceAttentionKind;
-using transformer_lab::Tensor;
-using transformer_lab::Variable;
-namespace tensor_ops = transformer_lab::tensor_ops;
+using riftco_transformer::CausalSelfAttention;
+using riftco_transformer::ExecutionBackend;
+using riftco_transformer::FullSequenceAttentionKind;
+using riftco_transformer::Tensor;
+using riftco_transformer::Variable;
+namespace tensor_ops = riftco_transformer::tensor_ops;
 
 void require(bool condition, const std::string &message) {
   if (!condition) {
@@ -28,7 +28,7 @@ void require(bool condition, const std::string &message) {
   }
 }
 
-void require_parameter_backend(const transformer_lab::ParameterList &parameters,
+void require_parameter_backend(const riftco_transformer::ParameterList &parameters,
                                ExecutionBackend backend,
                                const std::string &message) {
   require(!parameters.empty(), message + ": empty parameter list");
@@ -318,7 +318,7 @@ void test_split_and_merge_heads() {
                                 112.0F, 113.0F, 120.0F, 121.0F, 122.0F, 123.0F,
                             });
   const Variable input(input_values);
-  const Variable split = transformer_lab::split_attention_heads(input, 2);
+  const Variable split = riftco_transformer::split_attention_heads(input, 2);
   require_tensor_close(split.value(), {2, 2, 3, 2},
                        {
                            0.0F,   1.0F,   10.0F,  11.0F,  20.0F,  21.0F,
@@ -327,7 +327,7 @@ void test_split_and_merge_heads() {
                            102.0F, 103.0F, 112.0F, 113.0F, 122.0F, 123.0F,
                        },
                        "split-head ordering");
-  require_tensor_close(transformer_lab::merge_attention_heads(split).value(),
+  require_tensor_close(riftco_transformer::merge_attention_heads(split).value(),
                        input_values.shape(),
                        std::vector<float>(input_values.data().begin(),
                                           input_values.data().end()),
@@ -350,23 +350,23 @@ void test_split_and_merge_heads() {
 
   require_throws(
       [] {
-        static_cast<void>(transformer_lab::split_attention_heads(
+        static_cast<void>(riftco_transformer::split_attention_heads(
             Variable(Tensor({2, 4}), false), 2));
       },
       "split heads should reject non-rank-three input");
   require_throws(
       [&] {
-        static_cast<void>(transformer_lab::split_attention_heads(input, 0));
+        static_cast<void>(riftco_transformer::split_attention_heads(input, 0));
       },
       "split heads should reject zero heads");
   require_throws(
       [&] {
-        static_cast<void>(transformer_lab::split_attention_heads(input, 3));
+        static_cast<void>(riftco_transformer::split_attention_heads(input, 3));
       },
       "split heads should reject indivisible width");
   require_throws(
       [] {
-        static_cast<void>(transformer_lab::merge_attention_heads(
+        static_cast<void>(riftco_transformer::merge_attention_heads(
             Variable(Tensor({2, 3, 4}), false)));
       },
       "merge heads should reject non-rank-four input");
@@ -418,7 +418,7 @@ void test_scaled_causal_attention_forward() {
                                                  1.0F,
                                              }));
 
-  const auto attention = transformer_lab::causal_scaled_dot_product_attention(
+  const auto attention = riftco_transformer::causal_scaled_dot_product_attention(
       queries, keys, values);
   require_tensor_close(attention.probabilities.value(), {1, 1, 3, 3},
                        {
@@ -468,7 +468,7 @@ void test_scaled_causal_attention_forward() {
     require_close(row_sum, 1.0F, "attention probability row sum");
   }
 
-  const auto single = transformer_lab::causal_scaled_dot_product_attention(
+  const auto single = riftco_transformer::causal_scaled_dot_product_attention(
       Variable(Tensor({1, 1, 1, 2}, {0.2F, -0.3F})),
       Variable(Tensor({1, 1, 1, 2}, {0.4F, 0.5F})),
       Variable(Tensor({1, 1, 1, 2}, {7.0F, -2.0F})));
@@ -492,7 +492,7 @@ void test_multi_batch_attention() {
     value_values.flat(index) = static_cast<float>(value_pattern) * 0.23F;
   }
 
-  const auto actual = transformer_lab::causal_scaled_dot_product_attention(
+  const auto actual = riftco_transformer::causal_scaled_dot_product_attention(
       Variable(query_values, false), Variable(key_values, false),
       Variable(value_values, false));
   const auto expected =
@@ -512,7 +512,7 @@ void test_multi_batch_attention() {
     changed_keys.flat(index) -= 0.75F;
     changed_values.flat(index) += 2.0F + static_cast<float>(index) * 0.01F;
   }
-  const auto changed = transformer_lab::causal_scaled_dot_product_attention(
+  const auto changed = riftco_transformer::causal_scaled_dot_product_attention(
       Variable(changed_queries, false), Variable(changed_keys, false),
       Variable(changed_values, false));
   for (std::size_t index = 0; index < values_per_batch; ++index) {
@@ -600,7 +600,7 @@ void test_functional_attention_gradients() {
   const Variable queries(query_values);
   const Variable keys(key_values);
   const Variable values(value_values);
-  const auto attention = transformer_lab::causal_scaled_dot_product_attention(
+  const auto attention = riftco_transformer::causal_scaled_dot_product_attention(
       queries, keys, values);
   const auto reference =
       reference_causal_attention(query_values, key_values, value_values);
@@ -608,7 +608,7 @@ void test_functional_attention_gradients() {
                        "attention reference forward", 2.0e-6F);
   require_tensor_close(attention.probabilities.value(), reference.probabilities,
                        "attention probability reference forward", 2.0e-6F);
-  transformer_lab::sum(attention.context * Variable(output_weights, false))
+  riftco_transformer::sum(attention.context * Variable(output_weights, false))
       .backward();
 
   const auto evaluate = [&](const Tensor &candidate_queries,
@@ -660,7 +660,7 @@ void test_functional_attention_gradients() {
   const Variable probability_keys(key_values);
   const Variable probability_values(value_values);
   const auto probability_attention =
-      transformer_lab::causal_scaled_dot_product_attention(
+      riftco_transformer::causal_scaled_dot_product_attention(
           probability_queries, probability_keys, probability_values);
   const Tensor probability_seed({1, 2, 3, 3}, {
                                                   0.5F,
@@ -720,7 +720,7 @@ void test_functional_attention_gradients() {
   const Variable causal_queries(query_values);
   const Variable causal_keys(key_values);
   const Variable causal_values(value_values);
-  const auto causal = transformer_lab::causal_scaled_dot_product_attention(
+  const auto causal = riftco_transformer::causal_scaled_dot_product_attention(
       causal_queries, causal_keys, causal_values);
   Tensor first_position_seed(query_values.shape(), 0.0F);
   for (std::size_t head = 0; head < 2; ++head) {
@@ -761,7 +761,7 @@ void test_functional_attention_gradients() {
   const Variable second_keys(key_values);
   const Variable second_values(value_values);
   const auto second_causal =
-      transformer_lab::causal_scaled_dot_product_attention(
+      riftco_transformer::causal_scaled_dot_product_attention(
           second_queries, second_keys, second_values);
   Tensor second_position_seed(query_values.shape(), 0.0F);
   for (std::size_t head = 0; head < 2; ++head) {
@@ -840,11 +840,11 @@ void test_module_context_only_matches_explicit_attention() {
 
   const Variable functional_input(input_values);
   const Variable heads =
-      transformer_lab::split_attention_heads(functional_input, 2);
+      riftco_transformer::split_attention_heads(functional_input, 2);
   const auto explicit_attention =
-      transformer_lab::causal_scaled_dot_product_attention(heads, heads, heads);
+      riftco_transformer::causal_scaled_dot_product_attention(heads, heads, heads);
   const Variable explicit_output =
-      transformer_lab::merge_attention_heads(explicit_attention.context);
+      riftco_transformer::merge_attention_heads(explicit_attention.context);
 
   require_tensor_close(module_output.value(), explicit_output.value(),
                        "context-only module forward parity", 3.0e-6F);
@@ -1148,7 +1148,7 @@ void test_module_parameters_and_gradients() {
   };
   require(parameters.size() == expected_names.size(),
           "attention parameter count");
-  std::set<const transformer_lab::Parameter *> parameter_addresses;
+  std::set<const riftco_transformer::Parameter *> parameter_addresses;
   for (std::size_t index = 0; index < parameters.size(); ++index) {
     parameter_addresses.insert(parameters[index].parameter);
     require(parameters[index].name == expected_names[index],
@@ -1161,7 +1161,7 @@ void test_module_parameters_and_gradients() {
   }
   require(parameter_addresses.size() == parameters.size(),
           "attention parameters must have distinct identities");
-  require(transformer_lab::parameter_count(parameters) == 80,
+  require(riftco_transformer::parameter_count(parameters) == 80,
           "attention scalar parameter count");
 
   const Tensor input_values({1, 3, 4}, {
@@ -1196,7 +1196,7 @@ void test_module_parameters_and_gradients() {
   const Variable output = attention.forward(input);
   require(output.value().shape() == input_values.shape(),
           "attention output shape");
-  transformer_lab::sum(output * Variable(output_weights, false)).backward();
+  riftco_transformer::sum(output * Variable(output_weights, false)).backward();
 
   const Tensor input_gradient = input.gradient();
   std::vector<Tensor> parameter_values;
@@ -1279,7 +1279,7 @@ void test_module_parameters_and_gradients() {
       "attention should reject wrong model width");
   require_throws(
       [] {
-        static_cast<void>(transformer_lab::causal_scaled_dot_product_attention(
+        static_cast<void>(riftco_transformer::causal_scaled_dot_product_attention(
             Variable(Tensor({1, 2, 3}), false),
             Variable(Tensor({1, 2, 3}), false),
             Variable(Tensor({1, 2, 3}), false)));
@@ -1287,7 +1287,7 @@ void test_module_parameters_and_gradients() {
       "functional attention should reject non-rank-four input");
   require_throws(
       [] {
-        static_cast<void>(transformer_lab::causal_scaled_dot_product_attention(
+        static_cast<void>(riftco_transformer::causal_scaled_dot_product_attention(
             Variable(Tensor({1, 1, 2, 2}), false),
             Variable(Tensor({1, 1, 3, 2}), false),
             Variable(Tensor({1, 1, 2, 2}), false)));
@@ -1296,7 +1296,7 @@ void test_module_parameters_and_gradients() {
 }
 
 void test_module_device_transfer_and_forward() {
-  const transformer_lab::ScopedExecutionBackend cpu_backend(
+  const riftco_transformer::ScopedExecutionBackend cpu_backend(
       ExecutionBackend::Cpu);
   std::mt19937 random(223U);
   CausalSelfAttention attention(4, 2, random);
@@ -1316,7 +1316,7 @@ void test_module_device_transfer_and_forward() {
   require_parameter_backend(attention.parameters(), ExecutionBackend::Cpu,
                             "attention CPU transfer");
 
-  if (!transformer_lab::execution_backend_available(ExecutionBackend::Metal)) {
+  if (!riftco_transformer::execution_backend_available(ExecutionBackend::Metal)) {
     return;
   }
 

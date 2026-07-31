@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace transformer_lab::backend_detail {
+namespace riftco_transformer::backend_detail {
 
 // Private test/diagnostic counters. They count successful Adam batches, not
 // individual parameter-tensor dispatches.
@@ -15,4 +15,4 @@ void reset_metal_adam_path_counts() noexcept;
 
 [[nodiscard]] MetalAdamPathCounts metal_adam_path_counts() noexcept;
 
-}  // namespace transformer_lab::backend_detail
+}  // namespace riftco_transformer::backend_detail

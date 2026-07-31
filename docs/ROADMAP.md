@@ -207,23 +207,23 @@ Only after correctness:
   slice
 - materialized causal-attention forward and vector-Jacobian-product Metal
   kernels — complete slice
-- C ABI 1.2 tokenizer/model/variable/Adam ownership and end-to-end Python text
+- C ABI tokenizer/model/variable/Adam ownership and end-to-end Python text
   training — complete slice
-- C ABI 1.3 selectable byte/BPE tokenizers and end-to-end Python BPE training
+- selectable byte/BPE tokenizers and end-to-end Python BPE training
   — complete slice
-- C ABI 1.4 exact tokenizer reconstruction and deterministic named-parameter
+- exact tokenizer reconstruction and deterministic named-parameter
   state transfer for `ModelBundle` — complete slice
-- C ABI 1.5 LoRA configuration, attachment, adapter-parameter access, and
+- LoRA configuration, attachment, adapter-parameter access, and
   merge lifecycle — complete slice
-- C ABI 1.6 contiguous/paged incremental decode-session lifecycle — complete
+- contiguous/paged incremental decode-session lifecycle — complete
   slice
 - dependency-free exact tile-8 Flash causal-attention forward/backward on CPU
   and Metal, with `[B,H,T]` row statistics instead of saved `[B,H,T,T]`
   probabilities — complete slice
-- C ABI 1.7 and Python/native-stage full-sequence attention selection —
+- C ABI and Python/native-stage full-sequence attention selection —
   complete slice
 - exception-atomic nested VJPs plus transformer-block activation
-  checkpointing on CPU/Metal, including LoRA dependencies, C ABI 1.8, Python,
+  checkpointing on CPU/Metal, including LoRA dependencies, C ABI, Python,
   stage, and CLI selection — complete slice
 - optimized CPU matrix multiplication
 - parallel CPU loops

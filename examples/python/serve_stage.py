@@ -6,13 +6,13 @@ import argparse
 from pathlib import Path
 import sys
 
-from transformer_lab.serving import (
+from riftco_transformer.serving import (
     ServingConfig,
     create_http_server,
 )
 
 
-DEFAULT_BUNDLE = Path("results/stages/tiny_post_trained.tlab")
+DEFAULT_BUNDLE = Path("results/stages/tiny_post_trained.rift")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 
 
@@ -36,7 +36,7 @@ def port_number(value: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Stage 3: serve a .tlab artifact over dependency-free local HTTP."
+            "Stage 3: serve a .rift artifact over dependency-free local HTTP."
         )
     )
     parser.add_argument(

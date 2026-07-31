@@ -1,12 +1,12 @@
-#include "transformer_lab/stages/post_training/config.hpp"
+#include "riftco_transformer/stages/post_training/config.hpp"
 
-#include "transformer_lab/data/tokenizer.hpp"
+#include "riftco_transformer/data/tokenizer.hpp"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
-namespace transformer_lab::stages::post_training {
+namespace riftco_transformer::stages::post_training {
 namespace {
 
 void validate_backend(ExecutionBackend backend) {
@@ -127,4 +127,4 @@ void PostTrainingConfig::validate() const {
     }
 }
 
-}  // namespace transformer_lab::stages::post_training
+}  // namespace riftco_transformer::stages::post_training

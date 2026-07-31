@@ -1,16 +1,16 @@
 #pragma once
 
-namespace transformer_lab::backend_detail::attention_metal_detail {
+namespace riftco_transformer::backend_detail::attention_metal_detail {
 
 // Exact, memory-linear causal attention. Every 64-thread group owns eight
 // query (or key) rows and reuses 8xD Q/K/V tiles from threadgroup memory.
 // Probabilities are reconstructed from saved row maxima and exponential sums;
 // no [B,H,T,T] buffer is allocated in either direction.
 inline constexpr char kFlashCausalAttentionKernelSource[] = R"METAL(
-constant uint TL_FLASH_TILE = 8u;
-constant uint TL_FLASH_THREADS = 64u;
+constant uint RT_FLASH_TILE = 8u;
+constant uint RT_FLASH_THREADS = 64u;
 
-inline ulong tl_flash_offset(
+inline ulong rt_flash_offset(
     ulong batch_head,
     ulong position,
     ulong channel,
@@ -22,7 +22,7 @@ inline ulong tl_flash_offset(
     ) * head_width + channel;
 }
 
-inline float tl_flash_probability(
+inline float rt_flash_probability(
     float score,
     float row_maximum,
     float row_exp_sum
@@ -32,7 +32,7 @@ inline float tl_flash_probability(
         : exp(score - row_maximum) / row_exp_sum;
 }
 
-kernel void tl_flash_causal_attention_forward(
+kernel void rt_flash_causal_attention_forward(
     device const float* queries [[buffer(0)]],
     device const float* keys [[buffer(1)]],
     device const float* values [[buffer(2)]],
@@ -49,28 +49,28 @@ kernel void tl_flash_causal_attention_forward(
     uint3 group [[threadgroup_position_in_grid]]
 ) {
     const ulong batch_head = ulong(group.y);
-    const ulong query_start = ulong(group.x) * TL_FLASH_TILE;
-    const ulong tile_elements = TL_FLASH_TILE * head_width;
+    const ulong query_start = ulong(group.x) * RT_FLASH_TILE;
+    const ulong tile_elements = RT_FLASH_TILE * head_width;
 
     threadgroup float* query_tile = scratch;
     threadgroup float* key_tile = query_tile + tile_elements;
     threadgroup float* value_tile = key_tile + tile_elements;
     threadgroup float* output_tile = value_tile + tile_elements;
     threadgroup float* scores = output_tile + tile_elements;
-    threadgroup float* maxima = scores + TL_FLASH_TILE * TL_FLASH_TILE;
-    threadgroup float* sums = maxima + TL_FLASH_TILE;
-    threadgroup float* old_scales = sums + TL_FLASH_TILE;
-    threadgroup float* valid_rows = old_scales + TL_FLASH_TILE;
+    threadgroup float* maxima = scores + RT_FLASH_TILE * RT_FLASH_TILE;
+    threadgroup float* sums = maxima + RT_FLASH_TILE;
+    threadgroup float* old_scales = sums + RT_FLASH_TILE;
+    threadgroup float* valid_rows = old_scales + RT_FLASH_TILE;
 
     for (ulong element = thread_index;
          element < tile_elements;
-         element += TL_FLASH_THREADS) {
+         element += RT_FLASH_THREADS) {
         const ulong local_query = element / head_width;
         const ulong channel = element % head_width;
         const ulong query = query_start + local_query;
         query_tile[element] =
             batch_head < batch_heads && query < time
-                ? queries[tl_flash_offset(
+                ? queries[rt_flash_offset(
                       batch_head,
                       query,
                       channel,
@@ -80,7 +80,7 @@ kernel void tl_flash_causal_attention_forward(
                 : 0.0f;
         output_tile[element] = 0.0f;
     }
-    if (thread_index < TL_FLASH_TILE) {
+    if (thread_index < RT_FLASH_TILE) {
         maxima[thread_index] = -INFINITY;
         sums[thread_index] = 0.0f;
         old_scales[thread_index] = 0.0f;
@@ -88,20 +88,20 @@ kernel void tl_flash_causal_attention_forward(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    const ulong query_limit = min(time, query_start + TL_FLASH_TILE);
+    const ulong query_limit = min(time, query_start + RT_FLASH_TILE);
     for (ulong key_start = 0;
          key_start < query_limit;
-         key_start += TL_FLASH_TILE) {
+         key_start += RT_FLASH_TILE) {
         for (ulong element = thread_index;
              element < tile_elements;
-             element += TL_FLASH_THREADS) {
+             element += RT_FLASH_THREADS) {
             const ulong local_key = element / head_width;
             const ulong channel = element % head_width;
             const ulong key = key_start + local_key;
             const bool in_bounds =
                 batch_head < batch_heads && key < time;
             key_tile[element] = in_bounds
-                ? keys[tl_flash_offset(
+                ? keys[rt_flash_offset(
                       batch_head,
                       key,
                       channel,
@@ -110,7 +110,7 @@ kernel void tl_flash_causal_attention_forward(
                   )]
                 : 0.0f;
             value_tile[element] = in_bounds
-                ? values[tl_flash_offset(
+                ? values[rt_flash_offset(
                       batch_head,
                       key,
                       channel,
@@ -121,8 +121,8 @@ kernel void tl_flash_causal_attention_forward(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        const uint local_query = thread_index / TL_FLASH_TILE;
-        const uint local_key = thread_index % TL_FLASH_TILE;
+        const uint local_query = thread_index / RT_FLASH_TILE;
+        const uint local_key = thread_index % RT_FLASH_TILE;
         const ulong query = query_start + ulong(local_query);
         const ulong key = key_start + ulong(local_key);
         float score = -INFINITY;
@@ -149,7 +149,7 @@ kernel void tl_flash_causal_attention_forward(
         scores[thread_index] = score;
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (thread_index < TL_FLASH_TILE) {
+        if (thread_index < RT_FLASH_TILE) {
             const uint row = thread_index;
             const ulong query_position = query_start + ulong(row);
             if (
@@ -159,7 +159,7 @@ kernel void tl_flash_causal_attention_forward(
                 float tile_maximum = -INFINITY;
                 bool row_valid = valid_rows[row] != 0.0f;
                 for (uint column = 0;
-                     column < TL_FLASH_TILE;
+                     column < RT_FLASH_TILE;
                      ++column) {
                     const ulong key_position =
                         key_start + ulong(column);
@@ -170,7 +170,7 @@ kernel void tl_flash_causal_attention_forward(
                         continue;
                     }
                     const float candidate =
-                        scores[row * TL_FLASH_TILE + column];
+                        scores[row * RT_FLASH_TILE + column];
                     if (isnan(candidate) || candidate == INFINITY) {
                         row_valid = false;
                     } else {
@@ -198,12 +198,12 @@ kernel void tl_flash_causal_attention_forward(
                 float tile_sum = 0.0f;
                 if (new_maximum != -INFINITY) {
                     for (uint column = 0;
-                         column < TL_FLASH_TILE;
+                         column < RT_FLASH_TILE;
                          ++column) {
                         const ulong key_position =
                             key_start + ulong(column);
                         const float candidate =
-                            scores[row * TL_FLASH_TILE + column];
+                            scores[row * RT_FLASH_TILE + column];
                         if (
                             key_position < time &&
                             key_position <= query_position &&
@@ -226,7 +226,7 @@ kernel void tl_flash_causal_attention_forward(
 
         for (ulong element = thread_index;
              element < tile_elements;
-             element += TL_FLASH_THREADS) {
+             element += RT_FLASH_THREADS) {
             const ulong local_query_index =
                 element / head_width;
             const ulong channel = element % head_width;
@@ -240,12 +240,12 @@ kernel void tl_flash_causal_attention_forward(
                 output_tile[element];
             const float maximum = maxima[local_query_index];
             for (uint local_key_index = 0;
-                 local_key_index < TL_FLASH_TILE;
+                 local_key_index < RT_FLASH_TILE;
                  ++local_key_index) {
                 const ulong key =
                     key_start + ulong(local_key_index);
                 const float candidate = scores[
-                    local_query_index * TL_FLASH_TILE +
+                    local_query_index * RT_FLASH_TILE +
                     ulong(local_key_index)
                 ];
                 if (
@@ -269,7 +269,7 @@ kernel void tl_flash_causal_attention_forward(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (thread_index < TL_FLASH_TILE) {
+    if (thread_index < RT_FLASH_TILE) {
         const ulong query = query_start + ulong(thread_index);
         if (batch_head < batch_heads && query < time) {
             const bool valid =
@@ -284,7 +284,7 @@ kernel void tl_flash_causal_attention_forward(
             row_exp_sums[row] =
                 valid ? sums[thread_index] : 0.0f;
             if (!valid) {
-                tl_flag(status, TL_STATUS_INVALID_ROW);
+                rt_flag(status, RT_STATUS_INVALID_ROW);
             }
         }
     }
@@ -292,12 +292,12 @@ kernel void tl_flash_causal_attention_forward(
 
     for (ulong element = thread_index;
          element < tile_elements;
-         element += TL_FLASH_THREADS) {
+         element += RT_FLASH_THREADS) {
         const ulong local_query = element / head_width;
         const ulong channel = element % head_width;
         const ulong query = query_start + local_query;
         if (batch_head < batch_heads && query < time) {
-            context[tl_flash_offset(
+            context[rt_flash_offset(
                 batch_head,
                 query,
                 channel,
@@ -311,7 +311,7 @@ kernel void tl_flash_causal_attention_forward(
     }
 }
 
-kernel void tl_flash_causal_attention_delta(
+kernel void rt_flash_causal_attention_delta(
     device const float* queries [[buffer(0)]],
     device const float* keys [[buffer(1)]],
     device const float* values [[buffer(2)]],
@@ -328,53 +328,53 @@ kernel void tl_flash_causal_attention_delta(
     uint3 group [[threadgroup_position_in_grid]]
 ) {
     const ulong batch_head = ulong(group.y);
-    const ulong query_start = ulong(group.x) * TL_FLASH_TILE;
-    const ulong tile_elements = TL_FLASH_TILE * head_width;
+    const ulong query_start = ulong(group.x) * RT_FLASH_TILE;
+    const ulong tile_elements = RT_FLASH_TILE * head_width;
     threadgroup float* query_tile = scratch;
     threadgroup float* key_tile = query_tile + tile_elements;
     threadgroup float* value_tile = key_tile + tile_elements;
     threadgroup float* upstream_tile = value_tile + tile_elements;
     threadgroup float* score_tile = upstream_tile + tile_elements;
     threadgroup float* dot_tile =
-        score_tile + TL_FLASH_TILE * TL_FLASH_TILE;
+        score_tile + RT_FLASH_TILE * RT_FLASH_TILE;
     threadgroup float* delta_tile =
-        dot_tile + TL_FLASH_TILE * TL_FLASH_TILE;
+        dot_tile + RT_FLASH_TILE * RT_FLASH_TILE;
 
     for (ulong element = thread_index;
          element < tile_elements;
-         element += TL_FLASH_THREADS) {
+         element += RT_FLASH_THREADS) {
         const ulong local_query = element / head_width;
         const ulong channel = element % head_width;
         const ulong query = query_start + local_query;
         const bool valid =
             batch_head < batch_heads && query < time;
         const ulong index = valid
-            ? tl_flash_offset(
+            ? rt_flash_offset(
                   batch_head, query, channel, time, head_width
               )
             : 0;
         query_tile[element] = valid ? queries[index] : 0.0f;
         upstream_tile[element] = valid ? upstream[index] : 0.0f;
     }
-    if (thread_index < TL_FLASH_TILE) {
+    if (thread_index < RT_FLASH_TILE) {
         delta_tile[thread_index] = 0.0f;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    const ulong query_limit = min(time, query_start + TL_FLASH_TILE);
+    const ulong query_limit = min(time, query_start + RT_FLASH_TILE);
     for (ulong key_start = 0;
          key_start < query_limit;
-         key_start += TL_FLASH_TILE) {
+         key_start += RT_FLASH_TILE) {
         for (ulong element = thread_index;
              element < tile_elements;
-             element += TL_FLASH_THREADS) {
+             element += RT_FLASH_THREADS) {
             const ulong local_key = element / head_width;
             const ulong channel = element % head_width;
             const ulong key = key_start + local_key;
             const bool valid =
                 batch_head < batch_heads && key < time;
             const ulong index = valid
-                ? tl_flash_offset(
+                ? rt_flash_offset(
                       batch_head, key, channel, time, head_width
                   )
                 : 0;
@@ -383,8 +383,8 @@ kernel void tl_flash_causal_attention_delta(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        const uint local_query = thread_index / TL_FLASH_TILE;
-        const uint local_key = thread_index % TL_FLASH_TILE;
+        const uint local_query = thread_index / RT_FLASH_TILE;
+        const uint local_key = thread_index % RT_FLASH_TILE;
         const ulong query = query_start + ulong(local_query);
         const ulong key = key_start + ulong(local_key);
         float score = -INFINITY;
@@ -420,7 +420,7 @@ kernel void tl_flash_causal_attention_delta(
         dot_tile[thread_index] = upstream_dot_value;
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (thread_index < TL_FLASH_TILE) {
+        if (thread_index < RT_FLASH_TILE) {
             const ulong query_position =
                 query_start + ulong(thread_index);
             if (
@@ -431,7 +431,7 @@ kernel void tl_flash_causal_attention_delta(
                     batch_head * time + query_position;
                 float total = delta_tile[thread_index];
                 for (uint local_key_index = 0;
-                     local_key_index < TL_FLASH_TILE;
+                     local_key_index < RT_FLASH_TILE;
                      ++local_key_index) {
                     const ulong key_position =
                         key_start + ulong(local_key_index);
@@ -440,10 +440,10 @@ kernel void tl_flash_causal_attention_delta(
                         key_position <= query_position
                     ) {
                         const uint tile_index =
-                            thread_index * TL_FLASH_TILE +
+                            thread_index * RT_FLASH_TILE +
                             local_key_index;
                         total +=
-                            tl_flash_probability(
+                            rt_flash_probability(
                                 score_tile[tile_index],
                                 row_maxima[row],
                                 row_exp_sums[row]
@@ -457,7 +457,7 @@ kernel void tl_flash_causal_attention_delta(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (thread_index < TL_FLASH_TILE) {
+    if (thread_index < RT_FLASH_TILE) {
         const ulong query = query_start + ulong(thread_index);
         if (batch_head < batch_heads && query < time) {
             delta[batch_head * time + query] =
@@ -466,7 +466,7 @@ kernel void tl_flash_causal_attention_delta(
     }
 }
 
-kernel void tl_flash_causal_attention_query_backward(
+kernel void rt_flash_causal_attention_query_backward(
     device const float* queries [[buffer(0)]],
     device const float* keys [[buffer(1)]],
     device const float* values [[buffer(2)]],
@@ -484,8 +484,8 @@ kernel void tl_flash_causal_attention_query_backward(
     uint3 group [[threadgroup_position_in_grid]]
 ) {
     const ulong batch_head = ulong(group.y);
-    const ulong query_start = ulong(group.x) * TL_FLASH_TILE;
-    const ulong tile_elements = TL_FLASH_TILE * head_width;
+    const ulong query_start = ulong(group.x) * RT_FLASH_TILE;
+    const ulong tile_elements = RT_FLASH_TILE * head_width;
     threadgroup float* query_tile = scratch;
     threadgroup float* key_tile = query_tile + tile_elements;
     threadgroup float* value_tile = key_tile + tile_elements;
@@ -496,14 +496,14 @@ kernel void tl_flash_causal_attention_query_backward(
 
     for (ulong element = thread_index;
          element < tile_elements;
-         element += TL_FLASH_THREADS) {
+         element += RT_FLASH_THREADS) {
         const ulong local_query = element / head_width;
         const ulong channel = element % head_width;
         const ulong query = query_start + local_query;
         const bool valid =
             batch_head < batch_heads && query < time;
         const ulong index = valid
-            ? tl_flash_offset(
+            ? rt_flash_offset(
                   batch_head, query, channel, time, head_width
               )
             : 0;
@@ -513,20 +513,20 @@ kernel void tl_flash_causal_attention_query_backward(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    const ulong query_limit = min(time, query_start + TL_FLASH_TILE);
+    const ulong query_limit = min(time, query_start + RT_FLASH_TILE);
     for (ulong key_start = 0;
          key_start < query_limit;
-         key_start += TL_FLASH_TILE) {
+         key_start += RT_FLASH_TILE) {
         for (ulong element = thread_index;
              element < tile_elements;
-             element += TL_FLASH_THREADS) {
+             element += RT_FLASH_THREADS) {
             const ulong local_key = element / head_width;
             const ulong channel = element % head_width;
             const ulong key = key_start + local_key;
             const bool valid =
                 batch_head < batch_heads && key < time;
             const ulong index = valid
-                ? tl_flash_offset(
+                ? rt_flash_offset(
                       batch_head, key, channel, time, head_width
                   )
                 : 0;
@@ -535,8 +535,8 @@ kernel void tl_flash_causal_attention_query_backward(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        const uint local_query = thread_index / TL_FLASH_TILE;
-        const uint local_key = thread_index % TL_FLASH_TILE;
+        const uint local_query = thread_index / RT_FLASH_TILE;
+        const uint local_key = thread_index % RT_FLASH_TILE;
         const ulong query = query_start + ulong(local_query);
         const ulong key = key_start + ulong(local_key);
         float derivative = 0.0f;
@@ -568,7 +568,7 @@ kernel void tl_flash_causal_attention_query_backward(
             }
             score *= score_scale;
             const ulong row = batch_head * time + query;
-            const float probability = tl_flash_probability(
+            const float probability = rt_flash_probability(
                 score,
                 row_maxima[row],
                 row_exp_sums[row]
@@ -582,7 +582,7 @@ kernel void tl_flash_causal_attention_query_backward(
 
         for (ulong element = thread_index;
              element < tile_elements;
-             element += TL_FLASH_THREADS) {
+             element += RT_FLASH_THREADS) {
             const ulong local_query_index =
                 element / head_width;
             const ulong channel = element % head_width;
@@ -593,7 +593,7 @@ kernel void tl_flash_causal_attention_query_backward(
             }
             float total = gradient_tile[element];
             for (uint local_key_index = 0;
-                 local_key_index < TL_FLASH_TILE;
+                 local_key_index < RT_FLASH_TILE;
                  ++local_key_index) {
                 const ulong key =
                     key_start + ulong(local_key_index);
@@ -601,7 +601,7 @@ kernel void tl_flash_causal_attention_query_backward(
                     total +=
                         score_gradient[
                             local_query_index *
-                                TL_FLASH_TILE +
+                                RT_FLASH_TILE +
                             ulong(local_key_index)
                         ] *
                         key_tile[
@@ -618,12 +618,12 @@ kernel void tl_flash_causal_attention_query_backward(
 
     for (ulong element = thread_index;
          element < tile_elements;
-         element += TL_FLASH_THREADS) {
+         element += RT_FLASH_THREADS) {
         const ulong local_query = element / head_width;
         const ulong channel = element % head_width;
         const ulong query = query_start + local_query;
         if (batch_head < batch_heads && query < time) {
-            query_gradient[tl_flash_offset(
+            query_gradient[rt_flash_offset(
                 batch_head,
                 query,
                 channel,
@@ -634,7 +634,7 @@ kernel void tl_flash_causal_attention_query_backward(
     }
 }
 
-kernel void tl_flash_causal_attention_key_value_backward(
+kernel void rt_flash_causal_attention_key_value_backward(
     device const float* queries [[buffer(0)]],
     device const float* keys [[buffer(1)]],
     device const float* values [[buffer(2)]],
@@ -653,8 +653,8 @@ kernel void tl_flash_causal_attention_key_value_backward(
     uint3 group [[threadgroup_position_in_grid]]
 ) {
     const ulong batch_head = ulong(group.y);
-    const ulong key_start = ulong(group.x) * TL_FLASH_TILE;
-    const ulong tile_elements = TL_FLASH_TILE * head_width;
+    const ulong key_start = ulong(group.x) * RT_FLASH_TILE;
+    const ulong tile_elements = RT_FLASH_TILE * head_width;
     threadgroup float* key_tile = scratch;
     threadgroup float* value_tile = key_tile + tile_elements;
     threadgroup float* key_gradient_tile =
@@ -668,18 +668,18 @@ kernel void tl_flash_causal_attention_key_value_backward(
     threadgroup float* probability_tile =
         upstream_tile + tile_elements;
     threadgroup float* score_gradient =
-        probability_tile + TL_FLASH_TILE * TL_FLASH_TILE;
+        probability_tile + RT_FLASH_TILE * RT_FLASH_TILE;
 
     for (ulong element = thread_index;
          element < tile_elements;
-         element += TL_FLASH_THREADS) {
+         element += RT_FLASH_THREADS) {
         const ulong local_key = element / head_width;
         const ulong channel = element % head_width;
         const ulong key = key_start + local_key;
         const bool valid =
             batch_head < batch_heads && key < time;
         const ulong index = valid
-            ? tl_flash_offset(
+            ? rt_flash_offset(
                   batch_head, key, channel, time, head_width
               )
             : 0;
@@ -692,20 +692,20 @@ kernel void tl_flash_causal_attention_key_value_backward(
 
     for (
         ulong query_start =
-            (key_start / TL_FLASH_TILE) * TL_FLASH_TILE;
+            (key_start / RT_FLASH_TILE) * RT_FLASH_TILE;
         query_start < time;
-        query_start += TL_FLASH_TILE
+        query_start += RT_FLASH_TILE
     ) {
         for (ulong element = thread_index;
              element < tile_elements;
-             element += TL_FLASH_THREADS) {
+             element += RT_FLASH_THREADS) {
             const ulong local_query = element / head_width;
             const ulong channel = element % head_width;
             const ulong query = query_start + local_query;
             const bool valid =
                 batch_head < batch_heads && query < time;
             const ulong index = valid
-                ? tl_flash_offset(
+                ? rt_flash_offset(
                       batch_head, query, channel, time, head_width
                   )
                 : 0;
@@ -714,8 +714,8 @@ kernel void tl_flash_causal_attention_key_value_backward(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        const uint local_key = thread_index / TL_FLASH_TILE;
-        const uint local_query = thread_index % TL_FLASH_TILE;
+        const uint local_key = thread_index / RT_FLASH_TILE;
+        const uint local_query = thread_index % RT_FLASH_TILE;
         const ulong key = key_start + ulong(local_key);
         const ulong query = query_start + ulong(local_query);
         float probability = 0.0f;
@@ -748,7 +748,7 @@ kernel void tl_flash_causal_attention_key_value_backward(
             }
             score *= score_scale;
             const ulong row = batch_head * time + query;
-            probability = tl_flash_probability(
+            probability = rt_flash_probability(
                 score,
                 row_maxima[row],
                 row_exp_sums[row]
@@ -763,7 +763,7 @@ kernel void tl_flash_causal_attention_key_value_backward(
 
         for (ulong element = thread_index;
              element < tile_elements;
-             element += TL_FLASH_THREADS) {
+             element += RT_FLASH_THREADS) {
             const ulong local_key_index =
                 element / head_width;
             const ulong channel = element % head_width;
@@ -775,13 +775,13 @@ kernel void tl_flash_causal_attention_key_value_backward(
             float key_total = key_gradient_tile[element];
             float value_total = value_gradient_tile[element];
             for (uint local_query_index = 0;
-                 local_query_index < TL_FLASH_TILE;
+                 local_query_index < RT_FLASH_TILE;
                  ++local_query_index) {
                 const ulong query =
                     query_start + ulong(local_query_index);
                 if (query < time && key <= query) {
                     const ulong tile_index =
-                        local_key_index * TL_FLASH_TILE +
+                        local_key_index * RT_FLASH_TILE +
                         ulong(local_query_index);
                     key_total +=
                         score_gradient[tile_index] *
@@ -807,12 +807,12 @@ kernel void tl_flash_causal_attention_key_value_backward(
 
     for (ulong element = thread_index;
          element < tile_elements;
-         element += TL_FLASH_THREADS) {
+         element += RT_FLASH_THREADS) {
         const ulong local_key = element / head_width;
         const ulong channel = element % head_width;
         const ulong key = key_start + local_key;
         if (batch_head < batch_heads && key < time) {
-            const ulong index = tl_flash_offset(
+            const ulong index = rt_flash_offset(
                 batch_head,
                 key,
                 channel,
@@ -826,4 +826,4 @@ kernel void tl_flash_causal_attention_key_value_backward(
 }
 )METAL";
 
-}  // namespace transformer_lab::backend_detail::attention_metal_detail
+}  // namespace riftco_transformer::backend_detail::attention_metal_detail

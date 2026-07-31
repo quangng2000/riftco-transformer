@@ -1,5 +1,5 @@
-if(NOT DEFINED TRANSFORMER_LAB_EXECUTABLE)
-    message(FATAL_ERROR "TRANSFORMER_LAB_EXECUTABLE is required")
+if(NOT DEFINED RIFTCO_TRANSFORMER_EXECUTABLE)
+    message(FATAL_ERROR "RIFTCO_TRANSFORMER_EXECUTABLE is required")
 endif()
 if(NOT DEFINED CONFIG_PATH)
     message(FATAL_ERROR "CONFIG_PATH is required")
@@ -12,7 +12,7 @@ file(REMOVE "${METRICS_PATH}")
 
 execute_process(
     COMMAND
-        "${TRANSFORMER_LAB_EXECUTABLE}"
+        "${RIFTCO_TRANSFORMER_EXECUTABLE}"
         --config "${CONFIG_PATH}"
         --steps 3
         --metrics "${METRICS_PATH}"

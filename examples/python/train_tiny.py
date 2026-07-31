@@ -8,7 +8,7 @@ import math
 import random
 from pathlib import Path
 
-from transformer_lab import (
+from riftco_transformer import (
     Adam,
     DecoderOnlyTransformer,
     Tokenizer,

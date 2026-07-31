@@ -8,7 +8,7 @@
 /python/*.egg-info/
 /dist/
 /wheelhouse/
-/python/transformer_lab/.libs/
+/python/riftco_transformer/.libs/
 **/__pycache__/
 **/*.pyc
 /results/*

@@ -1,10 +1,10 @@
-#include "transformer_lab/data/token_batch.hpp"
+#include "riftco_transformer/data/token_batch.hpp"
 
 #include <limits>
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab {
+namespace riftco_transformer {
 namespace {
 
 std::size_t checked_cell_count(
@@ -162,4 +162,4 @@ TokenBatch sample_next_token_batch(
     );
 }
 
-}  // namespace transformer_lab
+}  // namespace riftco_transformer

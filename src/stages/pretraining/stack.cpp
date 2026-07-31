@@ -1,18 +1,18 @@
-#include "transformer_lab/stages/pretraining/stack.hpp"
+#include "riftco_transformer/stages/pretraining/stack.hpp"
 
-#include "transformer_lab/core/backend.hpp"
-#include "transformer_lab/data/tokenizer.hpp"
-#include "transformer_lab/model/decoder_only_transformer.hpp"
-#include "transformer_lab/optim/adam.hpp"
-#include "transformer_lab/training/adam_optimizer_adapter.hpp"
-#include "transformer_lab/training/batch_source.hpp"
+#include "riftco_transformer/core/backend.hpp"
+#include "riftco_transformer/data/tokenizer.hpp"
+#include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/optim/adam.hpp"
+#include "riftco_transformer/training/adam_optimizer_adapter.hpp"
+#include "riftco_transformer/training/batch_source.hpp"
 
 #include <memory>
 #include <random>
 #include <stdexcept>
 #include <utility>
 
-namespace transformer_lab::stages::pretraining {
+namespace riftco_transformer::stages::pretraining {
 
 struct PretrainingStack::Implementation {
     PretrainingConfig config;
@@ -166,4 +166,4 @@ PretrainingResult PretrainingStack::run(
     };
 }
 
-}  // namespace transformer_lab::stages::pretraining
+}  // namespace riftco_transformer::stages::pretraining
