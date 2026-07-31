@@ -1,0 +1,11 @@
+/build/
+/cmake-build-*/
+/.idea/
+/data/external/
+/python/build/
+/python/dist/
+/python/*.egg-info/
+**/__pycache__/
+**/*.pyc
+/results/*
+!/results/.gitkeep

@@ -1,0 +1,4 @@
+{"prompt":"What is the goal of this lab?","response":"The goal is understanding how the pieces connect."}
+{"prompt":"What does attention do?","response":"Attention lets each token look back at earlier tokens."}
+{"prompt":"Why inspect tensor shapes?","response":"Inspect shapes before values so mistakes are easier to find."}
+{"prompt":"What does Adam remember?","response":"Adam remembers the mean and variance of each gradient."}

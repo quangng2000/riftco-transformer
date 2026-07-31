@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="An interactive Three.js explanation of vector angles and why random high-dimensional vectors concentrate near 90 degrees."
+    />
+    <title>Vector Angle Distribution Lab</title>
+    <link rel="stylesheet" href="vector-distribution.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="vector-distribution.js"></script>
+  </head>
+  <body>
+    <main class="lab">
+      <header class="hero">
+        <p class="eyebrow">Vector angle lab</p>
+        <h1>Why vectors gather near 90°</h1>
+        <p class="lede">
+          Start with a sphere you can rotate. Then raise the dimension and watch
+          the angle distribution squeeze toward a right angle.
+        </p>
+      </header>
+
+      <section class="controls" aria-label="Visualization controls">
+        <div class="control-grid">
+          <label class="control" for="dimension">
+            <span>
+              Representation dimensions
+              <output id="dimension-output" for="dimension">3D</output>
+            </span>
+            <input
+              id="dimension"
+              type="range"
+              min="0"
+              max="7"
+              step="1"
+              value="0"
+            />
+            <span class="range-ends" aria-hidden="true">
+              <span>3D</span>
+              <span>4096D</span>
+            </span>
+          </label>
+
+          <label class="control" for="vector-count">
+            <span>
+              Visible feature vectors
+              <output id="vector-count-output" for="vector-count">96</output>
+            </span>
+            <input
+              id="vector-count"
+              type="range"
+              min="32"
+              max="128"
+              step="16"
+              value="96"
+            />
+            <span class="range-ends" aria-hidden="true">
+              <span>32</span>
+              <span>128</span>
+            </span>
+          </label>
+
+          <label class="control" for="angle-band">
+            <span>
+              Near-90° band
+              <output id="angle-band-output" for="angle-band">89°–91°</output>
+            </span>
+            <input
+              id="angle-band"
+              type="range"
+              min="1"
+              max="15"
+              step="1"
+              value="1"
+            />
+            <span class="range-ends" aria-hidden="true">
+              <span>±1°</span>
+              <span>±15°</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <div class="mode-group" role="group" aria-label="Angle measurement">
+            <button
+              id="query-mode"
+              class="mode-button"
+              type="button"
+              aria-pressed="true"
+            >
+              Angles to one query q
+            </button>
+            <button
+              id="pairs-mode"
+              class="mode-button"
+              type="button"
+              aria-pressed="false"
+            >
+              All feature pairs
+            </button>
+          </div>
+          <button id="resample" class="resample-button" type="button">
+            New random sample
+          </button>
+        </div>
+      </section>
+
+      <section class="visual-grid">
+        <article class="panel scene-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="step">3D intuition</p>
+              <h2>Rotate the vector sphere</h2>
+            </div>
+            <span id="scene-badge" class="badge">Literal 3D</span>
+          </header>
+
+          <div
+            id="vector-scene"
+            class="vector-scene"
+            role="img"
+            aria-label="A rotatable sphere of random feature vectors and a blue query vector."
+          >
+            <p class="loading">Loading the 3D sphere…</p>
+          </div>
+
+          <div class="legend" aria-label="Vector colors">
+            <span><i class="swatch query"></i>query q</span>
+            <span><i class="swatch inside"></i>inside angle band</span>
+            <span><i class="swatch outside"></i>outside band</span>
+            <span id="collision-legend" hidden>
+              <i class="swatch collision"></i>most overlapping pair
+            </span>
+          </div>
+          <p id="scene-note" class="scene-note"></p>
+        </article>
+
+        <article class="panel chart-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="step">Distribution</p>
+              <h2>Where do the angles land?</h2>
+            </div>
+            <span id="measurement-badge" class="badge"></span>
+          </header>
+
+          <svg
+            id="angle-chart"
+            class="angle-chart"
+            viewBox="0 0 680 360"
+            role="img"
+            aria-label="Histogram of vector angles with the selected near-90-degree band highlighted."
+          ></svg>
+
+          <div class="stats" aria-live="polite">
+            <div class="stat">
+              <span>Expected in band</span>
+              <strong id="expected-stat">—</strong>
+            </div>
+            <div class="stat">
+              <span>This sample</span>
+              <strong id="observed-stat">—</strong>
+            </div>
+            <div class="stat">
+              <span>Spread around 90°</span>
+              <strong id="spread-stat">—</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="takeaway" aria-live="polite">
+        <p class="step">What to notice</p>
+        <p id="takeaway"></p>
+      </section>
+
+      <details class="math-note">
+        <summary>See the compact math</summary>
+        <p>
+          For unit vectors, <strong>q · f = cos θ</strong>. For uniformly random
+          directions in <em>d</em> dimensions, the relative angle density is
+          proportional to <strong>sin<sup>d−2</sup>(θ)</strong>. Raising
+          <em>d</em> therefore concentrates the mass around 90°.
+        </p>
+      </details>
+    </main>
+
+    <noscript>This visualization requires JavaScript.</noscript>
+  </body>
+</html>

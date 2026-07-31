@@ -1,0 +1,9 @@
+small models make every moving part visible.
+attention lets each token look back at earlier tokens.
+residual paths help information and gradients travel.
+normalization keeps activations on a useful scale.
+adam remembers the mean and variance of each gradient.
+
+we build the pieces, test the pieces, and connect the pieces.
+we inspect shapes before values and values before speed.
+the goal is not a giant model. the goal is understanding.

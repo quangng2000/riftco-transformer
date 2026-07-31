@@ -1,0 +1,177 @@
+# Training Loop
+
+The training loop connects the completed tokenizer, model, autograd engine,
+and Adam optimizer. One iteration is:
+
+```text
+sample window starts
+        ↓
+build input and next-token target batch
+        ↓
+fresh model forward pass
+        ↓
+cross-entropy loss
+        ↓
+backward pass
+        ↓
+global gradient clipping and Adam update
+        ↓
+write one CSV metrics row
+```
+
+The loop coordinates these components; it does not move their responsibilities.
+The model calculates logits, cross-entropy creates the scalar objective,
+autograd calculates parameter gradients, and Adam consumes those gradients to
+replace the parameter values.
+
+## Seeded sampling with replacement
+
+For a corpus with $N$ tokens and context length $T$, a training window needs
+$T$ input tokens plus the following target token. Its valid starting offsets
+are therefore:
+
+```math
+0, 1, \ldots, N-T-1
+```
+
+There are $N-T$ valid starts. For every row of every batch, the training loop
+draws one valid offset uniformly and independently. Sampling is **with
+replacement**, so:
+
+- two rows in one batch may use the same window;
+- a window may reappear in later steps;
+- the batch size may exceed the number of distinct windows.
+
+Duplicates are expected samples, not an error. Sampling with replacement keeps
+each draw simple and gives every valid window the same chance on every row.
+
+The sampler and model initializer each receive their own `std::mt19937`
+instance seeded with the configured `seed`. Their state is independent, so
+consuming more random numbers while constructing the model does not silently
+change the training batches. With the same corpus, configuration, command-line
+overrides, and implementation, a seeded run reproduces its batch sequence.
+
+The corpus must contain more than `context_size` tokens. A corpus containing
+exactly `context_size + 1` tokens has one valid window, which can be sampled
+repeatedly for every batch row.
+
+## A fresh graph on every step
+
+In simplified C++, the loop is:
+
+```cpp
+for (std::size_t step = 0; step < training_steps; ++step) {
+    const auto batch = sample_batch();
+    const auto logits = model.forward(
+        batch.inputs(),
+        {batch.batch_size(), batch.context_size()}
+    );
+    const auto loss = cross_entropy(logits, batch.targets());
+    const float loss_value = loss.value().flat(0);
+
+    loss.backward();
+    const auto stats = optimizer.step();
+    write_metrics(stats.step, loss_value, stats);
+}
+```
+
+Every call to `model.forward` creates new operation nodes that remember the
+values needed by their backward rules. `optimizer.step()` then replaces the
+trainable leaf values. The old graph describes the old forward pass and must
+not be reused after that update. The next iteration therefore performs another
+forward pass and builds a fresh graph from the updated parameters.
+
+The loss is copied to `loss_value` before the optimizer step because it
+describes the prediction made with the pre-update parameters. Adam reports the
+gradient norm and clip scale used for that same update.
+
+## CSV metrics
+
+The default path is the configured results directory followed by
+`metrics.csv`. The file has this exact header:
+
+```csv
+step,loss,gradient_norm,clip_scale
+```
+
+One row is written for each successful optimizer update:
+
+| Column | Meaning |
+| --- | --- |
+| `step` | one-based successful Adam step |
+| `loss` | scalar cross-entropy from the forward pass before that update |
+| `gradient_norm` | global parameter-gradient norm before clipping |
+| `clip_scale` | shared multiplier applied to all gradients |
+
+`clip_scale` is `1` when the norm is already within the configured limit. When
+clipping is required it is `gradient_clip / gradient_norm`, a value below `1`.
+Together, these columns show whether learning is progressing and whether
+updates are regularly being clipped.
+
+## Running and overriding a short experiment
+
+From the project directory:
+
+```bash
+cmake --preset debug
+cmake --build --preset debug
+./build/debug/transformer_lab --config configs/tiny.conf
+```
+
+The configuration's `training_steps` controls the normal run. Two command-line
+options make short experiments convenient:
+
+```bash
+./build/debug/transformer_lab \
+  --config configs/tiny.conf \
+  --steps 20 \
+  --metrics results/debug-metrics.csv \
+  --attention flash \
+  --activation-checkpointing block
+```
+
+- `--steps N` overrides `training_steps` for this run and requires a positive
+  count.
+- `--metrics PATH` overrides the default CSV output path for this run.
+- `--backend cpu|metal` selects model, activation, gradient, and optimizer
+  storage. Metal routes the training graph's layout, elementwise, reduction,
+  GELU, LayerNorm, softmax/causal-mask, embedding gather/scatter,
+  cross-entropy, materialized or Flash attention/VJP, matmul, and fused Adam
+  work to compute kernels on supported Apple systems. The overflow-safe global
+  gradient norm and an unsafe Adam retry use the CPU reference over the same
+  host-visible shared buffers.
+- `--attention materialized|flash` selects the full-sequence attention
+  implementation. Materialized remains the default. Flash uses the exact
+  tile-8 CPU or Metal path and saves `[B,H,T]` row statistics rather than
+  `[B,H,T,T]` probabilities for backward.
+- `--activation-checkpointing disabled|block` retains the ordinary graph or
+  discards and replays each transformer's internal block graph during
+  backward. Disabled remains the default.
+- Options may appear in any order.
+
+These are execution overrides; they do not edit the configuration file. Metal
+execution is synchronous and does not imply private GPU memory, asynchronous
+streams, bitwise equality with CPU, or an unmeasured speedup from selecting
+Flash.
+
+Block checkpointing lowers retained activation state but executes every
+selected block forward a second time during backward. It composes with both
+attention algorithms and with full or LoRA post-training; it changes neither
+the optimizer equations nor persisted model state. See
+[ACTIVATION_CHECKPOINTING.md](ACTIVATION_CHECKPOINTING.md).
+
+## Tiny-batch overfitting acceptance
+
+The acceptance test intentionally trains repeatedly on one fixed tiny batch.
+That is not a realistic evaluation setup. It is a wiring test with a very
+useful expectation:
+
+```text
+same examples repeatedly → final loss substantially below initial loss
+```
+
+Passing it demonstrates that the model forward pass, loss, autograd graph,
+gradient accumulation, clipping, Adam state, and parameter replacement work
+together across multiple steps. It does not demonstrate generalization, good
+language generation, or useful model quality. Those require held-out data and
+the later generation/checkpoint milestone.
