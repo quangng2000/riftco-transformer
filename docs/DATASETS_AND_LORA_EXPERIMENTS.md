@@ -92,7 +92,7 @@ library, then run the examples directly:
 python3 -m pip install .
 ```
 
-After a release is published, `python3 -m pip install transformer-lab` installs
+After a release is published, `python3 -m pip install riftco-transformer` installs
 the matching self-contained platform wheel instead. Neither installation adds
 third-party runtime dependencies. `TRANSFORMER_LAB_LIBRARY` remains available
 only as an explicit override for testing a particular local native build.

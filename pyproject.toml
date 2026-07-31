@@ -3,7 +3,7 @@ requires = ["scikit-build-core==1.0.3"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "transformer-lab"
+name = "riftco-transformer"
 version = "0.1.0"
 description = "Dependency-free staged Python client for transformer_lab"
 readme = "python/README.md"

@@ -23,7 +23,7 @@ From the repository root, install the package and its native library together:
 python3 -m pip install .
 ```
 
-After a release is available on PyPI, `python3 -m pip install transformer-lab`
+After a release is available on PyPI, `python3 -m pip install riftco-transformer`
 provides the same self-contained package without a source checkout or compiler.
 The wheel has no third-party runtime dependencies. Run the local example with:
 

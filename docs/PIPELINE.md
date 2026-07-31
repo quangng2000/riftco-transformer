@@ -436,7 +436,7 @@ python3 -m pip install .
 ```
 
 After a release is available on PyPI, a self-contained wheel installed with
-`python3 -m pip install transformer-lab` can run the same stage commands.
+`python3 -m pip install riftco-transformer` can run the same stage commands.
 
 Pretrain the bundled text and save the base artifact:
 

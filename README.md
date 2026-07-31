@@ -266,9 +266,12 @@ ASan/UBSan instrumentation on supported GNU-like toolchains.
 After a release has been published to PyPI, install the Python package with:
 
 ```bash
-python3 -m pip install transformer-lab
+python3 -m pip install riftco-transformer
 python3 -c "from transformer_lab import Context; print(Context().backend)"
 ```
+
+`riftco-transformer` is the PyPI distribution name. The stable Python import
+remains `transformer_lab`, matching the native framework namespace.
 
 The platform wheel includes the matching C ABI library under
 `transformer_lab/.libs`, so normal users do not need CMake, a C++ compiler, a
@@ -392,7 +395,7 @@ platforms. A manual run performs build and verification only. Pushing a
 they pass. PyPI publication is additionally gated by the repository variable
 `PUBLISH_TO_PYPI=true` and the `pypi` environment's Trusted Publisher.
 
-The PyPI Trusted Publisher must name project `transformer-lab`, owner
+The PyPI Trusted Publisher must name project `riftco-transformer`, owner
 `quangng2000`, repository `transformer-lab`, workflow `release.yml`, and
 environment `pypi`. This OIDC path avoids a long-lived PyPI API token.
 

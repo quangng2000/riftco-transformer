@@ -17,6 +17,7 @@ SEMANTIC_VERSION = re.compile(
 )
 EXPECTED_LICENSE = "Apache-2.0"
 EXPECTED_LICENSE_FILE = "LICENSE"
+EXPECTED_PROJECT_NAME = "riftco-transformer"
 
 
 def fail(message: str) -> NoReturn:
@@ -46,7 +47,14 @@ def main(arguments: list[str]) -> int:
     root = project_root()
     with (root / "pyproject.toml").open("rb") as stream:
         metadata = tomllib.load(stream)
+    project_name = metadata["project"]["name"]
     package_version = metadata["project"]["version"]
+
+    if project_name != EXPECTED_PROJECT_NAME:
+        fail(
+            "Python distribution name differs: "
+            f"{project_name} != {EXPECTED_PROJECT_NAME}"
+        )
 
     if SEMANTIC_VERSION.fullmatch(package_version) is None:
         fail(f"package version is not MAJOR.MINOR.PATCH: {package_version}")

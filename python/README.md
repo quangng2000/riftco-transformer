@@ -1,4 +1,4 @@
-# transformer-lab Python client
+# riftco-transformer Python distribution
 
 This package is the typed, runtime-dependency-free `ctypes` interface to
 `libtransformer_lab_c`, plus explicit data preparation, pretraining,
@@ -11,9 +11,12 @@ users do not install the native framework separately.
 After a release has been published to PyPI:
 
 ```bash
-python3 -m pip install transformer-lab
+python3 -m pip install riftco-transformer
 python3 -c "from transformer_lab import Context; print(Context().backend)"
 ```
+
+`riftco-transformer` is the installable distribution name; Python code imports
+the stable `transformer_lab` package.
 
 The wheel stores `libtransformer_lab_c.so`,
 `libtransformer_lab_c.dylib`, or `transformer_lab_c.dll` under
@@ -48,7 +51,7 @@ It also publishes to PyPI only when the repository variable
 `PUBLISH_TO_PYPI` is `true`.
 
 PyPI publication uses Trusted Publishing rather than a stored API token. The
-publisher configuration is project `transformer-lab`, owner `quangng2000`,
+publisher configuration is project `riftco-transformer`, owner `quangng2000`,
 repository `transformer-lab`, workflow `release.yml`, and environment `pypi`.
 The project is licensed under Apache-2.0. Do not enable publication until the
 Trusted Publisher is configured.

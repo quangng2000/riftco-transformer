@@ -542,7 +542,7 @@ parameter-list expression is not assigned separately.
 After a release has been published to PyPI, a normal installation is:
 
 ```bash
-python3 -m pip install transformer-lab
+python3 -m pip install riftco-transformer
 python3 -c "from transformer_lab import Context; print(Context().backend)"
 ```
 
@@ -608,7 +608,7 @@ the tag path publishes to PyPI first and creates the GitHub Release after that
 publication succeeds.
 
 PyPI uses OIDC Trusted Publishing, not a long-lived API token. Configure its
-publisher as project `transformer-lab`, GitHub owner `quangng2000`, repository
+publisher as project `riftco-transformer`, GitHub owner `quangng2000`, repository
 `transformer-lab`, workflow `release.yml`, and environment `pypi`. This
 repository and its Python package are licensed under Apache-2.0. Keep
 `PUBLISH_TO_PYPI` disabled until the Trusted Publisher is in place.
