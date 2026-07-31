@@ -424,8 +424,10 @@ metadata. CMake install exports `transformer_lab::c_api` and
 
 ## Python client
 
-The dependency-free client in `transformer_lab.native` uses `ctypes`; the
-package root re-exports this low-level API for compatibility:
+The runtime-dependency-free client in `transformer_lab.native` uses `ctypes`;
+the package root re-exports this low-level API for compatibility. A released
+platform wheel bundles this same C ABI implementation rather than substituting
+a separate Python numerical path:
 
 ```python
 from transformer_lab import Context, Tensor, backend_available
@@ -535,7 +537,47 @@ checksums, stage metadata, and parent lineage.
 `Adam(model.parameters())` is therefore safe even though the temporary
 parameter-list expression is not assigned separately.
 
-From the project directory:
+### Installation and library discovery
+
+After a release has been published to PyPI, a normal installation is:
+
+```bash
+python3 -m pip install transformer-lab
+python3 -c "from transformer_lab import Context; print(Context().backend)"
+```
+
+Each wheel installs its native library under `transformer_lab/.libs`:
+
+```text
+transformer_lab/.libs/libtransformer_lab_c.so       Linux
+transformer_lab/.libs/libtransformer_lab_c.dylib    macOS
+transformer_lab/.libs/transformer_lab_c.dll          Windows
+```
+
+The library contains the statically linked framework implementation behind the
+stable C ABI. The installed package has no third-party runtime dependencies;
+users of a matching wheel do not need CMake, a C++ compiler, a system-wide
+native installation, or `TRANSFORMER_LAB_LIBRARY`.
+
+The initial binary matrix provides Linux `x86_64` and `aarch64`, macOS
+`x86_64` and `arm64`, and Windows `AMD64` wheels. Every wheel includes CPU.
+The macOS builds also include Metal, whose availability is still checked at
+runtime. Because `ctypes` calls the language-neutral C ABI instead of CPython's
+extension ABI, a build produces one `py3-none-<platform>` wheel for its
+architecture. Package metadata requires Python 3.10 or newer.
+
+Install from a source checkout at the repository root with:
+
+```bash
+python3 -m pip install .
+```
+
+A source install compiles the native C++20 target and therefore needs a
+supported compiler and platform SDK. The build backend and wheel builder are
+build-time tools, not installed runtime dependencies.
+
+For an in-tree native development cycle, the explicit build-and-test route
+remains available:
 
 ```bash
 cmake --preset debug
@@ -546,16 +588,31 @@ TRANSFORMER_LAB_LIBRARY=build/debug/libtransformer_lab_c.dylib \
 python3 tests/python/test_python_binding.py
 ```
 
-The pure-Python client can be installed with `python3 -m pip install ./python`.
-The native library remains a separately versioned CMake artifact rather than
-being duplicated inside a platform wheel. When
-`TRANSFORMER_LAB_LIBRARY` is absent, the wrapper searches a package-local
-`.libs` directory, standard project build directories (release before debug),
-and then the system library path. It recognizes the config postfixes emitted
-by multi-config generators and deliberately skips local sanitizer builds,
-which cannot be safely loaded into an arbitrary Python interpreter. Set the
-variable explicitly for a custom native install prefix or when multiple local
-builds exist.
+`TRANSFORMER_LAB_LIBRARY` is an advanced override and takes precedence when it
+is set. Without it, the loader searches the package-local `.libs` directory,
+standard project build directories (release before debug), and then the system
+library path. It recognizes the configuration postfixes emitted by
+multi-config generators and deliberately skips local sanitizer builds, which
+cannot be safely loaded into an arbitrary Python interpreter. The loader checks
+C ABI compatibility before exposing the selected library.
+
+### Release workflow
+
+The repository's `.github/workflows/release.yml` builds, repairs where needed,
+and tests the source distribution and all supported wheels in isolated Python
+environments. A manual `workflow_dispatch` performs build and verification
+without publishing. Pushing `v<version>` creates a GitHub Release only after
+the artifacts pass. When the repository variable `PUBLISH_TO_PYPI` is `true`,
+the tag path publishes to PyPI first and creates the GitHub Release after that
+publication succeeds.
+
+PyPI uses OIDC Trusted Publishing, not a long-lived API token. Configure its
+publisher as project `transformer-lab`, GitHub owner `quangng2000`, repository
+`transformer-lab`, workflow `release.yml`, and environment `pypi`. This
+repository currently has no declared software license; one must be chosen and
+recorded in both the repository and package metadata before publishing for
+third-party reuse. Keep `PUBLISH_TO_PYPI` disabled until both that license and
+the Trusted Publisher are in place.
 
 Python `Tokenizer`, `Context`, `Tensor`, `DecoderOnlyTransformer`,
 `DecodeSession`, `ParameterList`, `Variable`, and `Adam` objects support

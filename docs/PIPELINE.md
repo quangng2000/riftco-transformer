@@ -428,13 +428,15 @@ trusted-network development option, not a production security boundary.
 
 ## Run the complete persisted example
 
-From `labs/transformer_lab`, first build the native library:
+From the repository root, install the Python package and bundled native
+library:
 
 ```bash
-cmake --preset release
-cmake --build --preset release
-export PYTHONPATH="$PWD/python"
+python3 -m pip install .
 ```
+
+After a release is available on PyPI, a self-contained wheel installed with
+`python3 -m pip install transformer-lab` can run the same stage commands.
 
 Pretrain the bundled text and save the base artifact:
 

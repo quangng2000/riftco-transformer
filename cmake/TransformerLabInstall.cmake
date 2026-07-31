@@ -1,3 +1,16 @@
+if(TRANSFORMER_LAB_BUILD_PYTHON_WHEEL)
+    install(
+        TARGETS transformer_lab_c
+        LIBRARY
+            DESTINATION transformer_lab/.libs
+            COMPONENT PythonWheel
+        RUNTIME
+            DESTINATION transformer_lab/.libs
+            COMPONENT PythonWheel
+    )
+    return()
+endif()
+
 include(CMakePackageConfigHelpers)
 
 # Multi-config generators can install several configurations into one prefix.

@@ -85,18 +85,17 @@ model artifacts.
 
 ## Build and environment
 
-From `labs/transformer_lab`:
+From the repository root, install the Python package and bundled native
+library, then run the examples directly:
 
 ```bash
-cmake --preset release
-cmake --build --preset release
-
-export PYTHONPATH="$PWD/python"
-export TRANSFORMER_LAB_LIBRARY="$PWD/build/release/libtransformer_lab_c.dylib"
+python3 -m pip install .
 ```
 
-Use `.so` on Linux or `.dll` on Windows. The shared library is built by this
-project; it is not a third-party dependency.
+After a release is published, `python3 -m pip install transformer-lab` installs
+the matching self-contained platform wheel instead. Neither installation adds
+third-party runtime dependencies. `TRANSFORMER_LAB_LIBRARY` remains available
+only as an explicit override for testing a particular local native build.
 
 Inspect the exact preparation controls at any time:
 

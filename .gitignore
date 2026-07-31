@@ -5,6 +5,9 @@
 /python/build/
 /python/dist/
 /python/*.egg-info/
+/dist/
+/wheelhouse/
+/python/transformer_lab/.libs/
 **/__pycache__/
 **/*.pyc
 /results/*

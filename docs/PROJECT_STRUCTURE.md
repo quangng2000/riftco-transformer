@@ -353,9 +353,10 @@ The install module exports `transformer_lab::library` and
 registration through one helper function, while `tests/package` verifies that
 fresh C and C++ projects can consume only the installed package.
 
-At repository level, `.github/workflows/transformer-lab.yml` runs the same
-configure/build/test contract across the supported compiler matrix. Platform
-claims should be based on a green job, not inferred from a local stub build.
+At repository level, `.github/workflows/release.yml` builds and verifies the
+source distribution and the supported Linux, macOS, and Windows wheels before
+creating a tagged release. Platform claims should be based on a green wheel
+job, not inferred from a local stub build.
 
 ## SOLID-oriented backend module
 

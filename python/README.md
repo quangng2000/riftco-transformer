@@ -1,20 +1,58 @@
 # transformer-lab Python client
 
-This package is the typed, dependency-free `ctypes` client for
+This package is the typed, runtime-dependency-free `ctypes` interface to
 `libtransformer_lab_c`, plus explicit data preparation, pretraining,
 post-training, experiment, artifact, generation, and local-serving modules.
+A platform wheel carries both the Python modules and its native C ABI library;
+users do not install the native framework separately.
 
-Build and install the native framework first, or point directly to a build:
+## Install
+
+After a release has been published to PyPI:
 
 ```bash
-TRANSFORMER_LAB_LIBRARY=/absolute/path/libtransformer_lab_c.dylib \
-  python3 -c "from transformer_lab import Context; print(Context().backend)"
+python3 -m pip install transformer-lab
+python3 -c "from transformer_lab import Context; print(Context().backend)"
 ```
 
-Use `.so` on Linux or `.dll` on Windows. The Python package follows the
-framework release version (`0.1.0` here), while the native C ABI has its own
-compatibility version (`1.8`). The client accepts the same ABI major and an
-equal or newer additive minor, and rejects older or breaking ABIs before use.
+The wheel stores `libtransformer_lab_c.so`,
+`libtransformer_lab_c.dylib`, or `transformer_lab_c.dll` under
+`transformer_lab/.libs`. It has no third-party runtime dependencies and needs
+no compiler or environment variable after installation. Initial binary wheels
+cover Linux `x86_64` and `aarch64`, macOS `x86_64` and `arm64`, and Windows
+`AMD64`. CPU is available on every supported platform; the macOS wheels also
+include Metal.
+
+From a source checkout, install at the repository root with:
+
+```bash
+python3 -m pip install .
+```
+
+That source build compiles the C++20 implementation, so it needs a supported
+native compiler and platform SDK. `TRANSFORMER_LAB_LIBRARY` remains an advanced
+development override for selecting a particular local native build; released
+wheels do not require it.
+
+The Python package follows the framework release version (`0.1.0` here), while
+the native C ABI has its own compatibility version (`1.8`). The client accepts
+the same ABI major and an equal or newer additive minor, and rejects older or
+breaking ABIs before use.
+
+## Release automation
+
+`.github/workflows/release.yml` builds and verifies the source distribution and
+self-contained platform wheels. `workflow_dispatch` is verification-only.
+Pushing a `v<version>` tag creates a GitHub Release after the artifacts pass.
+It also publishes to PyPI only when the repository variable
+`PUBLISH_TO_PYPI` is `true`.
+
+PyPI publication uses Trusted Publishing rather than a stored API token. The
+publisher configuration is project `transformer-lab`, owner `quangng2000`,
+repository `transformer-lab`, workflow `release.yml`, and environment `pypi`.
+The repository still needs an explicit software license and matching package
+metadata before a third-party GitHub or PyPI release; do not enable publication
+until that choice and the Trusted Publisher are configured.
 
 ## Selectable tokenizers
 

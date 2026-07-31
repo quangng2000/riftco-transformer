@@ -17,34 +17,31 @@ examples/python/
 └── serve_stage.py
 ```
 
-From the `labs/transformer_lab` directory, build the native library:
+From the repository root, install the package and its native library together:
 
 ```bash
-cmake --preset release
-cmake --build --preset release
+python3 -m pip install .
 ```
 
-Then expose the local Python package and run the example:
+After a release is available on PyPI, `python3 -m pip install transformer-lab`
+provides the same self-contained package without a source checkout or compiler.
+The wheel has no third-party runtime dependencies. Run the local example with:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/train_tiny.py
 ```
 
 For the artifact-based workflow, run the three explicit stage commands:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/pretrain_stage.py \
   --backend cpu \
   --activation-checkpointing block
 
-PYTHONPATH="$PWD/python" \
 python3 examples/python/post_train_stage.py \
   --backend cpu \
   --activation-checkpointing block
 
-PYTHONPATH="$PWD/python" \
 python3 examples/python/serve_stage.py --backend cpu
 ```
 
@@ -68,7 +65,6 @@ with the official Hugging Face Dataset Viewer API. It does not install
 For pretraining, preserve TinyStories' published validation boundary:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/prepare_huggingface_data.py \
   --preset tinystories \
   --source-split train \
@@ -79,7 +75,6 @@ python3 examples/python/prepare_huggingface_data.py \
   --validation-fraction 0 \
   --test-fraction 0
 
-PYTHONPATH="$PWD/python" \
 python3 examples/python/prepare_huggingface_data.py \
   --preset tinystories \
   --source-split validation \
@@ -90,7 +85,6 @@ python3 examples/python/prepare_huggingface_data.py \
   --validation-fraction 1 \
   --test-fraction 0
 
-PYTHONPATH="$PWD/python" \
 python3 examples/python/pretrain_stage.py \
   --file data/external/huggingface/tinystories-train/train.txt \
   --validation-file \
@@ -109,14 +103,12 @@ not already exist.
 Prepare Dolly and run a fair rank sweep:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/prepare_huggingface_data.py \
   --preset dolly \
   --output data/external/huggingface/dolly-lora-v1 \
   --limit 2000 \
   --seed lora-v1
 
-PYTHONPATH="$PWD/python" \
 python3 examples/python/compare_lora_ranks.py \
   --base results/stages/tinystories_pretrained.tlab \
   --data data/external/huggingface/dolly-lora-v1 \
@@ -150,7 +142,6 @@ Select adapter-only LoRA post-training while keeping the output artifact
 serving-ready:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/post_train_stage.py \
     --backend cpu \
     --fine-tuning-method lora \
@@ -167,7 +158,6 @@ The script selects Metal when available and otherwise uses CPU. A backend can
 also be selected explicitly:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/train_tiny.py --backend cpu --steps 3
 ```
 
@@ -178,7 +168,6 @@ backward and reduce retained activation graph state. The default is
 Train literal text with BPE:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/train_tiny.py \
     --text "hello transformer! tiny models learn from text. hello tokenizer! validation checks unseen model-training text." \
     --tokenizer bpe \
@@ -191,7 +180,6 @@ python3 examples/python/train_tiny.py \
 Or train a UTF-8 file:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/train_tiny.py \
     --file data/pretraining/tiny_corpus.txt \
     --tokenizer bpe \
@@ -207,7 +195,6 @@ python3 examples/python/train_tiny.py \
 Compare the byte strategy while leaving the model and optimizer unchanged:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 python3 examples/python/train_tiny.py \
     --file data/pretraining/tiny_corpus.txt \
     --tokenizer byte \
@@ -245,15 +232,16 @@ every `--eval-every` updates, and after the final update. It never calls
 When automatic native-library discovery is unsuitable, provide its path:
 
 ```bash
-PYTHONPATH="$PWD/python" \
 TRANSFORMER_LAB_LIBRARY="$PWD/build/release/libtransformer_lab_c.dylib" \
 python3 examples/python/train_tiny.py
 ```
 
-Use `libtransformer_lab_c.so` instead on Linux. The model must move to its
-backend before creating the parameter view or optimizer. Each optimizer update
-invalidates the previous computation graph, so the loop creates a fresh
-forward and loss every step.
+This override is for native development and is unnecessary with a released
+wheel. Use `libtransformer_lab_c.so` instead on Linux or
+`transformer_lab_c.dll` on Windows. The model must move to its backend before
+creating the parameter view or optimizer. Each optimizer update invalidates the
+previous computation graph, so the loop creates a fresh forward and loss every
+step.
 
 The data flow is:
 

@@ -1,0 +1,244 @@
+name: Release Python package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Validate release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14"
+
+      - name: Check project versions
+        run: python .github/scripts/check_release_version.py
+
+      - name: Check release tag and main ancestry
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python .github/scripts/check_release_version.py "$RELEASE_TAG"
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+
+  wheels:
+    name: Wheel / ${{ matrix.artifact }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x86_64
+            artifact: linux-x86-64
+          - runner: ubuntu-24.04-arm
+            architecture: aarch64
+            artifact: linux-arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+            artifact: macos-x86-64
+          - runner: macos-15
+            architecture: arm64
+            artifact: macos-arm64
+          - runner: windows-2025
+            architecture: AMD64
+            artifact: windows-x86-64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Build and test wheel
+        uses: pypa/cibuildwheel@4726cd35bb13f7bde50cf2761f2499ac7b3aa32c # v4.1.1
+        env:
+          CIBW_ARCHS: ${{ matrix.architecture }}
+          CIBW_BUILD: "cp310-* cp314-*"
+          CIBW_BUILD_VERBOSITY: "1"
+          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=13.0"
+          CIBW_TEST_COMMAND: >-
+            python {project}/tests/python/wheel_smoke.py
+          CIBW_TEST_ENVIRONMENT: "PYTHONSAFEPATH=1"
+        with:
+          package-dir: .
+          output-dir: wheelhouse
+
+      - name: Store wheel
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: wheel-${{ matrix.artifact }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  sdist:
+    name: Source distribution
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14"
+
+      - name: Install packaging tools
+        run: python -m pip install build twine
+
+      - name: Build and validate source distribution
+        run: |
+          python -m build --sdist --outdir dist
+          python -m twine check dist/*.tar.gz
+          python -m pip wheel --no-deps --wheel-dir sdist-wheel dist/*.tar.gz
+          python -m venv sdist-test
+          sdist-test/bin/python -m pip install --no-deps --no-index sdist-wheel/*.whl
+          PYTHONSAFEPATH=1 sdist-test/bin/python -I tests/python/wheel_smoke.py
+
+      - name: Store source distribution
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: source-distribution
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  verify:
+    name: Verify release set
+    needs: [wheels, sdist]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14"
+
+      - name: Download wheels
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download source distribution
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: source-distribution
+          path: dist
+
+      - name: Validate distributions and create checksums
+        run: |
+          python -m pip install twine
+          python -m twine check dist/*.whl dist/*.tar.gz
+          python .github/scripts/verify_release_artifacts.py \
+            --write-checksums dist
+
+      - name: Store PyPI distributions
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: python-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Store GitHub release assets
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: github-release-assets
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-pypi:
+    name: Publish to PyPI
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      vars.PUBLISH_TO_PYPI == 'true'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/p/transformer-lab
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Publish distributions
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: dist
+
+  github-release:
+    name: Publish GitHub release
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.verify.result == 'success' &&
+      (needs.publish-pypi.result == 'success' ||
+       needs.publish-pypi.result == 'skipped')
+    needs: [verify, publish-pypi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: github-release-assets
+          path: dist
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$RELEASE_TAG" dist/*
+          --verify-tag
+          --generate-notes
+          --title "Transformer Lab $RELEASE_TAG"

@@ -21,7 +21,7 @@ Serve the directory from the repository root:
 
 ```bash
 .venv/bin/python -m http.server 8000 \
-  --directory labs/transformer_lab/visualizations
+  --directory visualizations
 ```
 
 Then open:
@@ -75,7 +75,7 @@ Then open the interactive figure:
 
 ```bash
 .venv/bin/python \
-  labs/transformer_lab/visualizations/superposition.py
+  visualizations/superposition.py
 ```
 
 Move the angle slider to see the dot product change. Then change dimensions,
@@ -86,14 +86,14 @@ To save a deterministic image without opening a window:
 
 ```bash
 .venv/bin/python \
-  labs/transformer_lab/visualizations/superposition.py \
-  --save labs/transformer_lab/results/superposition.png
+  visualizations/superposition.py \
+  --save results/superposition.png
 ```
 
 Run the embedded numerical checks with:
 
 ```bash
 .venv/bin/python \
-  labs/transformer_lab/visualizations/superposition.py \
+  visualizations/superposition.py \
   --self-test
 ```

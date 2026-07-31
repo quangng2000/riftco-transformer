@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cmath>
 #include <fstream>
+#include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -45,10 +46,10 @@ std::uint32_t parse_seed(const std::string& key, const std::string& value) {
 
 float parse_float(const std::string& key, const std::string& value) {
     float result = 0.0F;
-    const auto* begin = value.data();
-    const auto* end = begin + value.size();
-    const auto [cursor, error] = std::from_chars(begin, end, result);
-    if (error != std::errc{} || cursor != end) {
+    std::istringstream input(value);
+    input.imbue(std::locale::classic());
+    input >> std::noskipws >> result;
+    if (!input || input.peek() != std::char_traits<char>::eof()) {
         throw std::runtime_error("invalid number for '" + key + "': " + value);
     }
     return result;

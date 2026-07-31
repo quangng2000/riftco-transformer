@@ -59,7 +59,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 file(STRINGS
-    ${CMAKE_CURRENT_SOURCE_DIR}/python/pyproject.toml
+    ${CMAKE_CURRENT_SOURCE_DIR}/pyproject.toml
     transformer_lab_python_version_line
     REGEX "^version = \"[0-9]+[.][0-9]+[.][0-9]+\"$"
 )
@@ -83,6 +83,11 @@ option(
     TRANSFORMER_LAB_ENABLE_INSTALL
     "Generate install rules and an exported CMake package"
     ${PROJECT_IS_TOP_LEVEL}
+)
+option(
+    TRANSFORMER_LAB_BUILD_PYTHON_WHEEL
+    "Build and install the native runtime for the Python wheel"
+    OFF
 )
 
 add_library(transformer_lab_library STATIC
@@ -199,9 +204,15 @@ set_target_properties(transformer_lab_c
         VISIBILITY_INLINES_HIDDEN YES
         EXPORT_NAME c_api
         OUTPUT_NAME transformer_lab_c
-        VERSION ${TRANSFORMER_LAB_C_ABI_VERSION}
-        SOVERSION ${TRANSFORMER_LAB_C_ABI_SOVERSION}
 )
+
+if(NOT TRANSFORMER_LAB_BUILD_PYTHON_WHEEL)
+    set_target_properties(transformer_lab_c
+        PROPERTIES
+            VERSION ${TRANSFORMER_LAB_C_ABI_VERSION}
+            SOVERSION ${TRANSFORMER_LAB_C_ABI_SOVERSION}
+    )
+endif()
 
 transformer_lab_enable_warnings(transformer_lab_c)
 transformer_lab_enable_sanitizers(transformer_lab_c)
@@ -248,6 +259,7 @@ if(TRANSFORMER_LAB_BUILD_TESTS)
     )
 endif()
 
-if(TRANSFORMER_LAB_ENABLE_INSTALL)
+if(TRANSFORMER_LAB_ENABLE_INSTALL OR
+   TRANSFORMER_LAB_BUILD_PYTHON_WHEEL)
     include(cmake/TransformerLabInstall.cmake)
 endif()

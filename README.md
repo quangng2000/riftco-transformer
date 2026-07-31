@@ -76,7 +76,8 @@ The project currently provides:
   size-versioned option structures, model-derived ownership, LoRA lifecycle
   controls, full-sequence attention selection, and incremental-decode
   sessions, plus activation-checkpointing selection;
-- a dependency-free Python `ctypes` client for tensors and complete
+- a runtime-dependency-free Python `ctypes` client, distributed with the native
+  C ABI in self-contained platform wheels, for tensors and complete
   model/loss/backward/Adam training;
 - native stage-neutral `BatchSource`, `OptimizerStrategy`, and
   `CausalLanguageModelTrainer` contracts;
@@ -176,7 +177,7 @@ From the repository root:
 
 ```bash
 .venv/bin/python -m http.server 8000 \
-  --directory labs/transformer_lab/visualizations
+  --directory visualizations
 ```
 
 Open `http://localhost:8000/vector-distribution.html`.
@@ -193,7 +194,7 @@ From the repository root:
 ```bash
 uv pip install --python .venv/bin/python 'matplotlib>=3.9' 'numpy>=2.0'
 .venv/bin/python \
-  labs/transformer_lab/visualizations/superposition.py
+  visualizations/superposition.py
 ```
 
 See [the visualization guide](visualizations/README.md) for the equations,
@@ -222,15 +223,7 @@ option. The native pretraining CLI accepts
 their default.
 
 On a Metal-capable Mac, use `--backend metal`. The same build also creates
-`libtransformer_lab_c.dylib`; the Python wrapper is under `python/`.
-
-Or from the repository root:
-
-```bash
-cmake --preset debug -S labs/transformer_lab
-cmake --build labs/transformer_lab/build/debug
-ctest --test-dir labs/transformer_lab/build/debug --output-on-failure
-```
+`libtransformer_lab_c.dylib`; the Python sources are under `python/`.
 
 ## Install and consume
 
@@ -270,17 +263,37 @@ the parent project keeps control. They can be enabled independently with
 Apple adapter, and `TRANSFORMER_LAB_ENABLE_SANITIZERS` enables compiler-checked
 ASan/UBSan instrumentation on supported GNU-like toolchains.
 
-The dependency-free Python client is separately installable:
+After a release has been published to PyPI, install the Python package with:
 
 ```bash
-python3 -m pip install ./python
-TRANSFORMER_LAB_LIBRARY="$PWD/install/lib/libtransformer_lab_c.dylib" \
-  python3 -c "from transformer_lab import Context; print(Context().backend)"
+python3 -m pip install transformer-lab
+python3 -c "from transformer_lab import Context; print(Context().backend)"
 ```
 
-Use the platform library suffix (`.so`, `.dylib`, or `.dll`) and set
-`TRANSFORMER_LAB_LIBRARY` when the native install prefix is not on the system
-loader path.
+The platform wheel includes the matching C ABI library under
+`transformer_lab/.libs`, so normal users do not need CMake, a C++ compiler, a
+separate native installation, or `TRANSFORMER_LAB_LIBRARY`. The installed
+package has no third-party runtime dependencies. The initial wheel matrix is:
+
+- Linux `x86_64` and `aarch64`, with the CPU backend;
+- macOS `x86_64` and `arm64`, with CPU and Metal backends; and
+- Windows `AMD64`, with the CPU backend.
+
+Python 3.10 or newer is required. The Python code does not use CPython's
+extension ABI, so each architecture receives one `py3-none-<platform>` wheel.
+
+To build and install from a source checkout instead, run this at the repository
+root:
+
+```bash
+python3 -m pip install .
+```
+
+A source install compiles the bundled C++20 implementation and therefore needs
+a supported native toolchain and platform SDK. For native-library development,
+`TRANSFORMER_LAB_LIBRARY` remains an explicit override that can point the
+Python client at a particular local `.so`, `.dylib`, or `.dll`; it is not part
+of ordinary wheel installation.
 
 The high-level binding uses the same native model and optimizer:
 
@@ -371,19 +384,27 @@ Downloaded data and generated experiment results are ignored by Git. See the
 before running the commands; it covers source licenses, provenance, explicit
 TinyStories splits, and the full-sequence SFT limitation.
 
-The repository CI definition at
-[transformer-lab.yml](../../.github/workflows/transformer-lab.yml) covers
-Debug and Release builds with GCC, Clang, AppleClang, and MSVC, plus a Linux
-Clang sanitizer job. Each normal job also exercises fresh installed C and C++
-consumers.
+The repository's [release workflow](.github/workflows/release.yml) builds and
+tests the source distribution and self-contained wheels on the supported
+platforms. A manual run performs build and verification only. Pushing a
+`v<version>` tag builds the same artifacts and creates a GitHub Release after
+they pass. PyPI publication is additionally gated by the repository variable
+`PUBLISH_TO_PYPI=true` and the `pypi` environment's Trusted Publisher.
 
-> Release policy: this workspace does not yet declare a software license.
-> Choose and add one, then add matching Python package metadata, before
-> publishing the framework for third-party reuse.
+The PyPI Trusted Publisher must name project `transformer-lab`, owner
+`quangng2000`, repository `transformer-lab`, workflow `release.yml`, and
+environment `pypi`. This OIDC path avoids a long-lived PyPI API token.
+
+> Release prerequisite: this repository does not yet declare a software
+> license. Choose and add one, then add matching Python package metadata,
+> before publishing a GitHub or PyPI distribution for third-party reuse. PyPI
+> Trusted Publishing must also be configured before enabling
+> `PUBLISH_TO_PYPI`.
 
 ## Project layout
 
 ```text
+.github/                    Release build and publication automation
 apps/
   pretraining/train.cpp    Native pretraining CLI source
 configs/                    Human-readable experiment settings
@@ -413,7 +434,7 @@ src/                        Implementations mirroring public headers
 tests/                      Tests grouped by the same domains
   stages/                   Native composition and dependency-contract tests
 python/transformer_lab/
-  native/                   Pure-Python ctypes client for the C ABI
+  native/                   Python ctypes client for the bundled C ABI
   artifacts/                Immutable model-bundle contract
   data/                     Dataset clients, adapters, splitting, provenance
   experiments/              Reproducible LoRA-rank comparisons
