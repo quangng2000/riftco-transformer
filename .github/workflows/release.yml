@@ -239,6 +239,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: >-
           gh release create "$RELEASE_TAG" dist/*
+          --repo "$GITHUB_REPOSITORY"
           --verify-tag
           --generate-notes
           --title "Transformer Lab $RELEASE_TAG"
