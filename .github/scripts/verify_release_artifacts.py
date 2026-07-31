@@ -35,6 +35,12 @@ def fail(message: str) -> NoReturn:
     raise SystemExit(message)
 
 
+def normalize_text(contents: bytes) -> bytes:
+    """Normalize platform checkout newlines before comparing text assets."""
+
+    return contents.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
 def platform_family(platform_tag: str) -> str:
     if "manylinux" in platform_tag and platform_tag.endswith("_x86_64"):
         return "linux-manylinux-x86_64"
@@ -104,7 +110,9 @@ def verify_wheel(wheel: Path, version: str, license_contents: bytes) -> str:
         ]
         if len(license_names) != 1:
             fail(f"{wheel.name} must contain exactly one packaged license")
-        if archive.read(license_names[0]) != license_contents:
+        if normalize_text(archive.read(license_names[0])) != normalize_text(
+            license_contents
+        ):
             fail(f"{wheel.name} contains a license that differs from the source")
 
         wheel_metadata = archive.read(wheel_metadata_names[0]).decode("utf-8")
@@ -158,7 +166,9 @@ def verify_sdist(sdist: Path, version: str, license_contents: bytes) -> None:
         if len(license_members) != 1:
             fail("source distribution must contain exactly one top-level license")
         license_stream = archive.extractfile(license_members[0])
-        if license_stream is None or license_stream.read() != license_contents:
+        if license_stream is None or normalize_text(
+            license_stream.read()
+        ) != normalize_text(license_contents):
             fail("source distribution license differs from the source")
     missing = {
         suffix
