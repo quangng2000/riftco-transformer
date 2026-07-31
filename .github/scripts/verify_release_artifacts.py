@@ -8,6 +8,8 @@ import hashlib
 import tarfile
 import tomllib
 import zipfile
+from email.parser import BytesParser
+from email.policy import default
 from pathlib import Path
 from typing import NoReturn
 
@@ -21,6 +23,8 @@ EXPECTED_PLATFORMS = {
     "macos-arm64",
     "windows-amd64",
 }
+EXPECTED_LICENSE = "Apache-2.0"
+EXPECTED_LICENSE_FILE = "LICENSE"
 
 
 def fail(message: str) -> NoReturn:
@@ -55,7 +59,7 @@ def expected_library(family: str) -> str:
     return f"transformer_lab/.libs/{filename}"
 
 
-def verify_wheel(wheel: Path, version: str) -> str:
+def verify_wheel(wheel: Path, version: str, license_contents: bytes) -> str:
     prefix = f"transformer_lab-{version}-py3-none-"
     if not wheel.name.startswith(prefix) or not wheel.name.endswith(".whl"):
         fail(f"wheel has an unexpected name or Python ABI tag: {wheel.name}")
@@ -89,6 +93,16 @@ def verify_wheel(wheel: Path, version: str) -> str:
         if len(wheel_metadata_names) != 1 or len(package_metadata_names) != 1:
             fail(f"{wheel.name} has malformed distribution metadata")
 
+        license_names = [
+            name
+            for name in names
+            if name.endswith(f".dist-info/licenses/{EXPECTED_LICENSE_FILE}")
+        ]
+        if len(license_names) != 1:
+            fail(f"{wheel.name} must contain exactly one packaged license")
+        if archive.read(license_names[0]) != license_contents:
+            fail(f"{wheel.name} contains a license that differs from the source")
+
         wheel_metadata = archive.read(wheel_metadata_names[0]).decode("utf-8")
         actual_tags = {
             line.removeprefix("Tag: ")
@@ -100,26 +114,48 @@ def verify_wheel(wheel: Path, version: str) -> str:
         }
         if actual_tags != expected_tags:
             fail(f"{wheel.name} metadata does not match its filename tag")
-        package_metadata = archive.read(package_metadata_names[0]).decode("utf-8")
-        if "\nRequires-Dist:" in package_metadata:
+        package_metadata = BytesParser(policy=default).parsebytes(
+            archive.read(package_metadata_names[0])
+        )
+        if package_metadata["License-Expression"] != EXPECTED_LICENSE:
+            fail(
+                f"{wheel.name} does not declare License-Expression: "
+                f"{EXPECTED_LICENSE}"
+            )
+        if EXPECTED_LICENSE_FILE not in package_metadata.get_all(
+            "License-File", []
+        ):
+            fail(f"{wheel.name} does not declare its packaged license file")
+        if package_metadata.get_all("Requires-Dist"):
             fail(f"{wheel.name} unexpectedly declares a runtime dependency")
 
     return family
 
 
-def verify_sdist(sdist: Path, version: str) -> None:
+def verify_sdist(sdist: Path, version: str, license_contents: bytes) -> None:
     expected_name = f"transformer_lab-{version}.tar.gz"
     if sdist.name != expected_name:
         fail(f"unexpected source-distribution name: {sdist.name}")
 
     required_suffixes = {
         "/CMakeLists.txt",
+        f"/{EXPECTED_LICENSE_FILE}",
         "/pyproject.toml",
         "/src/c_api.cpp",
         "/python/transformer_lab/native/bindings.py",
     }
     with tarfile.open(sdist, mode="r:gz") as archive:
         names = archive.getnames()
+        license_members = [
+            member
+            for member in archive.getmembers()
+            if member.name.endswith(f"/{EXPECTED_LICENSE_FILE}")
+        ]
+        if len(license_members) != 1:
+            fail("source distribution must contain exactly one top-level license")
+        license_stream = archive.extractfile(license_members[0])
+        if license_stream is None or license_stream.read() != license_contents:
+            fail("source distribution license differs from the source")
     missing = {
         suffix
         for suffix in required_suffixes
@@ -151,6 +187,7 @@ def main() -> int:
     root = Path(__file__).resolve().parents[2]
     with (root / "pyproject.toml").open("rb") as stream:
         version = tomllib.load(stream)["project"]["version"]
+    license_contents = (root / EXPECTED_LICENSE_FILE).read_bytes()
 
     wheels = sorted(arguments.directory.glob("*.whl"))
     sdists = sorted(arguments.directory.glob("*.tar.gz"))
@@ -159,13 +196,15 @@ def main() -> int:
     if len(sdists) != 1:
         fail(f"expected one source distribution, found {len(sdists)}")
 
-    families = {verify_wheel(wheel, version) for wheel in wheels}
+    families = {
+        verify_wheel(wheel, version, license_contents) for wheel in wheels
+    }
     if families != EXPECTED_PLATFORMS:
         fail(
             "wheel platform coverage differs: "
             f"expected {sorted(EXPECTED_PLATFORMS)}, found {sorted(families)}"
         )
-    verify_sdist(sdists[0], version)
+    verify_sdist(sdists[0], version, license_contents)
 
     artifacts = [*wheels, *sdists]
     if arguments.write_checksums:

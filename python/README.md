@@ -50,9 +50,8 @@ It also publishes to PyPI only when the repository variable
 PyPI publication uses Trusted Publishing rather than a stored API token. The
 publisher configuration is project `transformer-lab`, owner `quangng2000`,
 repository `transformer-lab`, workflow `release.yml`, and environment `pypi`.
-The repository still needs an explicit software license and matching package
-metadata before a third-party GitHub or PyPI release; do not enable publication
-until that choice and the Trusted Publisher are configured.
+The project is licensed under Apache-2.0. Do not enable publication until the
+Trusted Publisher is configured.
 
 ## Selectable tokenizers
 
@@ -372,3 +371,8 @@ The package root still re-exports the original low-level API.
 `transformer_lab.artifact` and `transformer_lab.generation` remain
 compatibility facades; new code should prefer `transformer_lab.artifacts` and
 `transformer_lab.serving`.
+
+## License
+
+Copyright 2026 Quang T Nguyen. Licensed under the Apache License 2.0. The full
+license text is included in the source distribution and every wheel.

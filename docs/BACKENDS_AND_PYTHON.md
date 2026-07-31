@@ -610,10 +610,8 @@ publication succeeds.
 PyPI uses OIDC Trusted Publishing, not a long-lived API token. Configure its
 publisher as project `transformer-lab`, GitHub owner `quangng2000`, repository
 `transformer-lab`, workflow `release.yml`, and environment `pypi`. This
-repository currently has no declared software license; one must be chosen and
-recorded in both the repository and package metadata before publishing for
-third-party reuse. Keep `PUBLISH_TO_PYPI` disabled until both that license and
-the Trusted Publisher are in place.
+repository and its Python package are licensed under Apache-2.0. Keep
+`PUBLISH_TO_PYPI` disabled until the Trusted Publisher is in place.
 
 Python `Tokenizer`, `Context`, `Tensor`, `DecoderOnlyTransformer`,
 `DecodeSession`, `ParameterList`, `Variable`, and `Adam` objects support

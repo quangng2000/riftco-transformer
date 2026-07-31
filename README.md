@@ -396,11 +396,8 @@ The PyPI Trusted Publisher must name project `transformer-lab`, owner
 `quangng2000`, repository `transformer-lab`, workflow `release.yml`, and
 environment `pypi`. This OIDC path avoids a long-lived PyPI API token.
 
-> Release prerequisite: this repository does not yet declare a software
-> license. Choose and add one, then add matching Python package metadata,
-> before publishing a GitHub or PyPI distribution for third-party reuse. PyPI
-> Trusted Publishing must also be configured before enabling
-> `PUBLISH_TO_PYPI`.
+Transformer Lab is licensed under Apache-2.0. PyPI Trusted Publishing must be
+configured before enabling `PUBLISH_TO_PYPI`.
 
 ## Project layout
 
@@ -525,3 +522,8 @@ checkpoints remain future persistence work.
 This lab remains separate from the repository's MLX-LM experiments. Its native
 LoRA path is the small, auditable implementation used to reconstruct the
 machinery; the MLX-LM experiments remain the practical large-model workflow.
+
+## License
+
+Copyright 2026 Quang T Nguyen. Licensed under the
+[Apache License 2.0](LICENSE).

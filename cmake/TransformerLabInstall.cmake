@@ -81,6 +81,11 @@ install(
 )
 
 install(
+    FILES ${PROJECT_SOURCE_DIR}/LICENSE
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/transformer_lab
+)
+
+install(
     EXPORT transformer_labTargets
     FILE transformer_labTargets.cmake
     NAMESPACE transformer_lab::
