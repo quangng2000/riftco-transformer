@@ -875,7 +875,7 @@ class ServingTests(unittest.TestCase):
                     response.headers["Content-Security-Policy"],
                 )
                 chat_html = response.read().decode("utf-8")
-            self.assertIn("Transformer Lab", chat_html)
+            self.assertIn("Riftco Transformer", chat_html)
             self.assertIn('fetch("/v1/generate"', chat_html)
             self.assertIn(
                 r"### User:\n${message}\n### Assistant:\n",

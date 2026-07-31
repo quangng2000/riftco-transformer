@@ -268,7 +268,7 @@ int main(int argc, char** argv) {
             training.model().parameters();
         MetricsCsv metrics_csv(metrics_path);
 
-        std::cout << "Transformer Lab training run\n\n"
+        std::cout << "Riftco Transformer training run\n\n"
                   << config.summary() << "\n"
                   << "Run steps:     " << training_steps << '\n'
                   << "Corpus bytes:  " << corpus.size() << '\n'

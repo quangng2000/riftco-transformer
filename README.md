@@ -1,4 +1,4 @@
-# Transformer Lab in C++
+# Riftco Transformer in C++
 
 This is a small, auditable transformer framework built in dependency-free
 C++20. It began as a learning project, so the model, gradients, and Adam remain
@@ -230,7 +230,7 @@ On a Metal-capable Mac, use `--backend metal`. The same build also creates
 Install the native CLI, headers, libraries, and CMake package with Homebrew:
 
 ```bash
-brew install quangng2000/tap/transformer-lab
+brew install quangng2000/tap/riftco-transformer
 ```
 
 Or build and install those native components from source:
@@ -402,11 +402,11 @@ they pass. PyPI publication is additionally gated by the repository variable
 `PUBLISH_TO_PYPI=true` and the `pypi` environment's Trusted Publisher.
 
 The PyPI Trusted Publisher must name project `riftco-transformer`, owner
-`quangng2000`, repository `transformer-lab`, workflow `release.yml`, and
+`quangng2000`, repository `riftco-transformer`, workflow `release.yml`, and
 environment `pypi`. This OIDC path avoids a long-lived PyPI API token.
 
-Transformer Lab is licensed under Apache-2.0. PyPI Trusted Publishing must be
-configured before enabling `PUBLISH_TO_PYPI`.
+Riftco Transformer is licensed under Apache-2.0. PyPI Trusted Publishing must
+be configured before enabling `PUBLISH_TO_PYPI`.
 
 ## Project layout
 

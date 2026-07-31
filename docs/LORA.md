@@ -1,6 +1,6 @@
 # LoRA Fine-Tuning
 
-Transformer Lab supports low-rank adaptation (LoRA) as an explicit
+Riftco Transformer supports low-rank adaptation (LoRA) as an explicit
 post-training alternative to full-parameter fine-tuning. The implementation
 uses only the framework's native tensor operations, autograd graph, Adam
 optimizer, CPU backend, and Metal backend.

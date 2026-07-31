@@ -242,4 +242,4 @@ jobs:
           --repo "$GITHUB_REPOSITORY"
           --verify-tag
           --generate-notes
-          --title "Transformer Lab $RELEASE_TAG"
+          --title "Riftco Transformer $RELEASE_TAG"

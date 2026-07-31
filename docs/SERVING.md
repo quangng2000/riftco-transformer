@@ -84,7 +84,7 @@ without changing generation or the transformer.
 The design follows the logical-to-physical paging idea described in the
 [PagedAttention paper](https://arxiv.org/abs/2309.06180). The
 [vLLM PagedAttention design](https://docs.vllm.ai/en/v0.10.1/design/paged_attention.html)
-is a useful production-oriented reference. Transformer Lab implements the
+is a useful production-oriented reference. Riftco Transformer implements the
 cache layout and direct attention operation described here, not the complete
 vLLM serving system.
 

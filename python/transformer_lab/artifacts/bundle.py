@@ -16,6 +16,7 @@ import zipfile
 from ..native import DecoderOnlyTransformer, Tokenizer, TransformerConfig
 
 
+# Stable wire identifier retained so existing v1 model bundles remain readable.
 FORMAT_NAME = "transformer-lab-model-bundle"
 FORMAT_VERSION = 1
 MANIFEST_NAME = "manifest.json"

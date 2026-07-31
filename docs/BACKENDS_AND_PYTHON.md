@@ -609,7 +609,7 @@ publication succeeds.
 
 PyPI uses OIDC Trusted Publishing, not a long-lived API token. Configure its
 publisher as project `riftco-transformer`, GitHub owner `quangng2000`, repository
-`transformer-lab`, workflow `release.yml`, and environment `pypi`. This
+`riftco-transformer`, workflow `release.yml`, and environment `pypi`. This
 repository and its Python package are licensed under Apache-2.0. Keep
 `PUBLISH_TO_PYPI` disabled until the Trusted Publisher is in place.
 

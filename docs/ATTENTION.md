@@ -300,5 +300,5 @@ while Metal comparisons use numerical tolerances rather than bitwise equality.
 The algorithmic reference is the original
 [FlashAttention paper](https://arxiv.org/abs/2205.14135); the
 [official implementation](https://github.com/Dao-AILab/flash-attention) is a
-useful production comparison. Transformer Lab does not link either project or
+useful production comparison. Riftco Transformer does not link either project or
 use an external attention library.

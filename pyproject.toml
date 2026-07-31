@@ -22,9 +22,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/quangng2000/transformer-lab"
-Issues = "https://github.com/quangng2000/transformer-lab/issues"
-Repository = "https://github.com/quangng2000/transformer-lab"
+Homepage = "https://github.com/quangng2000/riftco-transformer"
+Issues = "https://github.com/quangng2000/riftco-transformer/issues"
+Repository = "https://github.com/quangng2000/riftco-transformer"
 
 [tool.scikit-build]
 cmake.version = ">=3.24"

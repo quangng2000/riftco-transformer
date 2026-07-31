@@ -18,6 +18,7 @@ SEMANTIC_VERSION = re.compile(
 EXPECTED_LICENSE = "Apache-2.0"
 EXPECTED_LICENSE_FILE = "LICENSE"
 EXPECTED_PROJECT_NAME = "riftco-transformer"
+EXPECTED_REPOSITORY_URL = "https://github.com/quangng2000/riftco-transformer"
 
 
 def fail(message: str) -> NoReturn:
@@ -47,13 +48,26 @@ def main(arguments: list[str]) -> int:
     root = project_root()
     with (root / "pyproject.toml").open("rb") as stream:
         metadata = tomllib.load(stream)
-    project_name = metadata["project"]["name"]
-    package_version = metadata["project"]["version"]
+    project_metadata = metadata["project"]
+    project_name = project_metadata["name"]
+    package_version = project_metadata["version"]
 
     if project_name != EXPECTED_PROJECT_NAME:
         fail(
             "Python distribution name differs: "
             f"{project_name} != {EXPECTED_PROJECT_NAME}"
+        )
+
+    project_urls = project_metadata.get("urls", {})
+    expected_urls = {
+        "Homepage": EXPECTED_REPOSITORY_URL,
+        "Issues": f"{EXPECTED_REPOSITORY_URL}/issues",
+        "Repository": EXPECTED_REPOSITORY_URL,
+    }
+    if project_urls != expected_urls:
+        fail(
+            "pyproject.toml project URLs differ from the public repository: "
+            f"{project_urls} != {expected_urls}"
         )
 
     if SEMANTIC_VERSION.fullmatch(package_version) is None:
@@ -69,7 +83,6 @@ def main(arguments: list[str]) -> int:
         )
 
     license_path = root / EXPECTED_LICENSE_FILE
-    project_metadata = metadata["project"]
     if not license_path.is_file():
         fail(f"{EXPECTED_LICENSE_FILE} is required before publishing a release")
     if project_metadata.get("license") != EXPECTED_LICENSE:

@@ -9,7 +9,7 @@ CHAT_HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Transformer Lab Chat</title>
+  <title>Riftco Transformer Chat</title>
   <style>
     :root {
       --ink: #f4f0e8;
@@ -538,9 +538,9 @@ CHAT_HTML = r"""<!doctype html>
   <div class="shell">
     <header class="topbar">
       <div class="brand">
-        <div class="mark" aria-hidden="true">TL</div>
+        <div class="mark" aria-hidden="true">RT</div>
         <div>
-          <h1>Transformer Lab</h1>
+          <h1>Riftco Transformer</h1>
           <p>Local inference console</p>
         </div>
       </div>
@@ -562,9 +562,9 @@ CHAT_HTML = r"""<!doctype html>
         </header>
 
         <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions">
-          <article class="message assistant" aria-label="Transformer Lab message">
-            <div class="avatar" aria-hidden="true">TL</div>
-            <div class="bubble">Ready when you are. This is the lab’s small learning model, served locally through its configured KV-cache inference path.</div>
+          <article class="message assistant" aria-label="Riftco Transformer message">
+            <div class="avatar" aria-hidden="true">RT</div>
+            <div class="bubble">Ready when you are. This is your small learning model, served locally through its configured KV-cache inference path.</div>
           </article>
         </div>
 
@@ -662,13 +662,13 @@ CHAT_HTML = r"""<!doctype html>
       article.className = `message ${role}`;
       article.setAttribute(
         "aria-label",
-        role === "user" ? "User message" : "Transformer Lab message",
+        role === "user" ? "User message" : "Riftco Transformer message",
       );
 
       const avatar = document.createElement("div");
       avatar.className = "avatar";
       avatar.setAttribute("aria-hidden", "true");
-      avatar.textContent = role === "user" ? "YOU" : "TL";
+      avatar.textContent = role === "user" ? "YOU" : "RT";
 
       const bubble = document.createElement("div");
       bubble.className = "bubble";

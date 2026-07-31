@@ -52,7 +52,7 @@ It also publishes to PyPI only when the repository variable
 
 PyPI publication uses Trusted Publishing rather than a stored API token. The
 publisher configuration is project `riftco-transformer`, owner `quangng2000`,
-repository `transformer-lab`, workflow `release.yml`, and environment `pypi`.
+repository `riftco-transformer`, workflow `release.yml`, and environment `pypi`.
 The project is licensed under Apache-2.0. Do not enable publication until the
 Trusted Publisher is configured.
 
