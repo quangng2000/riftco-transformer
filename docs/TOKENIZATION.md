@@ -76,7 +76,7 @@ in its training corpus.
 Both strategies preserve every input they accept exactly:
 
 ```math
-\operatorname{decode}\left(\operatorname{encode}(\mathbf{b})\right)
+\mathrm{decode}\left(\mathrm{encode}(\mathbf{b})\right)
 = \mathbf{b}
 ```
 

@@ -164,11 +164,11 @@ root. A constant feature slice therefore remains finite and returns the bias.
 The exact Gaussian Error Linear Unit is:
 
 ```math
-\operatorname{GELU}(x)
-= \frac{x}{2}\left(1+\operatorname{erf}\left(\frac{x}{\sqrt{2}}\right)\right),
+\mathrm{GELU}(x)
+= \frac{x}{2}\left(1+\mathrm{erf}\left(\frac{x}{\sqrt{2}}\right)\right),
 ```
 
-where $\operatorname{erf}$ is the Gaussian error function. The public equation
+where $\mathrm{erf}$ is the Gaussian error function. The public equation
 is exact rather than the common tanh approximation. Its implementation routes
 one GELU forward request and one local derivative request through the backend;
 CPU uses the readable reference formula and Metal uses focused kernels.
@@ -193,7 +193,7 @@ x → LayerNorm → FeedForward → add x
 ```
 
 In equation form, if $F$ is the feed-forward transformation, the surrounding
-block computes $\mathbf{x} + F(\operatorname{LayerNorm}(\mathbf{x}))$.
+block computes $\mathbf{x} + F(\mathrm{LayerNorm}(\mathbf{x}))$.
 
 Keeping the residual outside makes `FeedForward` reusable and keeps its job
 precise.
@@ -223,7 +223,7 @@ For a vector of logits $\mathbf{z}$, softmax subtracts the maximum
 $m = \max_j z_j$ before exponentiation:
 
 ```math
-\operatorname{softmax}(\mathbf{z})_i
+\mathrm{softmax}(\mathbf{z})_i
 = \frac{\exp(z_i-m)}
        {\sum_j \exp(z_j-m)}.
 ```

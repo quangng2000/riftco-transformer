@@ -113,7 +113,7 @@ Unary rules include:
     &G \oslash A, \\
 \sqrt{A}:\quad
     &\frac{G}{2\sqrt{A}}, \\
-\operatorname{erf}(A):\quad
+\mathrm{erf}(A):\quad
     &G \odot \frac{2}{\sqrt{\pi}} \exp(-A^2).
 \end{aligned}
 ```

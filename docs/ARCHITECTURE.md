@@ -58,10 +58,10 @@ Each pre-normalized block applies:
 
 ```math
 \begin{aligned}
-a &= x + \operatorname{CausalSelfAttention}
-    \left(\operatorname{LayerNorm}(x)\right), \\
-y &= a + \operatorname{FeedForward}
-    \left(\operatorname{LayerNorm}(a)\right).
+a &= x + \mathrm{CausalSelfAttention}
+    \left(\mathrm{LayerNorm}(x)\right), \\
+y &= a + \mathrm{FeedForward}
+    \left(\mathrm{LayerNorm}(a)\right).
 \end{aligned}
 ```
 

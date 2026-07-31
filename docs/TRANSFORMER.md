@@ -50,7 +50,7 @@ vector at batch item $b$ and time $t$ is:
 
 ```math
 \mathbf{h}^{(0)}_{b,t}
-= E_{\text{token}}[\operatorname{id}_{b,t}]
+= E_{\text{token}}[\mathrm{id}_{b,t}]
 + E_{\text{position}}[t].
 ```
 
@@ -65,15 +65,15 @@ residual equations:
 ```math
 \mathbf{a}
 = \mathbf{x}
-+ \operatorname{CausalSelfAttention}
-  \left(\operatorname{AttentionNorm}(\mathbf{x})\right),
++ \mathrm{CausalSelfAttention}
+  \left(\mathrm{AttentionNorm}(\mathbf{x})\right),
 ```
 
 ```math
 \mathbf{y}
 = \mathbf{a}
-+ \operatorname{FeedForward}
-  \left(\operatorname{FeedForwardNorm}(\mathbf{a})\right).
++ \mathrm{FeedForward}
+  \left(\mathrm{FeedForwardNorm}(\mathbf{a})\right).
 ```
 
 This is a **pre-normalized** block because each sublayer receives normalized
