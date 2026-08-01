@@ -20,17 +20,27 @@ include/riftco_transformer/core/tensor.hpp
 ```
 
 Code using a tensor includes that header and only needs to know the storage and
-layout interface. Shape, stride, indexing, and reshape calculations live in:
+layout interface. The implementation is grouped by responsibility:
 
 ```text
-src/core/tensor.cpp
+src/core/tensor/
+├── storage.cpp       # allocation, ownership, transfer, and raw access
+└── layout.cpp        # shape, strides, indexing, and reshape
 ```
 
-Numerical calculations have their own reusable interface and implementation:
+Numerical calculations have their own reusable public interface and focused
+implementation files:
 
 ```text
 include/riftco_transformer/core/tensor_ops.hpp
-src/core/tensor_ops.cpp
+src/core/tensor/
+├── elementwise.cpp
+├── matmul.cpp
+├── layout_ops.cpp
+├── indexing.cpp
+├── reductions.cpp
+├── softmax.cpp
+└── detail/validation.{hpp,cpp}
 ```
 
 This gives the project three deliberate layers:
@@ -113,14 +123,18 @@ shape `[..., m, n]`:
 C_{i,j} = \sum_{r=0}^{k-1} A_{i,r} B_{r,j}
 ```
 
-`tensor_ops::matmul` dispatches to the input tensor's backend: the CPU adapter
-uses three direct loops and the Metal adapter uses a batched compute kernel.
+`tensor_ops::matmul` dispatches to the input tensor's backend: CPU uses three
+direct loops, Metal and CUDA use batched device kernels, and the experimental
+TPU adapter compiles a StableHLO `dot_general` through PJRT.
 The same layer also owns elementwise arithmetic, reductions, broadcasting,
 transposition, and elementary functions. CPU uses readable reference
 implementations; Metal routes those operations to compute kernels over the
-same persistent shared storage. See [TENSOR_OPS.md](TENSOR_OPS.md) for the
-complete contract and [BACKENDS_AND_PYTHON.md](BACKENDS_AND_PYTHON.md) for the
-synchronous execution boundary.
+same persistent shared storage. CUDA owns native tensor/NN, attention, and
+Adam-update kernels. TPU owns StableHLO materialized-attention and paged-decode
+programs while its remaining operations use portable reference paths. See
+[TENSOR_OPS.md](TENSOR_OPS.md) for the complete contract and
+[BACKENDS_AND_PYTHON.md](BACKENDS_AND_PYTHON.md) for the synchronous execution
+boundary.
 
 ## Safety choices
 

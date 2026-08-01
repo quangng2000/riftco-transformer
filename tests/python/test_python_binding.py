@@ -16,6 +16,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "python"))
 from riftco_transformer import (  # noqa: E402
     ACTIVATION_CHECKPOINTING_DISABLED,
     ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK,
+    BACKEND_CUDA,
+    BACKEND_TPU,
     Adam,
     DecodeSession,
     FULL_SEQUENCE_ATTENTION_FLASH,
@@ -49,9 +51,49 @@ class PythonBindingTests(unittest.TestCase):
     def test_abi_compatibility_policy(self) -> None:
         self.assertFalse(_abi_version_is_compatible(0x00010008))
         self.assertFalse(_abi_version_is_compatible(0x00010009))
-        self.assertTrue(_abi_version_is_compatible(0x00020000))
-        self.assertTrue(_abi_version_is_compatible(0x00020001))
+        self.assertFalse(_abi_version_is_compatible(0x00020000))
+        self.assertFalse(_abi_version_is_compatible(0x00020001))
+        self.assertTrue(_abi_version_is_compatible(0x00020002))
+        self.assertTrue(_abi_version_is_compatible(0x00020003))
         self.assertFalse(_abi_version_is_compatible(0x00030000))
+
+    def test_cuda_context_or_unavailable_error(self) -> None:
+        self.assertEqual(BACKEND_CUDA, 2)
+        self.assertEqual(
+            backend_available(BACKEND_CUDA),
+            backend_available("cuda"),
+        )
+        if not backend_available("cuda"):
+            with self.assertRaises(RiftcoTransformerError) as error:
+                Context("cuda")
+            self.assertEqual(
+                error.exception.status,
+                STATUS_BACKEND_UNAVAILABLE,
+            )
+            self.assertIn("cuda", error.exception.detail.lower())
+            return
+
+        with Context("cuda") as context:
+            self.assertEqual(context.backend, "cuda")
+
+    def test_tpu_context_or_unavailable_error(self) -> None:
+        self.assertEqual(BACKEND_TPU, 3)
+        self.assertEqual(
+            backend_available(BACKEND_TPU),
+            backend_available("tpu"),
+        )
+        if not backend_available("tpu"):
+            with self.assertRaises(RiftcoTransformerError) as error:
+                Context("tpu")
+            self.assertEqual(
+                error.exception.status,
+                STATUS_BACKEND_UNAVAILABLE,
+            )
+            self.assertIn("tpu", error.exception.detail.lower())
+            return
+
+        with Context("tpu") as context:
+            self.assertEqual(context.backend, "tpu")
 
     def test_tokenizer_deterministic_vocabulary(self) -> None:
         with Tokenizer(b"cab\ncab") as tokenizer:

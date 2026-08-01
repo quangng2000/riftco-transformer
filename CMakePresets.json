@@ -27,6 +27,39 @@
       }
     },
     {
+      "name": "cuda-release",
+      "displayName": "Release with the optional CUDA backend",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cuda-release",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "RIFTCO_TRANSFORMER_ENABLE_CUDA": "ON"
+      }
+    },
+    {
+      "name": "tpu-release",
+      "displayName": "Release with the optional Cloud TPU PJRT backend",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/tpu-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "RIFTCO_TRANSFORMER_ENABLE_METAL": "OFF",
+        "RIFTCO_TRANSFORMER_ENABLE_TPU": "ON"
+      }
+    },
+    {
       "name": "sanitize",
       "displayName": "Debug with address and undefined-behavior sanitizers",
       "generator": "Ninja",
@@ -53,6 +86,14 @@
       "configurePreset": "release"
     },
     {
+      "name": "cuda-release",
+      "configurePreset": "cuda-release"
+    },
+    {
+      "name": "tpu-release",
+      "configurePreset": "tpu-release"
+    },
+    {
       "name": "sanitize",
       "configurePreset": "sanitize"
     }
@@ -68,6 +109,20 @@
     {
       "name": "release",
       "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "cuda-release",
+      "configurePreset": "cuda-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "tpu-release",
+      "configurePreset": "tpu-release",
       "output": {
         "outputOnFailure": true
       }

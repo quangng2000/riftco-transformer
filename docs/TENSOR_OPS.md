@@ -21,15 +21,23 @@ The public numerical interface is:
 include/riftco_transformer/core/tensor_ops.hpp
 ```
 
-The dependency-free numerical implementation and backend dispatch are:
+The numerical implementation is split by operation family, then routed through
+the backend dispatch layer:
 
 ```text
-src/core/tensor_ops.cpp
+src/core/tensor/
+├── elementwise.cpp
+├── matmul.cpp
+├── layout_ops.cpp
+├── indexing.cpp
+├── reductions.cpp
+├── softmax.cpp
+└── detail/validation.{hpp,cpp}
 src/core/backend/adapter.hpp
+src/core/backend/adapters/
+src/core/backend/nn/reference/
 src/core/backend/attention/
 src/core/backend/registry.cpp
-src/core/backend/cpu_adapter.cpp
-src/core/backend/metal_adapter.mm
 ```
 
 ## Current operations
@@ -131,8 +139,9 @@ $\frac{1}{2\sqrt{0}}$.
 hand-calculated values and invalid-shape/domain cases. Autograd tests then
 check derivative rules independently with centered finite differences.
 
-The functions in `backend/nn_reference.cpp` and `backend/attention/reference/`,
-plus the direct CPU matmul loop, remain the readable reference implementation.
+The functions in `backend/nn/reference/` and
+`backend/attention/reference/`, plus the direct CPU matmul loop, remain the
+readable reference implementation.
 The operation layer dispatches
 layout, elementwise, reduction, GELU, softmax, indexing, and matmul requests
 through focused Adapter capabilities. The ordinary overloads run on the input
@@ -143,7 +152,13 @@ storage backend.
 Metal tensors retain shared buffers, so routed kernels bind input and output
 storage directly without changing backend identity. Calls remain synchronous:
 each operation waits for its command buffer and checks device status before
-returning. CPU/Metal tests compare with numerical tolerances because device
-math and reduction order are not bitwise identical. See
+returning. Optional source-built CUDA tensors retain managed allocations and
+run the tensor/NN contracts, matmul, attention, and Adam's candidate-state
+update through native GPU kernels. The experimental TPU adapter keeps a host
+mirror and stages batched matmul,
+materialized attention, and paged decode through PJRT to one Cloud TPU device;
+Flash attention and other capabilities retain host reference paths.
+CPU/accelerator tests compare with numerical tolerances because device math
+and reduction order are not bitwise identical. See
 [BACKENDS_AND_PYTHON.md](BACKENDS_AND_PYTHON.md) for the dispatch, neural
 kernel, and ABI boundaries.

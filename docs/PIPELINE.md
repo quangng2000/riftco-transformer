@@ -75,8 +75,10 @@ The native generation engine supports greedy decoding and seeded
 temperature/top-k sampling. It creates a request-local KV cache, prefills the
 prompt one token at a time, then decodes one token at a time. Paged caching is
 the default; a contiguous reference factory is available through the same
-cache interface. CPU and Metal both execute attention directly over the paged
-layout. The full-sequence, autograd-producing training forward is unchanged.
+cache interface. CPU, Metal, and CUDA execute attention through backend-owned
+paged implementations; TPU stages paged decode through PJRT from its host
+mirror. The full-sequence,
+autograd-producing training forward is unchanged.
 
 At context rollover, learned absolute positions require the retained suffix to
 be reset and replayed from position zero. Evicting only the oldest page would
@@ -228,8 +230,7 @@ datasets live below ignored `data/external/`.
 TinyStories pretraining should pass separately prepared published train and
 validation files to `pretrain_stage.py --file ... --validation-file ...`.
 That keeps the validation source held out and fits the tokenizer only on
-training text. Full commands, license links, and CPU/Metal sample-size guidance
-are in
+training text. Full commands, license links, and sample-size guidance are in
 [DATASETS_AND_LORA_EXPERIMENTS.md](DATASETS_AND_LORA_EXPERIMENTS.md).
 
 ### Python pretraining
@@ -352,6 +353,31 @@ the formatted sequence: delimiters, user prompt, and assistant response.
 There is no response-only loss mask yet, so this is not the masked instruction
 loss commonly used by production post-training systems.
 
+### Full-versus-LoRA generalization
+
+`compare_fine_tuning()` applies one exhaustive metric to full fine-tuning and
+LoRA. Every candidate starts from the same immutable base, trains only on the
+training split, and is scored on training and validation. The training score
+uses the same exhaustive target-token weighting as validation, so the reported
+validation generalization gap is comparable rather than a difference from one
+sampled minibatch.
+
+Candidates are selected within method groups using validation loss. A fixed
+full-fine-tuning recipe and the validation-selected LoRA rank receive final
+test measurements only after all selections are frozen. The accompanying
+`compare_fine_tuning.py` command records separate learning rates, trainable
+parameter fractions, split fingerprints, base deltas, and validation/test
+generalization gaps. Using the test result for both methods consumes that test
+split; it must not guide another tuning run.
+
+The native `PostTrainingStack` exposes the same exhaustive split metric through
+its `InstructionSplits` overload and optional `PostTrainingEvaluationMetrics`.
+That overload is for one pre-registered candidate and evaluates test on each
+run; grouped validation selection remains in `compare_fine_tuning()`. The
+legacy single-example-vector constructor remains training-only. See
+[Post-training generalization](GENERALIZATION.md) for the command, formulas,
+and interpretation limits.
+
 ### Controlled LoRA-rank selection
 
 `python/riftco_transformer/experiments` adds a reproducible rank sweep above the
@@ -389,7 +415,7 @@ chosen/rejected pairs as SFT examples.
 ### Python generation and local serving
 
 `TextGenerator` performs single-request autoregressive generation. For a
-native `DecoderOnlyTransformer`, it uses the current stable ABI 2.0
+native `DecoderOnlyTransformer`, it uses the current stable ABI 2.2
 `DecodeSession` surface, prefills one token at a time,
 and then appends one generated token per step.
 Paged caching with 16-token pages is the default; callers can select the
@@ -493,8 +519,8 @@ JSON
 
 These defaults are a wiring demonstration, not a useful assistant-quality
 training recipe. Pass `--help` to any stage script for its resource and
-training controls. For a TinyStories → Dolly → LoRA-rank workflow, use the
-commands in
+training controls. For TinyStories → Dolly rank selection and full-versus-LoRA
+generalization workflows, use the commands in
 [DATASETS_AND_LORA_EXPERIMENTS.md](DATASETS_AND_LORA_EXPERIMENTS.md).
 
 ## Current limits

@@ -201,10 +201,11 @@ stored beta powers start at $1$. They are multiplied before each update, so the
 first successful call uses $\beta_1^1$ and $\beta_2^1$ for bias correction.
 
 The portable reference performs intermediate update arithmetic in `double` and
-checks each stored `float`. Metal uses native `float` arithmetic for its normal
-fast path and reports unsafe arithmetic through one shared device flag.
-CPU/Metal fast-path tests therefore use numerical tolerances rather than
-requiring bit equality.
+checks each stored `float`. CUDA performs the same candidate calculation with
+device `double` intermediates and reports a non-finite candidate through one
+shared device flag. Metal uses native `float` arithmetic for its normal fast
+path and similarly reports unsafe arithmetic. Accelerator parity tests use
+numerical tolerances rather than requiring bit equality.
 
 Apple GPU float arithmetic may flush subnormal intermediates. The precise-math
 kernel checks its actual operation sequence for subnormal, non-finite, and
@@ -216,11 +217,12 @@ identity, and transactional commit boundary; it does not move tensors to CPU
 storage or add a duplicate host pass to ordinary fused updates.
 
 All parameter values and moments are written to out-of-place candidate tensors.
-No live optimizer state changes while a kernel is running. Only after the
-complete batch succeeds are candidates moved into the parameters and moment
-slots.
+Dispatch rejects a candidate that aliases any live buffer or another candidate,
+including aliases across parameter tensors in the same batch. No live optimizer
+state changes while a kernel is running. Only after the complete batch succeeds
+are candidates moved into the parameters and moment slots.
 
-## Backend execution and fused Metal update
+## Backend execution
 
 Adam captures one intrinsic backend when it is constructed and requires every
 parameter value, gradient, and moment to remain on it. Move a model before
@@ -257,6 +259,18 @@ check command status + shared reference-request flag
         ↓
 move every candidate into live state
 ```
+
+CUDA tensors use managed allocations. The CUDA Adam module preflights every
+parameter, gradient, moment, and candidate native handle, launches one
+grid-stride update kernel per parameter tensor, then synchronizes once for the
+batch. Each thread uses `double` intermediates before checked conversion to the
+stored `float`. A shared device status flag turns any non-finite candidate into
+an exception before the public optimizer commits live values or moments.
+
+TPU currently calls the same portable reference implementation over its host
+mirror. Neither the native Metal nor CUDA candidate update changes the separate
+global-norm boundary: gradient-norm clipping remains host control flow on all
+backends.
 
 This is per-tensor fusion in one submission, not a flattened multi-tensor
 kernel. Flattened parameter arenas can be considered later if profiling shows
@@ -317,10 +331,10 @@ finite parameter values. Moving a parameter after optimizer construction is
 therefore rejected before an update. A step also rejects counter overflow and
 any moment or parameter result that cannot be represented as a finite `float`.
 
-The update is transactional. Norm validation and all candidate allocations
-happen before dispatch; Metal command failures or wide-reference retry
-failures leave parameter values, gradients, moments, beta powers, and the
-successful-step counter unchanged.
+The update is transactional. Norm validation, candidate allocation, and alias
+validation happen before device work; backend command failures or Metal
+wide-reference retry failures leave parameter values, gradients, moments, beta
+powers, and the successful-step counter unchanged.
 
 ## Lifetime and computation-graph rules
 

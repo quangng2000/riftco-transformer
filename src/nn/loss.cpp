@@ -1,6 +1,7 @@
 #include "riftco_transformer/nn/loss.hpp"
 
 #include "core/backend/adapter.hpp"
+#include "core/backend/nn/dispatch.hpp"
 #include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <memory>

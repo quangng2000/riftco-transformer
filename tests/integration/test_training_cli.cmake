@@ -128,3 +128,97 @@ foreach(expected_step RANGE 1 3)
         endif()
     endforeach()
 endforeach()
+
+# CUDA is a stable CLI value even in builds that compile the unavailable
+# adapter. A real CUDA device runs a one-step smoke test; otherwise the CLI
+# must reach backend selection and report unavailability rather than reject
+# the spelling as an unknown option value.
+set(cuda_metrics_path "${METRICS_PATH}.cuda")
+file(REMOVE "${cuda_metrics_path}")
+execute_process(
+    COMMAND
+        "${RIFTCO_TRANSFORMER_EXECUTABLE}"
+        --config "${CONFIG_PATH}"
+        --steps 1
+        --metrics "${cuda_metrics_path}"
+        --backend cuda
+        --attention materialized
+        --activation-checkpointing disabled
+    RESULT_VARIABLE cuda_result
+    OUTPUT_VARIABLE cuda_output
+    ERROR_VARIABLE cuda_error
+)
+
+if(cuda_result EQUAL 0)
+    string(REGEX MATCH
+        "Backend:[^\n]*cuda"
+        cuda_backend_marker
+        "${cuda_output}"
+    )
+    if(cuda_backend_marker STREQUAL "" OR
+       NOT EXISTS "${cuda_metrics_path}")
+        message(FATAL_ERROR
+            "CUDA CLI run succeeded without confirming CUDA or writing "
+            "metrics\nstdout:\n${cuda_output}"
+        )
+    endif()
+else()
+    string(FIND
+        "${cuda_error}"
+        "cuda execution backend is unavailable"
+        cuda_unavailable_marker
+    )
+    if(cuda_unavailable_marker EQUAL -1)
+        message(FATAL_ERROR
+            "CUDA CLI value was not executed or failed unexpectedly\n"
+            "stdout:\n${cuda_output}\n"
+            "stderr:\n${cuda_error}"
+        )
+    endif()
+endif()
+
+# TPU is also a stable CLI value. Standard builds carry its unavailable stub;
+# a TPU-enabled Cloud TPU build runs this as a one-step end-to-end smoke test.
+set(tpu_metrics_path "${METRICS_PATH}.tpu")
+file(REMOVE "${tpu_metrics_path}")
+execute_process(
+    COMMAND
+        "${RIFTCO_TRANSFORMER_EXECUTABLE}"
+        --config "${CONFIG_PATH}"
+        --steps 1
+        --metrics "${tpu_metrics_path}"
+        --backend tpu
+        --attention materialized
+        --activation-checkpointing disabled
+    RESULT_VARIABLE tpu_result
+    OUTPUT_VARIABLE tpu_output
+    ERROR_VARIABLE tpu_error
+)
+
+if(tpu_result EQUAL 0)
+    string(REGEX MATCH
+        "Backend:[^\n]*tpu"
+        tpu_backend_marker
+        "${tpu_output}"
+    )
+    if(tpu_backend_marker STREQUAL "" OR
+       NOT EXISTS "${tpu_metrics_path}")
+        message(FATAL_ERROR
+            "TPU CLI run succeeded without confirming TPU or writing "
+            "metrics\nstdout:\n${tpu_output}"
+        )
+    endif()
+else()
+    string(FIND
+        "${tpu_error}"
+        "tpu execution backend is unavailable"
+        tpu_unavailable_marker
+    )
+    if(tpu_unavailable_marker EQUAL -1)
+        message(FATAL_ERROR
+            "TPU CLI value was not executed or failed unexpectedly\n"
+            "stdout:\n${tpu_output}\n"
+            "stderr:\n${tpu_error}"
+        )
+    endif()
+endif()

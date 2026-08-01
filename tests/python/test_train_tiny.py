@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +32,40 @@ def fields(line: str) -> dict[str, str]:
 
 
 class TrainTinyTests(unittest.TestCase):
+    def test_cli_and_selector_support_accelerators(self) -> None:
+        for backend in ("cuda", "tpu"):
+            with self.subTest(backend=backend), mock.patch.object(
+                sys,
+                "argv",
+                [str(TRAINING_SCRIPT), "--backend", backend],
+            ):
+                self.assertEqual(
+                    train_tiny.parse_arguments().backend,
+                    backend,
+                )
+
+        with mock.patch.object(
+            train_tiny,
+            "backend_available",
+            side_effect=lambda backend: backend == "tpu",
+        ):
+            self.assertEqual(train_tiny.selected_backend("auto"), "tpu")
+
+        with mock.patch.object(
+            train_tiny,
+            "backend_available",
+            side_effect=lambda backend: backend == "cuda",
+        ):
+            self.assertEqual(train_tiny.selected_backend("auto"), "cuda")
+
+        with mock.patch.object(
+            train_tiny,
+            "backend_available",
+            return_value=False,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "TPU"):
+                train_tiny.selected_backend("tpu")
+
     def test_split_reserves_a_disjoint_contiguous_tail(self) -> None:
         corpus = list(range(20))
 

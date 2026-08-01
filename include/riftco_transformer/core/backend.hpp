@@ -7,14 +7,24 @@ namespace riftco_transformer {
 
 // Identifies both tensor storage and the built-in implementation used by
 // dispatched operations. CPU tensors use host storage; Metal tensors own
-// persistent shared MTLBuffers.
+// persistent shared MTLBuffers; CUDA tensors use managed CUDA allocations;
+// TPU tensors keep an authoritative host mirror and stage selected native
+// programs through PJRT/libtpu.
 enum class ExecutionBackend : std::uint8_t {
     Cpu = 0,
     Metal = 1,
+    Cuda = 2,
+    Tpu = 3,
 };
 
 // Returns false for both recognized-but-unavailable and unknown values.
 [[nodiscard]] bool execution_backend_available(
+    ExecutionBackend backend
+) noexcept;
+
+// Returns a process-lifetime diagnostic for a recognized unavailable backend,
+// or an empty view when the backend is available or unknown.
+[[nodiscard]] std::string_view execution_backend_unavailability_reason(
     ExecutionBackend backend
 ) noexcept;
 

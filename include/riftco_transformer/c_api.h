@@ -20,7 +20,7 @@ extern "C" {
 #endif
 
 #define RT_ABI_VERSION_MAJOR UINT32_C(2)
-#define RT_ABI_VERSION_MINOR UINT32_C(0)
+#define RT_ABI_VERSION_MINOR UINT32_C(2)
 #define RT_ABI_VERSION \
     ((RT_ABI_VERSION_MAJOR << 16) | RT_ABI_VERSION_MINOR)
 
@@ -47,6 +47,8 @@ typedef int32_t rt_status;
 typedef int32_t rt_backend;
 #define RT_BACKEND_CPU ((rt_backend)0)
 #define RT_BACKEND_METAL ((rt_backend)1)
+#define RT_BACKEND_CUDA ((rt_backend)2)
+#define RT_BACKEND_TPU ((rt_backend)3)
 
 typedef int32_t rt_full_sequence_attention_kind;
 #define RT_FULL_SEQUENCE_ATTENTION_MATERIALIZED \

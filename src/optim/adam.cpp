@@ -1,6 +1,7 @@
 #include "riftco_transformer/optim/adam.hpp"
 
 #include "core/backend/adapter.hpp"
+#include "core/backend/optim/adam/dispatch.hpp"
 
 #include <cmath>
 #include <limits>

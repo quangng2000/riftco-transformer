@@ -44,9 +44,11 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=("auto", "cpu", "metal"),
+        choices=("auto", "cpu", "metal", "cuda", "tpu"),
         default="auto",
-        help="Execution backend; auto selects Metal when available.",
+        help=(
+            "Execution backend; auto prefers TPU, then CUDA, Metal, and CPU."
+        ),
     )
     parser.add_argument(
         "--attention",
@@ -159,9 +161,21 @@ def parse_arguments() -> argparse.Namespace:
 
 def selected_backend(requested: str) -> str:
     if requested == "auto":
-        return "metal" if backend_available("metal") else "cpu"
-    if requested == "metal" and not backend_available("metal"):
-        raise RuntimeError("Metal was requested but is unavailable")
+        for accelerated in ("tpu", "cuda", "metal"):
+            if backend_available(accelerated):
+                return accelerated
+        return "cpu"
+    if requested in {"metal", "cuda", "tpu"} and not backend_available(
+        requested
+    ):
+        display_name = {
+            "metal": "Metal",
+            "cuda": "CUDA",
+            "tpu": "TPU",
+        }[requested]
+        raise RuntimeError(
+            f"{display_name} was requested but is unavailable"
+        )
     return requested
 
 

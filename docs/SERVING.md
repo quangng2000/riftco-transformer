@@ -67,11 +67,11 @@ request resets or is destroyed. The default page size is 16 tokens. In the
 native `ServingConfig`, `kv_cache_block_count == 0` allocates enough physical
 pages for one maximum-length context.
 
-CPU and Metal implement the same paged-decode-attention request directly: each
-reads
-the logical page table and the per-layer K/V pools without first gathering the
-cached sequence into a public contiguous K/V tensor. Both paths are
-synchronous. This is an inference-only attention path; selectable
+CPU, Metal, CUDA, and TPU implement the same paged-decode-attention contract.
+CPU and the GPU kernels read the logical page table and per-layer K/V pools;
+TPU stages the validated request through PJRT without exposing a gathered K/V
+tensor through the public API. Every path is synchronous. This is an
+inference-only attention path; selectable
 materialized or Flash full-sequence attention and its vector-Jacobian product
 remain the training/evaluation path.
 

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import zipfile
@@ -19,6 +20,7 @@ from riftco_transformer import (
     LoraConfig,
     Tokenizer,
     TransformerConfig,
+    backend_available,
 )
 from riftco_transformer.artifacts import (
     MANIFEST_NAME,
@@ -39,6 +41,7 @@ from riftco_transformer.pretraining import (
     pretrain_text,
 )
 from riftco_transformer.serving import (
+    ModelService,
     ServingConfig,
     create_http_server,
 )
@@ -48,7 +51,18 @@ from riftco_transformer.training import (
     SequenceWindowBatchSource,
     TrainingBatch,
     fixed_batches,
+    selected_backend,
 )
+import riftco_transformer.serving.service as service_module
+import riftco_transformer.training.engine as training_engine
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT / "examples" / "python"))
+
+import post_train_stage as post_train_cli  # noqa: E402
+import pretrain_stage as pretrain_cli  # noqa: E402
+import serve_stage as serve_cli  # noqa: E402
 
 
 CORPUS = "abcdabcdabcdabcd"
@@ -414,6 +428,161 @@ class TrainingPrimitiveTests(unittest.TestCase):
 
 
 class PipelineStageTests(unittest.TestCase):
+    @unittest.skipUnless(
+        backend_available("cuda"),
+        "CUDA backend is unavailable in this build",
+    )
+    def test_cuda_serving_smoke(self) -> None:
+        with ModelService(
+            make_tiny_bundle(),
+            ServingConfig(backend="cuda", maximum_new_tokens=1),
+        ) as service:
+            generated = service.generate(
+                "ab",
+                max_new_tokens=1,
+                temperature=0.0,
+            )
+
+            self.assertEqual(service.backend, "cuda")
+            self.assertEqual(generated.prompt_token_ids, (0, 1))
+            self.assertEqual(len(generated.generated_token_ids), 1)
+
+    @unittest.skipUnless(
+        backend_available("tpu"),
+        "TPU backend is unavailable in this build",
+    )
+    def test_tpu_serving_smoke(self) -> None:
+        with ModelService(
+            make_tiny_bundle(),
+            ServingConfig(backend="tpu", maximum_new_tokens=1),
+        ) as service:
+            generated = service.generate(
+                "ab",
+                max_new_tokens=1,
+                temperature=0.0,
+            )
+
+            self.assertEqual(service.backend, "tpu")
+            self.assertEqual(generated.prompt_token_ids, (0, 1))
+            self.assertEqual(len(generated.generated_token_ids), 1)
+
+    def test_accelerator_backend_configs_and_stage_clis(self) -> None:
+        for backend in ("cuda", "tpu"):
+            with self.subTest(backend=backend):
+                self.assertEqual(
+                    PretrainingConfig(backend=backend).backend,
+                    backend,
+                )
+                self.assertEqual(
+                    PostTrainingConfig(backend=backend).backend,
+                    backend,
+                )
+                self.assertEqual(
+                    ServingConfig(backend=backend).backend,
+                    backend,
+                )
+
+                for cli in (pretrain_cli, post_train_cli, serve_cli):
+                    with self.subTest(cli=cli.__name__):
+                        arguments = cli.build_parser().parse_args(
+                            ["--backend", backend]
+                        )
+                        self.assertEqual(arguments.backend, backend)
+
+    def test_auto_backend_prefers_tpu_then_cuda_then_metal_then_cpu(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            training_engine,
+            "backend_available",
+            side_effect=lambda backend: backend == "tpu",
+        ) as available:
+            self.assertEqual(selected_backend("auto"), "tpu")
+            available.assert_called_once_with("tpu")
+
+        with mock.patch.object(
+            training_engine,
+            "backend_available",
+            side_effect=lambda backend: backend == "cuda",
+        ) as available:
+            self.assertEqual(selected_backend("auto"), "cuda")
+            self.assertEqual(
+                available.call_args_list,
+                [mock.call("tpu"), mock.call("cuda")],
+            )
+
+        with mock.patch.object(
+            training_engine,
+            "backend_available",
+            side_effect=lambda backend: backend == "metal",
+        ) as available:
+            self.assertEqual(selected_backend("auto"), "metal")
+            self.assertEqual(
+                available.call_args_list,
+                [
+                    mock.call("tpu"),
+                    mock.call("cuda"),
+                    mock.call("metal"),
+                ],
+            )
+
+        with mock.patch.object(
+            training_engine,
+            "backend_available",
+            return_value=False,
+        ) as available:
+            self.assertEqual(selected_backend("auto"), "cpu")
+            self.assertEqual(
+                available.call_args_list,
+                [
+                    mock.call("tpu"),
+                    mock.call("cuda"),
+                    mock.call("metal"),
+                ],
+            )
+            with self.assertRaisesRegex(RuntimeError, "TPU"):
+                selected_backend("tpu")
+
+    def test_serving_auto_backend_uses_the_same_priority(self) -> None:
+        with mock.patch.object(
+            service_module,
+            "backend_available",
+            side_effect=lambda backend: backend == "tpu",
+        ):
+            self.assertEqual(
+                service_module._selected_backend("auto"),
+                "tpu",
+            )
+        with mock.patch.object(
+            service_module,
+            "backend_available",
+            side_effect=lambda backend: backend == "cuda",
+        ):
+            self.assertEqual(
+                service_module._selected_backend("auto"),
+                "cuda",
+            )
+        with mock.patch.object(
+            service_module,
+            "backend_available",
+            side_effect=lambda backend: backend == "metal",
+        ):
+            self.assertEqual(
+                service_module._selected_backend("auto"),
+                "metal",
+            )
+        with mock.patch.object(
+            service_module,
+            "backend_available",
+            return_value=False,
+        ):
+            self.assertEqual(
+                service_module._selected_backend("auto"),
+                "cpu",
+            )
+            with self.assertRaisesRegex(RuntimeError, "TPU"):
+                service_module._selected_backend("tpu")
+
     def test_plain_chat_training_and_inference_prefix_match(self) -> None:
         formatter = PlainChatFormatter()
         prefix = formatter.format_prompt("  Explain attention.  ")

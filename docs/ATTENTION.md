@@ -134,8 +134,9 @@ full-sequence implementation:
 
 - **materialized** is the default. It saves the complete
   `[B, H, T, T]` probability tensor for the context backward pass;
-- **Flash** processes eight queries and eight keys per tile on both CPU and
-  Metal. It computes context with online softmax and saves only row maxima and
+- **Flash** is memory-linear. CPU and Metal process eight queries and eight
+  keys per tile; CUDA assigns each attention row to a cooperating thread block.
+  It computes context with online softmax and saves only row maxima and
   exponential sums, each `[B, H, T]`. Backward reconstructs each needed
   probability from `Q`, `K`, and the saved row statistics, so no global
   `[B, H, T, T]` probability buffer is allocated in either direction.
@@ -171,10 +172,12 @@ forward equation from scalar graph operations:
 
 The last two cases apply to the materialized probability-returning diagnostic;
 the Flash model path has only a context output. CPU uses readable tile-8
-reference loops. Metal uses 64-thread groups, tile-8 threadgroup-memory
-working sets, online-softmax forward, and recomputing backward kernels. The
-implementation is dependency-free. Metal calls remain synchronous over shared
-buffers, and no speedup is claimed without measuring a concrete workload.
+reference loops. Metal and CUDA use backend-owned GPU kernels for online
+softmax and recomputing backward. TPU materialized attention is a
+shape-specialized StableHLO program, while TPU Flash deliberately keeps the
+reference implementation until a genuinely tiled StableHLO program can
+preserve Flash's linear-storage contract. Calls remain synchronous, and no
+speedup is claimed without measuring a concrete workload.
 
 Metal's dynamic threadgroup working storage is device-limited. In float
 elements, the forward kernel requests `32*d_h + 96`; the three backward
@@ -244,11 +247,27 @@ attention/
 │   ├── materialized_causal.*
 │   ├── flash_causal.*
 │   └── paged_decode.*
-└── metal/
+├── cuda/
+│   ├── launch.hpp
+│   ├── common.cuh
+│   ├── materialized_causal.cu
+│   ├── flash_causal.cu
+│   └── paged_decode.cu
+├── metal/
     ├── materialized_causal_kernels.hpp
     ├── flash_causal_kernels.hpp
     └── paged_decode_kernels.hpp
+└── tpu/
+    ├── common.hpp
+    ├── materialized_causal.*
+    └── paged_decode.*
 ```
+
+`reference/` is the single readable CPU oracle, not a fourth accelerator
+implementation. Tests compare backend-owned implementations with it, and a
+backend may delegate an unfinished capability to it explicitly. Keeping one
+shared oracle avoids copying the same fallback into every backend and letting
+those copies drift apart.
 
 The names describe computation:
 
@@ -271,7 +290,7 @@ alter or accelerate the current serving path.
 
 ## Verification
 
-`tests/model/test_causal_self_attention.cpp` checks:
+`tests/core/backend/test_nn_backend.cpp` and the model attention tests check:
 
 - exact head split/merge ordering and inverse gradients;
 - hand-calculated attention probabilities and contexts;
@@ -282,8 +301,8 @@ alter or accelerate the current serving path.
   independent module calculation;
 - centered finite-difference gradients for inputs, $Q$, $K$, $V$, and
   every projection parameter;
-- CPU-reference and conditional Metal forward/VJP parity for the materialized
-  and Flash backend requests;
+- CPU-reference and conditional accelerator forward/VJP parity for the
+  materialized and Flash backend requests;
 - Flash/materialized forward and backward parity, tile-boundary shapes,
   reconstructed probabilities, finite differences, causal zeros, invalid
   rows, large logits, and input immutability;
@@ -294,8 +313,9 @@ alter or accelerate the current serving path.
   before forward returns, never first during backward;
 - invalid ranks, incompatible shapes, and invalid head counts.
 
-The implementation remains dependency-free. CPU stays the readable oracle,
-while Metal comparisons use numerical tolerances rather than bitwise equality.
+The default implementation remains dependency-free; optional TPU execution
+requires Google's `libtpu`. CPU stays the readable oracle, while accelerator
+comparisons use numerical tolerances rather than bitwise equality.
 
 The algorithmic reference is the original
 [FlashAttention paper](https://arxiv.org/abs/2205.14135); the

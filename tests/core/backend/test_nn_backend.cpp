@@ -1,9 +1,11 @@
-#include "core/backend/adapter.hpp"
+#include "core/backend/attention/dispatch.hpp"
+#include "core/backend/nn/dispatch.hpp"
 
 #include "riftco_transformer/core/tensor.hpp"
 #include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <exception>
@@ -11,6 +13,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -22,6 +25,14 @@ namespace tensor_ops = riftco_transformer::tensor_ops;
 
 #ifndef RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL
 #define RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL 0
+#endif
+
+#ifndef RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA
+#define RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA 0
+#endif
+
+#ifndef RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU
+#define RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU 0
 #endif
 
 void require(bool condition, const std::string& message) {
@@ -102,6 +113,30 @@ float dot(const Tensor& left, const Tensor& right) {
         result += left.flat(index) * right.flat(index);
     }
     return result;
+}
+
+template <typename Function>
+void for_each_available_accelerator(Function&& function) {
+    constexpr std::array<ExecutionBackend, 3> backends{
+        ExecutionBackend::Metal,
+        ExecutionBackend::Cuda,
+        ExecutionBackend::Tpu,
+    };
+    for (const auto execution_backend : backends) {
+        if (!riftco_transformer::execution_backend_available(
+                execution_backend
+            )) {
+            continue;
+        }
+        function(
+            execution_backend,
+            std::string(
+                riftco_transformer::execution_backend_name(
+                    execution_backend
+                )
+            )
+        );
+    }
 }
 
 struct MaterializedCausalAttentionOutput {
@@ -224,8 +259,7 @@ void test_layer_norm_reference() {
             2,
             3,
             1.0e-5F,
-        }
-    );
+        });
 
     const Tensor upstream({2, 3}, {0.5F, -1.0F, 0.25F, 1.5F, 0.75F, -0.4F});
     Tensor input_gradient({2, 3});
@@ -244,8 +278,7 @@ void test_layer_norm_reference() {
             backend::tensor_storage(bias_gradient),
             2,
             3,
-        }
-    );
+        });
 
     const auto evaluate = [&](const Tensor& candidate) {
         Tensor candidate_output({2, 3});
@@ -263,8 +296,7 @@ void test_layer_norm_reference() {
                 2,
                 3,
                 1.0e-5F,
-            }
-        );
+            });
         return dot(candidate_output, upstream);
     };
 
@@ -274,81 +306,66 @@ void test_layer_norm_reference() {
         Tensor minus = input;
         plus.flat(index) += epsilon;
         minus.flat(index) -= epsilon;
-        require_close(
-            input_gradient.flat(index),
-            (evaluate(plus) - evaluate(minus)) / (2.0F * epsilon),
-            "layer norm input gradient",
-            2.0e-3F
-        );
+        require_close(input_gradient.flat(index),
+                      (evaluate(plus) - evaluate(minus)) / (2.0F * epsilon),
+                      "layer norm input gradient", 2.0e-3F);
     }
-    require_close(
-        bias_gradient.flat(0),
-        upstream.flat(0) + upstream.flat(3),
-        "layer norm bias gradient"
-    );
+    require_close(bias_gradient.flat(0), upstream.flat(0) + upstream.flat(3),
+                  "layer norm bias gradient");
 
-    if (!riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
-        return;
-    }
+    for_each_available_accelerator([&](ExecutionBackend execution_backend,
+                                       const std::string& name) {
+        const Tensor metal_input = input.to(execution_backend);
+        const Tensor metal_scale = scale.to(execution_backend);
+        const Tensor metal_bias = bias.to(execution_backend);
+        Tensor metal_output({2, 3}, execution_backend);
+        Tensor metal_mean({2}, execution_backend);
+        Tensor metal_inverse_standard_deviation({2}, execution_backend);
+        backend::dispatch_layer_norm_forward(
+            execution_backend,
+            {
+                backend::tensor_storage(metal_input),
+                backend::tensor_storage(metal_scale),
+                backend::tensor_storage(metal_bias),
+                backend::tensor_storage(metal_output),
+                backend::tensor_storage(metal_mean),
+                backend::tensor_storage(metal_inverse_standard_deviation),
+                2,
+                3,
+                1.0e-5F,
+            });
+        require_tensor_close(metal_output, output,
+                             "LayerNorm " + name + " output");
+        require_tensor_close(metal_mean, mean, "LayerNorm " + name + " mean");
+        require_tensor_close(
+            metal_inverse_standard_deviation, inverse_standard_deviation,
+            "LayerNorm " + name + " inverse standard deviation");
 
-    const Tensor metal_input = input.to(ExecutionBackend::Metal);
-    const Tensor metal_scale = scale.to(ExecutionBackend::Metal);
-    const Tensor metal_bias = bias.to(ExecutionBackend::Metal);
-    Tensor metal_output({2, 3}, ExecutionBackend::Metal);
-    Tensor metal_mean({2}, ExecutionBackend::Metal);
-    Tensor metal_inverse_standard_deviation({2}, ExecutionBackend::Metal);
-    backend::dispatch_layer_norm_forward(
-        ExecutionBackend::Metal,
-        {
-            backend::tensor_storage(metal_input),
-            backend::tensor_storage(metal_scale),
-            backend::tensor_storage(metal_bias),
-            backend::tensor_storage(metal_output),
-            backend::tensor_storage(metal_mean),
-            backend::tensor_storage(metal_inverse_standard_deviation),
-            2,
-            3,
-            1.0e-5F,
-        }
-    );
-    require_tensor_close(metal_output, output, "LayerNorm Metal output");
-    require_tensor_close(metal_mean, mean, "LayerNorm Metal mean");
-    require_tensor_close(
-        metal_inverse_standard_deviation,
-        inverse_standard_deviation,
-        "LayerNorm Metal inverse standard deviation"
-    );
-
-    const Tensor metal_upstream = upstream.to(ExecutionBackend::Metal);
-    Tensor metal_input_gradient({2, 3}, ExecutionBackend::Metal);
-    Tensor metal_scale_gradient({3}, ExecutionBackend::Metal);
-    Tensor metal_bias_gradient({3}, ExecutionBackend::Metal);
-    backend::dispatch_layer_norm_backward(
-        ExecutionBackend::Metal,
-        {
-            backend::tensor_storage(metal_input),
-            backend::tensor_storage(metal_scale),
-            backend::tensor_storage(metal_mean),
-            backend::tensor_storage(metal_inverse_standard_deviation),
-            backend::tensor_storage(metal_upstream),
-            backend::tensor_storage(metal_input_gradient),
-            backend::tensor_storage(metal_scale_gradient),
-            backend::tensor_storage(metal_bias_gradient),
-            2,
-            3,
-        }
-    );
-    require_tensor_close(
-        metal_input_gradient, input_gradient, "LayerNorm Metal input VJP"
-    );
-    require_tensor_close(
-        metal_scale_gradient, scale_gradient, "LayerNorm Metal scale VJP"
-    );
-    require_tensor_close(
-        metal_bias_gradient, bias_gradient, "LayerNorm Metal bias VJP"
-    );
+        const Tensor metal_upstream = upstream.to(execution_backend);
+        Tensor metal_input_gradient({2, 3}, execution_backend);
+        Tensor metal_scale_gradient({3}, execution_backend);
+        Tensor metal_bias_gradient({3}, execution_backend);
+        backend::dispatch_layer_norm_backward(
+            execution_backend,
+            {
+                backend::tensor_storage(metal_input),
+                backend::tensor_storage(metal_scale),
+                backend::tensor_storage(metal_mean),
+                backend::tensor_storage(metal_inverse_standard_deviation),
+                backend::tensor_storage(metal_upstream),
+                backend::tensor_storage(metal_input_gradient),
+                backend::tensor_storage(metal_scale_gradient),
+                backend::tensor_storage(metal_bias_gradient),
+                2,
+                3,
+            });
+        require_tensor_close(metal_input_gradient, input_gradient,
+                             "LayerNorm " + name + " input VJP");
+        require_tensor_close(metal_scale_gradient, scale_gradient,
+                             "LayerNorm " + name + " scale VJP");
+        require_tensor_close(metal_bias_gradient, bias_gradient,
+                             "LayerNorm " + name + " bias VJP");
+    });
 }
 
 void test_cross_entropy_reference() {
@@ -357,382 +374,373 @@ void test_cross_entropy_reference() {
     Tensor loss(Tensor::Shape{});
     Tensor base_gradient({2, 3});
     backend::dispatch_cross_entropy_forward(
-        ExecutionBackend::Cpu,
-        {
-            backend::tensor_storage(logits),
-            targets,
-            backend::tensor_storage(loss),
-            backend::tensor_storage(base_gradient),
-            2,
-            3,
-        }
-    );
+        ExecutionBackend::Cpu, {
+                                   backend::tensor_storage(logits),
+                                   targets,
+                                   backend::tensor_storage(loss),
+                                   backend::tensor_storage(base_gradient),
+                                   2,
+                                   3,
+                               });
     require_close(loss.flat(0), std::log(3.0F), "cross entropy loss");
     const std::vector<float> expected{
-        -1.0F / 3.0F,
-        1.0F / 6.0F,
-        1.0F / 6.0F,
-        1.0F / 6.0F,
-        1.0F / 6.0F,
-        -1.0F / 3.0F,
+        -1.0F / 3.0F, 1.0F / 6.0F, 1.0F / 6.0F,
+        1.0F / 6.0F,  1.0F / 6.0F, -1.0F / 3.0F,
     };
     for (std::size_t index = 0; index < expected.size(); ++index) {
-        require_close(
-            base_gradient.flat(index), expected[index], "cross entropy gradient"
-        );
+        require_close(base_gradient.flat(index), expected[index],
+                      "cross entropy gradient");
     }
+
+    for_each_available_accelerator(
+        [&](ExecutionBackend execution_backend, const std::string& name) {
+            const Tensor accelerator_logits = logits.to(execution_backend);
+            Tensor accelerator_loss(Tensor::Shape{}, execution_backend);
+            Tensor accelerator_gradient({2, 3}, execution_backend);
+            backend::dispatch_cross_entropy_forward(
+                execution_backend,
+                {
+                    backend::tensor_storage(accelerator_logits),
+                    targets,
+                    backend::tensor_storage(accelerator_loss),
+                    backend::tensor_storage(accelerator_gradient),
+                    2,
+                    3,
+                });
+            require_tensor_close(accelerator_loss, loss,
+                                 name + " cross entropy loss");
+            require_tensor_close(accelerator_gradient, base_gradient,
+                                 name + " cross entropy gradient");
+        });
 }
 
 void test_extreme_loss_and_special_value_backend_parity() {
-    const Tensor logits(
-        {2, 2},
-        {
-            0.0F,
-            -2.0e38F,
-            0.0F,
-            -2.0e38F,
-        }
-    );
+    const Tensor logits({2, 2}, {
+                                    0.0F,
+                                    -2.0e38F,
+                                    0.0F,
+                                    -2.0e38F,
+                                });
     const std::vector<std::uint32_t> targets{1, 1};
     Tensor cpu_loss(Tensor::Shape{});
     Tensor cpu_gradient({2, 2});
     backend::dispatch_cross_entropy_forward(
-        ExecutionBackend::Cpu,
-        {
-            backend::tensor_storage(logits),
-            targets,
-            backend::tensor_storage(cpu_loss),
-            backend::tensor_storage(cpu_gradient),
-            2,
-            2,
-        }
-    );
-    require(
-        std::isfinite(cpu_loss.flat(0)),
-        "extreme cross entropy mean must remain finite"
-    );
-    require_close(
-        cpu_loss.flat(0) / 2.0e38F,
-        1.0F,
-        "extreme cross entropy CPU value",
-        1.0e-5F
-    );
+        ExecutionBackend::Cpu, {
+                                   backend::tensor_storage(logits),
+                                   targets,
+                                   backend::tensor_storage(cpu_loss),
+                                   backend::tensor_storage(cpu_gradient),
+                                   2,
+                                   2,
+                               });
+    require(std::isfinite(cpu_loss.flat(0)),
+            "extreme cross entropy mean must remain finite");
+    require_close(cpu_loss.flat(0) / 2.0e38F, 1.0F,
+                  "extreme cross entropy CPU value", 1.0e-5F);
 
-    if (!riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
-        return;
-    }
+    for_each_available_accelerator([&](ExecutionBackend execution_backend,
+                                       const std::string& name) {
+        const Tensor metal_logits = logits.to(execution_backend);
+        Tensor metal_loss(Tensor::Shape{}, execution_backend);
+        Tensor metal_gradient({2, 2}, execution_backend);
+        backend::dispatch_cross_entropy_forward(
+            execution_backend, {
+                                   backend::tensor_storage(metal_logits),
+                                   targets,
+                                   backend::tensor_storage(metal_loss),
+                                   backend::tensor_storage(metal_gradient),
+                                   2,
+                                   2,
+                               });
+        require_tensor_close(metal_loss, cpu_loss,
+                             "extreme cross entropy " + name + " value",
+                             2.0e-5F);
+        require_tensor_close(metal_gradient, cpu_gradient,
+                             "extreme cross entropy " + name + " gradient");
 
-    const Tensor metal_logits = logits.to(ExecutionBackend::Metal);
-    Tensor metal_loss(Tensor::Shape{}, ExecutionBackend::Metal);
-    Tensor metal_gradient({2, 2}, ExecutionBackend::Metal);
-    backend::dispatch_cross_entropy_forward(
-        ExecutionBackend::Metal,
-        {
-            backend::tensor_storage(metal_logits),
-            targets,
-            backend::tensor_storage(metal_loss),
-            backend::tensor_storage(metal_gradient),
-            2,
-            2,
+        constexpr std::size_t skewed_position_count = 1'000'000;
+        std::vector<float> skewed_values(skewed_position_count * 2, 0.0F);
+        std::vector<std::uint32_t> skewed_targets(skewed_position_count, 0);
+        for (std::size_t position = 0; position < skewed_position_count;
+             ++position) {
+            skewed_values[position * 2] = 100.0F;
+            skewed_values[position * 2 + 1] = -100.0F;
         }
-    );
-    require_tensor_close(
-        metal_loss, cpu_loss, "extreme cross entropy Metal value", 2.0e-5F
-    );
-    require_tensor_close(
-        metal_gradient, cpu_gradient, "extreme cross entropy Metal gradient"
-    );
+        skewed_values[0] = 0.0F;
+        skewed_values[1] = -1.0e30F;
+        skewed_targets[0] = 1;
+        const Tensor skewed_logits({skewed_position_count, 2},
+                                   std::move(skewed_values));
+        Tensor skewed_cpu_loss(Tensor::Shape{});
+        Tensor skewed_cpu_gradient({skewed_position_count, 2});
+        backend::dispatch_cross_entropy_forward(
+            ExecutionBackend::Cpu,
+            {
+                backend::tensor_storage(skewed_logits),
+                skewed_targets,
+                backend::tensor_storage(skewed_cpu_loss),
+                backend::tensor_storage(skewed_cpu_gradient),
+                skewed_position_count,
+                2,
+            });
+        const Tensor skewed_metal_logits = skewed_logits.to(execution_backend);
+        Tensor skewed_metal_loss(Tensor::Shape{}, execution_backend);
+        Tensor skewed_metal_gradient({skewed_position_count, 2},
+                                     execution_backend);
+        backend::dispatch_cross_entropy_forward(
+            execution_backend,
+            {
+                backend::tensor_storage(skewed_metal_logits),
+                skewed_targets,
+                backend::tensor_storage(skewed_metal_loss),
+                backend::tensor_storage(skewed_metal_gradient),
+                skewed_position_count,
+                2,
+            });
+        require_close(skewed_metal_loss.flat(0) / skewed_cpu_loss.flat(0), 1.0F,
+                      "skewed large-position " + name + " cross entropy mean",
+                      3.0e-5F);
 
-    constexpr std::size_t skewed_position_count = 1'000'000;
-    std::vector<float> skewed_values(skewed_position_count * 2, 0.0F);
-    std::vector<std::uint32_t> skewed_targets(skewed_position_count, 0);
-    for (std::size_t position = 0; position < skewed_position_count;
-         ++position) {
-        skewed_values[position * 2] = 100.0F;
-        skewed_values[position * 2 + 1] = -100.0F;
-    }
-    skewed_values[0] = 0.0F;
-    skewed_values[1] = -1.0e30F;
-    skewed_targets[0] = 1;
-    const Tensor skewed_logits(
-        {skewed_position_count, 2}, std::move(skewed_values)
-    );
-    Tensor skewed_cpu_loss(Tensor::Shape{});
-    Tensor skewed_cpu_gradient({skewed_position_count, 2});
-    backend::dispatch_cross_entropy_forward(
-        ExecutionBackend::Cpu,
-        {
-            backend::tensor_storage(skewed_logits),
-            skewed_targets,
-            backend::tensor_storage(skewed_cpu_loss),
-            backend::tensor_storage(skewed_cpu_gradient),
-            skewed_position_count,
-            2,
-        }
-    );
-    const Tensor skewed_metal_logits =
-        skewed_logits.to(ExecutionBackend::Metal);
-    Tensor skewed_metal_loss(Tensor::Shape{}, ExecutionBackend::Metal);
-    Tensor skewed_metal_gradient(
-        {skewed_position_count, 2}, ExecutionBackend::Metal
-    );
-    backend::dispatch_cross_entropy_forward(
-        ExecutionBackend::Metal,
-        {
-            backend::tensor_storage(skewed_metal_logits),
-            skewed_targets,
-            backend::tensor_storage(skewed_metal_loss),
-            backend::tensor_storage(skewed_metal_gradient),
-            skewed_position_count,
-            2,
-        }
-    );
-    require_close(
-        skewed_metal_loss.flat(0) / skewed_cpu_loss.flat(0),
-        1.0F,
-        "skewed large-position Metal cross entropy mean",
-        3.0e-5F
-    );
+        const float quiet_nan = std::numeric_limits<float>::quiet_NaN();
+        const Tensor nan_input({1}, quiet_nan);
+        Tensor cpu_log({1});
+        backend::dispatch_unary_elementwise(
+            ExecutionBackend::Cpu, {
+                                       backend::UnaryOperation::Log,
+                                       backend::tensor_storage(nan_input),
+                                       backend::tensor_storage(cpu_log),
+                                       1,
+                                   });
+        const Tensor metal_nan_input = nan_input.to(execution_backend);
+        Tensor metal_log({1}, execution_backend);
+        backend::dispatch_unary_elementwise(
+            execution_backend, {
+                                   backend::UnaryOperation::Log,
+                                   backend::tensor_storage(metal_nan_input),
+                                   backend::tensor_storage(metal_log),
+                                   1,
+                               });
+        require(std::isnan(cpu_log.flat(0)) && std::isnan(metal_log.flat(0)),
+                "CPU and " + name + " log must propagate NaN identically");
 
-    const float quiet_nan = std::numeric_limits<float>::quiet_NaN();
-    const Tensor nan_input({1}, quiet_nan);
-    Tensor cpu_log({1});
-    backend::dispatch_unary_elementwise(
-        ExecutionBackend::Cpu,
-        {
-            backend::UnaryOperation::Log,
-            backend::tensor_storage(nan_input),
-            backend::tensor_storage(cpu_log),
-            1,
-        }
-    );
-    const Tensor metal_nan_input = nan_input.to(ExecutionBackend::Metal);
-    Tensor metal_log({1}, ExecutionBackend::Metal);
-    backend::dispatch_unary_elementwise(
-        ExecutionBackend::Metal,
-        {
-            backend::UnaryOperation::Log,
-            backend::tensor_storage(metal_nan_input),
-            backend::tensor_storage(metal_log),
-            1,
-        }
-    );
-    require(
-        std::isnan(cpu_log.flat(0)) && std::isnan(metal_log.flat(0)),
-        "CPU and Metal log must propagate NaN identically"
-    );
-
-    const float maximum_float = std::numeric_limits<float>::max();
-    const Tensor mixed_invalid_logits(
-        {2, 2},
-        {
-            0.0F,
-            quiet_nan,
-            maximum_float,
-            -maximum_float,
-        }
-    );
-    const std::vector<std::uint32_t> mixed_targets{0, 1};
-    const auto throws_domain_error = [&](const Tensor& candidate,
-                                         ExecutionBackend execution_backend) {
-        Tensor candidate_loss(Tensor::Shape{}, execution_backend);
-        Tensor candidate_gradient({2, 2}, execution_backend);
-        try {
-            backend::dispatch_cross_entropy_forward(
-                execution_backend,
-                {
-                    backend::tensor_storage(candidate),
-                    mixed_targets,
-                    backend::tensor_storage(candidate_loss),
-                    backend::tensor_storage(candidate_gradient),
-                    2,
-                    2,
+        const float maximum_float = std::numeric_limits<float>::max();
+        const Tensor mixed_invalid_logits({2, 2}, {
+                                                      0.0F,
+                                                      quiet_nan,
+                                                      maximum_float,
+                                                      -maximum_float,
+                                                  });
+        const std::vector<std::uint32_t> mixed_targets{0, 1};
+        const auto throws_domain_error =
+            [&](const Tensor& candidate, ExecutionBackend candidate_backend) {
+                Tensor candidate_loss(Tensor::Shape{}, candidate_backend);
+                Tensor candidate_gradient({2, 2}, candidate_backend);
+                try {
+                    backend::dispatch_cross_entropy_forward(
+                        candidate_backend,
+                        {
+                            backend::tensor_storage(candidate),
+                            mixed_targets,
+                            backend::tensor_storage(candidate_loss),
+                            backend::tensor_storage(candidate_gradient),
+                            2,
+                            2,
+                        });
+                } catch (const std::domain_error&) {
+                    return true;
                 }
-            );
-        } catch (const std::domain_error&) {
-            return true;
-        }
-        return false;
-    };
-    require(
-        throws_domain_error(mixed_invalid_logits, ExecutionBackend::Cpu),
-        "CPU mixed-invalid cross entropy status"
-    );
-    require(
-        throws_domain_error(
-            mixed_invalid_logits.to(ExecutionBackend::Metal),
-            ExecutionBackend::Metal
-        ),
-        "Metal mixed-invalid cross entropy status priority"
-    );
+                return false;
+            };
+        require(
+            throws_domain_error(mixed_invalid_logits, ExecutionBackend::Cpu),
+            "CPU mixed-invalid cross entropy status");
+        require(throws_domain_error(mixed_invalid_logits.to(execution_backend),
+                                    execution_backend),
+                name + " mixed-invalid cross entropy status priority");
 
-    const float negative_infinity = -std::numeric_limits<float>::infinity();
-    const Tensor causal_scores(
-        {1, 1, 2, 2}, {0.0F, negative_infinity, negative_infinity, 0.0F}
-    );
-    Tensor cpu_probabilities({1, 1, 2, 2});
-    backend::dispatch_causal_softmax_forward(
-        ExecutionBackend::Cpu,
-        {
-            backend::tensor_storage(causal_scores),
-            backend::tensor_storage(cpu_probabilities),
-            1,
-            1,
-            2,
-            1.0F,
-        }
-    );
-    const Tensor metal_scores = causal_scores.to(ExecutionBackend::Metal);
-    Tensor metal_probabilities({1, 1, 2, 2}, ExecutionBackend::Metal);
-    backend::dispatch_causal_softmax_forward(
-        ExecutionBackend::Metal,
-        {
-            backend::tensor_storage(metal_scores),
-            backend::tensor_storage(metal_probabilities),
-            1,
-            1,
-            2,
-            1.0F,
-        }
-    );
-    require_tensor_close(
-        metal_probabilities,
-        cpu_probabilities,
-        "causal softmax negative-infinity Metal parity"
-    );
+        const float negative_infinity = -std::numeric_limits<float>::infinity();
+        const Tensor causal_scores(
+            {1, 1, 2, 2}, {0.0F, negative_infinity, negative_infinity, 0.0F});
+        Tensor cpu_probabilities({1, 1, 2, 2});
+        backend::dispatch_causal_softmax_forward(
+            ExecutionBackend::Cpu,
+            {
+                backend::tensor_storage(causal_scores),
+                backend::tensor_storage(cpu_probabilities),
+                1,
+                1,
+                2,
+                1.0F,
+            });
+        const Tensor metal_scores = causal_scores.to(execution_backend);
+        Tensor metal_probabilities({1, 1, 2, 2}, execution_backend);
+        backend::dispatch_causal_softmax_forward(
+            execution_backend, {
+                                   backend::tensor_storage(metal_scores),
+                                   backend::tensor_storage(metal_probabilities),
+                                   1,
+                                   1,
+                                   2,
+                                   1.0F,
+                               });
+        require_tensor_close(metal_probabilities, cpu_probabilities,
+                             "causal softmax negative-infinity " + name +
+                                 " parity");
+    });
 }
 
-void test_metal_tensor_neural_substrate_parity() {
-    if (!riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
-        return;
-    }
+void test_accelerator_tensor_neural_substrate_parity() {
+    for_each_available_accelerator([&](ExecutionBackend execution_backend,
+                                       const std::string& name) {
+        const Tensor input({2, 3}, {-2.0F, -0.5F, 0.0F, 0.25F, 1.0F, 2.0F});
+        const Tensor other({2, 3}, {0.5F, 1.5F, 2.0F, 2.5F, 3.0F, 4.0F});
+        const Tensor upstream({2, 3}, {0.2F, -0.4F, 0.6F, -0.8F, 1.0F, 1.2F});
+        const Tensor metal_input = input.to(execution_backend);
+        const Tensor metal_other = other.to(execution_backend);
+        const Tensor metal_upstream = upstream.to(execution_backend);
 
-    const Tensor input({2, 3}, {-2.0F, -0.5F, 0.0F, 0.25F, 1.0F, 2.0F});
-    const Tensor other({2, 3}, {0.5F, 1.5F, 2.0F, 2.5F, 3.0F, 4.0F});
-    const Tensor upstream({2, 3}, {0.2F, -0.4F, 0.6F, -0.8F, 1.0F, 1.2F});
-    const Tensor metal_input = input.to(ExecutionBackend::Metal);
-    const Tensor metal_other = other.to(ExecutionBackend::Metal);
-    const Tensor metal_upstream = upstream.to(ExecutionBackend::Metal);
+        require_tensor_close(tensor_ops::add(metal_input, metal_other),
+                             tensor_ops::add(input, other),
+                             name + " elementwise add");
+        require_tensor_close(tensor_ops::negate(metal_input),
+                             tensor_ops::negate(input),
+                             name + " elementwise negate");
+        require_tensor_close(tensor_ops::subtract(metal_input, metal_other),
+                             tensor_ops::subtract(input, other),
+                             name + " elementwise subtract");
+        require_tensor_close(tensor_ops::multiply(metal_input, metal_other),
+                             tensor_ops::multiply(input, other),
+                             name + " elementwise multiply");
+        require_tensor_close(tensor_ops::divide(metal_input, metal_other),
+                             tensor_ops::divide(input, other),
+                             name + " elementwise divide");
+        require_tensor_close(tensor_ops::scale(metal_input, -0.75F),
+                             tensor_ops::scale(input, -0.75F),
+                             name + " elementwise scale");
+        require_tensor_close(tensor_ops::erf(metal_input),
+                             tensor_ops::erf(input), name + " erf", 8.0e-6F);
+        require_tensor_close(tensor_ops::exp(metal_input),
+                             tensor_ops::exp(input), name + " exp");
+        require_tensor_close(tensor_ops::log(metal_other),
+                             tensor_ops::log(other), name + " log");
+        require_tensor_close(tensor_ops::sqrt(metal_other),
+                             tensor_ops::sqrt(other), name + " sqrt");
+        const Tensor accelerator_zero({1}, 0.0F, execution_backend);
+        const Tensor accelerator_negative({1}, -1.0F, execution_backend);
+        const Tensor accelerator_one({1}, 1.0F, execution_backend);
+        require_throws(
+            [&] { static_cast<void>(tensor_ops::log(accelerator_zero)); },
+            name + " log domain status");
+        require_throws(
+            [&] { static_cast<void>(tensor_ops::sqrt(accelerator_negative)); },
+            name + " sqrt domain status");
+        require_throws(
+            [&] {
+                static_cast<void>(
+                    tensor_ops::divide(accelerator_one, accelerator_zero));
+            },
+            name + " divide domain status");
+        require_tensor_close(tensor_ops::gelu(metal_input),
+                             tensor_ops::gelu(input), name + " fused GELU",
+                             8.0e-6F);
+        require_tensor_close(
+            tensor_ops::gelu_backward(metal_input, metal_upstream),
+            tensor_ops::gelu_backward(input, upstream),
+            name + " fused GELU VJP", 8.0e-6F);
+        require_tensor_close(tensor_ops::sum(metal_input, 1),
+                             tensor_ops::sum(input, 1),
+                             name + " axis reduction");
+        require_tensor_close(tensor_ops::mean(metal_input, 1),
+                             tensor_ops::mean(input, 1), name + " axis mean");
+        const Tensor metal_copy(metal_input);
+        require_tensor_close(metal_copy, input, name + " copy");
+        require_tensor_close(tensor_ops::permute(metal_input, {1, 0}),
+                             tensor_ops::permute(input, {1, 0}),
+                             name + " permutation");
 
-    require_tensor_close(
-        tensor_ops::add(metal_input, metal_other),
-        tensor_ops::add(input, other),
-        "Metal elementwise add"
-    );
-    require_tensor_close(
-        tensor_ops::multiply(metal_input, metal_other),
-        tensor_ops::multiply(input, other),
-        "Metal elementwise multiply"
-    );
-    require_tensor_close(
-        tensor_ops::scale(metal_input, -0.75F),
-        tensor_ops::scale(input, -0.75F),
-        "Metal elementwise scale"
-    );
-    require_tensor_close(
-        tensor_ops::erf(metal_input),
-        tensor_ops::erf(input),
-        "Metal erf",
-        8.0e-6F
-    );
-    require_tensor_close(
-        tensor_ops::gelu(metal_input),
-        tensor_ops::gelu(input),
-        "Metal fused GELU",
-        8.0e-6F
-    );
-    require_tensor_close(
-        tensor_ops::gelu_backward(metal_input, metal_upstream),
-        tensor_ops::gelu_backward(input, upstream),
-        "Metal fused GELU VJP",
-        8.0e-6F
-    );
-    require_tensor_close(
-        tensor_ops::sum(metal_input, 1),
-        tensor_ops::sum(input, 1),
-        "Metal axis reduction"
-    );
-    require_tensor_close(
-        tensor_ops::permute(metal_input, {1, 0}),
-        tensor_ops::permute(input, {1, 0}),
-        "Metal permutation"
-    );
+        const Tensor broadcast_source({1, 3}, {0.5F, -1.0F, 2.0F});
+        const Tensor metal_broadcast_source =
+            broadcast_source.to(execution_backend);
+        const Tensor cpu_broadcast =
+            tensor_ops::broadcast_to(broadcast_source, {2, 3});
+        const Tensor metal_broadcast =
+            tensor_ops::broadcast_to(metal_broadcast_source, {2, 3});
+        require_tensor_close(metal_broadcast, cpu_broadcast,
+                             name + " broadcast");
+        require_tensor_close(tensor_ops::sum_to_shape(metal_broadcast, {1, 3}),
+                             tensor_ops::sum_to_shape(cpu_broadcast, {1, 3}),
+                             name + " sum-to-shape");
+        const Tensor cpu_softmax = tensor_ops::softmax(input, 1);
+        const Tensor metal_softmax = tensor_ops::softmax(metal_input, 1);
+        require_tensor_close(metal_softmax, cpu_softmax, name + " softmax");
+        require_tensor_close(
+            tensor_ops::softmax_backward(metal_softmax, metal_upstream, 1),
+            tensor_ops::softmax_backward(cpu_softmax, upstream, 1),
+            name + " softmax VJP");
 
-    const Tensor broadcast_source({1, 3}, {0.5F, -1.0F, 2.0F});
-    const Tensor metal_broadcast_source =
-        broadcast_source.to(ExecutionBackend::Metal);
-    const Tensor cpu_broadcast =
-        tensor_ops::broadcast_to(broadcast_source, {2, 3});
-    const Tensor metal_broadcast =
-        tensor_ops::broadcast_to(metal_broadcast_source, {2, 3});
-    require_tensor_close(metal_broadcast, cpu_broadcast, "Metal broadcast");
-    require_tensor_close(
-        tensor_ops::sum_to_shape(metal_broadcast, {1, 3}),
-        tensor_ops::sum_to_shape(cpu_broadcast, {1, 3}),
-        "Metal sum-to-shape"
-    );
-    require_tensor_close(
-        tensor_ops::softmax(metal_input, 1),
-        tensor_ops::softmax(input, 1),
-        "Metal softmax"
-    );
+        const Tensor causal_scores({1, 1, 3, 3}, {0.2F, 9.0F, 9.0F, -0.3F, 0.7F,
+                                                  9.0F, 0.4F, -0.2F, 0.1F});
+        const Tensor causal_upstream(
+            {1, 1, 3, 3},
+            {0.5F, -0.1F, 0.2F, -0.4F, 0.8F, 0.3F, 0.9F, -0.7F, 0.6F});
+        constexpr float causal_scale = 0.75F;
+        const Tensor cpu_causal =
+            tensor_ops::causal_softmax(causal_scores, causal_scale);
+        const Tensor metal_causal = tensor_ops::causal_softmax(
+            causal_scores.to(execution_backend), causal_scale);
+        require_tensor_close(metal_causal, cpu_causal,
+                             name + " causal softmax");
+        require_tensor_close(
+            tensor_ops::causal_softmax_backward(
+                metal_causal, causal_upstream.to(execution_backend),
+                causal_scale),
+            tensor_ops::causal_softmax_backward(cpu_causal, causal_upstream,
+                                                causal_scale),
+            name + " causal softmax VJP");
 
-    constexpr std::size_t wide_class_count = 50'000;
-    std::vector<float> wide_values(wide_class_count, std::log(0.1F));
-    wide_values[0] = 0.0F;
-    const Tensor wide_logits({wide_class_count}, std::move(wide_values));
-    const Tensor cpu_wide_softmax = tensor_ops::softmax(wide_logits, 0);
-    const Tensor metal_wide_softmax =
-        tensor_ops::softmax(wide_logits.to(ExecutionBackend::Metal), 0);
-    require_close(
-        metal_wide_softmax.flat(0) / cpu_wide_softmax.flat(0),
-        1.0F,
-        "wide Metal softmax leading probability",
-        3.0e-5F
-    );
-    double metal_probability_sum = 0.0;
-    for (const float probability : metal_wide_softmax.data()) {
-        metal_probability_sum += probability;
-    }
-    require_close(
-        static_cast<float>(metal_probability_sum),
-        1.0F,
-        "wide Metal softmax normalization",
-        3.0e-5F
-    );
-
-    const Tensor table(
-        {4, 3},
-        {
-            0.0F,
-            0.1F,
-            0.2F,
-            1.0F,
-            1.1F,
-            1.2F,
-            2.0F,
-            2.1F,
-            2.2F,
-            3.0F,
-            3.1F,
-            3.2F,
+        constexpr std::size_t wide_class_count = 50'000;
+        std::vector<float> wide_values(wide_class_count, std::log(0.1F));
+        wide_values[0] = 0.0F;
+        const Tensor wide_logits({wide_class_count}, std::move(wide_values));
+        const Tensor cpu_wide_softmax = tensor_ops::softmax(wide_logits, 0);
+        const Tensor metal_wide_softmax =
+            tensor_ops::softmax(wide_logits.to(execution_backend), 0);
+        require_close(metal_wide_softmax.flat(0) / cpu_wide_softmax.flat(0),
+                      1.0F, "wide " + name + " softmax leading probability",
+                      3.0e-5F);
+        double metal_probability_sum = 0.0;
+        for (const float probability : metal_wide_softmax.data()) {
+            metal_probability_sum += probability;
         }
-    );
-    const std::vector<std::size_t> indices{2, 1, 2};
-    const Tensor metal_table = table.to(ExecutionBackend::Metal);
-    const Tensor cpu_gather = tensor_ops::gather_rows(table, indices, {3});
-    const Tensor metal_gather =
-        tensor_ops::gather_rows(metal_table, indices, {3});
-    require_tensor_close(metal_gather, cpu_gather, "Metal embedding gather");
-    require_tensor_close(
-        tensor_ops::scatter_add_rows(metal_gather, indices, 4),
-        tensor_ops::scatter_add_rows(cpu_gather, indices, 4),
-        "Metal deterministic embedding scatter-add"
-    );
+        require_close(static_cast<float>(metal_probability_sum), 1.0F,
+                      "wide " + name + " softmax normalization", 3.0e-5F);
+
+        const Tensor table({4, 3}, {
+                                       0.0F,
+                                       0.1F,
+                                       0.2F,
+                                       1.0F,
+                                       1.1F,
+                                       1.2F,
+                                       2.0F,
+                                       2.1F,
+                                       2.2F,
+                                       3.0F,
+                                       3.1F,
+                                       3.2F,
+                                   });
+        const std::vector<std::size_t> indices{2, 1, 2};
+        const Tensor metal_table = table.to(execution_backend);
+        const Tensor cpu_gather = tensor_ops::gather_rows(table, indices, {3});
+        const Tensor metal_gather =
+            tensor_ops::gather_rows(metal_table, indices, {3});
+        require_tensor_close(metal_gather, cpu_gather,
+                             name + " embedding gather");
+        require_tensor_close(
+            tensor_ops::scatter_add_rows(metal_gather, indices, 4),
+            tensor_ops::scatter_add_rows(cpu_gather, indices, 4),
+            name + " deterministic embedding scatter-add");
+    });
 }
 
 void test_metal_layout_and_scatter_scalability() {
@@ -1034,89 +1042,124 @@ void test_attention_reference_and_gradients() {
         "attention probability key gradient"
     );
 
-    if (!riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
-        return;
-    }
+    for_each_available_accelerator(
+        [&](ExecutionBackend execution_backend, const std::string& name) {
+            const Tensor accelerator_queries =
+                queries.to(execution_backend);
+            const Tensor accelerator_keys = keys.to(execution_backend);
+            const Tensor accelerator_values =
+                values.to(execution_backend);
+            const auto accelerator_output =
+                materialized_causal_attention_forward(
+                    accelerator_queries,
+                    accelerator_keys,
+                    accelerator_values,
+                    dimensions
+                );
+            require_tensor_close(
+                accelerator_output.probabilities,
+                output.probabilities,
+                "materialized attention " + name + " probabilities"
+            );
+            require_tensor_close(
+                accelerator_output.context,
+                output.context,
+                "materialized attention " + name + " context"
+            );
 
-    const Tensor metal_queries = queries.to(ExecutionBackend::Metal);
-    const Tensor metal_keys = keys.to(ExecutionBackend::Metal);
-    const Tensor metal_values = values.to(ExecutionBackend::Metal);
-    const auto metal_output =
-        materialized_causal_attention_forward(
-            metal_queries,
-            metal_keys,
-            metal_values,
-            dimensions
-        );
-    require_tensor_close(
-        metal_output.probabilities,
-        output.probabilities,
-        "fused attention Metal probabilities"
-    );
-    require_tensor_close(
-        metal_output.context, output.context, "fused attention Metal context"
-    );
+            const Tensor accelerator_context_upstream =
+                context_upstream.to(execution_backend);
+            Tensor accelerator_query_gradient(
+                queries.shape(),
+                execution_backend
+            );
+            Tensor accelerator_key_gradient(
+                keys.shape(),
+                execution_backend
+            );
+            Tensor accelerator_value_gradient(
+                values.shape(),
+                execution_backend
+            );
+            backend::dispatch_materialized_causal_attention_context_backward(
+                execution_backend,
+                {
+                    backend::tensor_storage(accelerator_queries),
+                    backend::tensor_storage(accelerator_keys),
+                    backend::tensor_storage(accelerator_values),
+                    backend::tensor_storage(
+                        accelerator_output.probabilities
+                    ),
+                    backend::tensor_storage(
+                        accelerator_context_upstream
+                    ),
+                    backend::tensor_storage(
+                        accelerator_query_gradient
+                    ),
+                    backend::tensor_storage(accelerator_key_gradient),
+                    backend::tensor_storage(
+                        accelerator_value_gradient
+                    ),
+                    dimensions,
+                }
+            );
+            require_tensor_close(
+                accelerator_query_gradient,
+                query_gradient,
+                "materialized attention " + name + " query VJP"
+            );
+            require_tensor_close(
+                accelerator_key_gradient,
+                key_gradient,
+                "materialized attention " + name + " key VJP"
+            );
+            require_tensor_close(
+                accelerator_value_gradient,
+                value_gradient,
+                "materialized attention " + name + " value VJP"
+            );
 
-    const Tensor metal_context_upstream =
-        context_upstream.to(ExecutionBackend::Metal);
-    Tensor metal_query_gradient(queries.shape(), ExecutionBackend::Metal);
-    Tensor metal_key_gradient(keys.shape(), ExecutionBackend::Metal);
-    Tensor metal_value_gradient(values.shape(), ExecutionBackend::Metal);
-    backend::dispatch_materialized_causal_attention_context_backward(
-        ExecutionBackend::Metal,
-        {
-            backend::tensor_storage(metal_queries),
-            backend::tensor_storage(metal_keys),
-            backend::tensor_storage(metal_values),
-            backend::tensor_storage(metal_output.probabilities),
-            backend::tensor_storage(metal_context_upstream),
-            backend::tensor_storage(metal_query_gradient),
-            backend::tensor_storage(metal_key_gradient),
-            backend::tensor_storage(metal_value_gradient),
-            dimensions,
+            const Tensor accelerator_probability_upstream =
+                probability_upstream.to(execution_backend);
+            Tensor accelerator_probability_query_gradient(
+                queries.shape(),
+                execution_backend
+            );
+            Tensor accelerator_probability_key_gradient(
+                keys.shape(),
+                execution_backend
+            );
+            backend::dispatch_materialized_causal_attention_probabilities_backward(
+                execution_backend,
+                {
+                    backend::tensor_storage(accelerator_queries),
+                    backend::tensor_storage(accelerator_keys),
+                    backend::tensor_storage(
+                        accelerator_output.probabilities
+                    ),
+                    backend::tensor_storage(
+                        accelerator_probability_upstream
+                    ),
+                    backend::tensor_storage(
+                        accelerator_probability_query_gradient
+                    ),
+                    backend::tensor_storage(
+                        accelerator_probability_key_gradient
+                    ),
+                    dimensions,
+                }
+            );
+            require_tensor_close(
+                accelerator_probability_query_gradient,
+                probability_query_gradient,
+                "materialized probability " + name + " query VJP"
+            );
+            require_tensor_close(
+                accelerator_probability_key_gradient,
+                probability_key_gradient,
+                "materialized probability " + name + " key VJP"
+            );
         }
-    );
-    require_tensor_close(
-        metal_query_gradient, query_gradient, "fused attention Metal query VJP"
-    );
-    require_tensor_close(
-        metal_key_gradient, key_gradient, "fused attention Metal key VJP"
-    );
-    require_tensor_close(
-        metal_value_gradient, value_gradient, "fused attention Metal value VJP"
-    );
-
-    const Tensor metal_probability_upstream =
-        probability_upstream.to(ExecutionBackend::Metal);
-    Tensor metal_probability_query_gradient(
-        queries.shape(), ExecutionBackend::Metal
-    );
-    Tensor metal_probability_key_gradient(
-        keys.shape(), ExecutionBackend::Metal
-    );
-    backend::dispatch_materialized_causal_attention_probabilities_backward(
-        ExecutionBackend::Metal,
-        {
-            backend::tensor_storage(metal_queries),
-            backend::tensor_storage(metal_keys),
-            backend::tensor_storage(metal_output.probabilities),
-            backend::tensor_storage(metal_probability_upstream),
-            backend::tensor_storage(metal_probability_query_gradient),
-            backend::tensor_storage(metal_probability_key_gradient),
-            dimensions,
-        }
-    );
-    require_tensor_close(
-        metal_probability_query_gradient,
-        probability_query_gradient,
-        "attention probability Metal query VJP"
-    );
-    require_tensor_close(
-        metal_probability_key_gradient,
-        probability_key_gradient,
-        "attention probability Metal key VJP"
     );
 }
 
@@ -1339,88 +1382,96 @@ void test_flash_causal_attention_reference_and_gradients() {
         "Flash attention CPU value VJP",
         5.0e-5F
     );
-    if (riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
-        const Tensor metal_queries =
-            queries.to(ExecutionBackend::Metal);
-        const Tensor metal_keys =
-            keys.to(ExecutionBackend::Metal);
-        const Tensor metal_values =
-            values.to(ExecutionBackend::Metal);
-        const Tensor metal_upstream =
-            upstream.to(ExecutionBackend::Metal);
-        const auto metal_flash = flash_causal_attention_forward(
-            metal_queries,
-            metal_keys,
-            metal_values,
-            flash_dimensions
-        );
-        require_tensor_close(
-            metal_flash.row_maxima,
-            flash.row_maxima,
-            "Flash attention Metal row maxima",
-            5.0e-5F
-        );
-        require_tensor_close(
-            metal_flash.row_exp_sums,
-            flash.row_exp_sums,
-            "Flash attention Metal row exponential sums",
-            5.0e-5F
-        );
-        require_tensor_close(
-            metal_flash.context,
-            flash.context,
-            "Flash attention Metal context",
-            5.0e-5F
-        );
+    for_each_available_accelerator(
+        [&](ExecutionBackend execution_backend, const std::string& name) {
+            const Tensor accelerator_queries =
+                queries.to(execution_backend);
+            const Tensor accelerator_keys = keys.to(execution_backend);
+            const Tensor accelerator_values =
+                values.to(execution_backend);
+            const Tensor accelerator_upstream =
+                upstream.to(execution_backend);
+            const auto accelerator_flash =
+                flash_causal_attention_forward(
+                    accelerator_queries,
+                    accelerator_keys,
+                    accelerator_values,
+                    flash_dimensions
+                );
+            require_tensor_close(
+                accelerator_flash.row_maxima,
+                flash.row_maxima,
+                "Flash attention " + name + " row maxima",
+                5.0e-5F
+            );
+            require_tensor_close(
+                accelerator_flash.row_exp_sums,
+                flash.row_exp_sums,
+                "Flash attention " + name + " row exponential sums",
+                5.0e-5F
+            );
+            require_tensor_close(
+                accelerator_flash.context,
+                flash.context,
+                "Flash attention " + name + " context",
+                5.0e-5F
+            );
 
-        Tensor metal_query_gradient(
-            tensor_shape,
-            ExecutionBackend::Metal
-        );
-        Tensor metal_key_gradient(
-            tensor_shape,
-            ExecutionBackend::Metal
-        );
-        Tensor metal_value_gradient(
-            tensor_shape,
-            ExecutionBackend::Metal
-        );
-        backend::dispatch_flash_causal_attention_backward(
-            ExecutionBackend::Metal,
-            {
-                backend::tensor_storage(metal_queries),
-                backend::tensor_storage(metal_keys),
-                backend::tensor_storage(metal_values),
-                backend::tensor_storage(metal_flash.row_maxima),
-                backend::tensor_storage(metal_flash.row_exp_sums),
-                backend::tensor_storage(metal_upstream),
-                backend::tensor_storage(metal_query_gradient),
-                backend::tensor_storage(metal_key_gradient),
-                backend::tensor_storage(metal_value_gradient),
-                flash_dimensions,
-            }
-        );
-        require_tensor_close(
-            metal_query_gradient,
-            flash_query_gradient,
-            "Flash attention Metal query VJP",
-            1.0e-4F
-        );
-        require_tensor_close(
-            metal_key_gradient,
-            flash_key_gradient,
-            "Flash attention Metal key VJP",
-            1.0e-4F
-        );
-        require_tensor_close(
-            metal_value_gradient,
-            flash_value_gradient,
-            "Flash attention Metal value VJP",
-            1.0e-4F
-        );
-    }
+            Tensor accelerator_query_gradient(
+                tensor_shape,
+                execution_backend
+            );
+            Tensor accelerator_key_gradient(
+                tensor_shape,
+                execution_backend
+            );
+            Tensor accelerator_value_gradient(
+                tensor_shape,
+                execution_backend
+            );
+            backend::dispatch_flash_causal_attention_backward(
+                execution_backend,
+                {
+                    backend::tensor_storage(accelerator_queries),
+                    backend::tensor_storage(accelerator_keys),
+                    backend::tensor_storage(accelerator_values),
+                    backend::tensor_storage(
+                        accelerator_flash.row_maxima
+                    ),
+                    backend::tensor_storage(
+                        accelerator_flash.row_exp_sums
+                    ),
+                    backend::tensor_storage(accelerator_upstream),
+                    backend::tensor_storage(
+                        accelerator_query_gradient
+                    ),
+                    backend::tensor_storage(accelerator_key_gradient),
+                    backend::tensor_storage(
+                        accelerator_value_gradient
+                    ),
+                    flash_dimensions,
+                }
+            );
+            require_tensor_close(
+                accelerator_query_gradient,
+                flash_query_gradient,
+                "Flash attention " + name + " query VJP",
+                1.0e-4F
+            );
+            require_tensor_close(
+                accelerator_key_gradient,
+                flash_key_gradient,
+                "Flash attention " + name + " key VJP",
+                1.0e-4F
+            );
+            require_tensor_close(
+                accelerator_value_gradient,
+                flash_value_gradient,
+                "Flash attention " + name + " value VJP",
+                1.0e-4F
+            );
+        }
+    );
     require_tensor_equal(
         queries,
         original_queries,
@@ -1783,11 +1834,11 @@ void test_flash_causal_attention_stability_and_special_values() {
                 );
             };
         check_backend(ExecutionBackend::Cpu);
-        if (riftco_transformer::execution_backend_available(
-                ExecutionBackend::Metal
-            )) {
-            check_backend(ExecutionBackend::Metal);
-        }
+        for_each_available_accelerator(
+            [&](ExecutionBackend execution_backend, const std::string&) {
+                check_backend(execution_backend);
+            }
+        );
     };
     check_invalid_score(
         std::numeric_limits<float>::quiet_NaN(),
@@ -2025,7 +2076,7 @@ void test_flash_causal_attention_wide_metal_tiles() {
     }
 }
 
-void test_paged_decode_attention_reference_and_metal_parity() {
+void test_paged_decode_attention_reference_and_accelerator_parity() {
     constexpr std::size_t heads = 2;
     constexpr std::size_t time = 5;
     constexpr std::size_t width = 3;
@@ -2145,22 +2196,23 @@ void test_paged_decode_attention_reference_and_metal_parity() {
         2.0e-6F
     );
 
-    if (riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
-        const Tensor metal_context = paged_decode_attention_forward(
-            query.to(ExecutionBackend::Metal),
-            key_pages.to(ExecutionBackend::Metal),
-            value_pages.to(ExecutionBackend::Metal),
-            block_table,
-            paged_dimensions
-        );
-        require_tensor_close(
-            metal_context,
-            expected,
-            "paged decode attention Metal parity"
-        );
-    }
+    for_each_available_accelerator(
+        [&](ExecutionBackend execution_backend, const std::string& name) {
+            const Tensor accelerator_context =
+                paged_decode_attention_forward(
+                    query.to(execution_backend),
+                    key_pages.to(execution_backend),
+                    value_pages.to(execution_backend),
+                    block_table,
+                    paged_dimensions
+                );
+            require_tensor_close(
+                accelerator_context,
+                expected,
+                "paged decode attention " + name + " parity"
+            );
+        }
+    );
 }
 
 void test_paged_decode_attention_contract_and_special_values() {
@@ -2343,36 +2395,76 @@ void test_paged_decode_attention_contract_and_special_values() {
         };
 
     verify_special_values(ExecutionBackend::Cpu);
-    if (riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
-        verify_special_values(ExecutionBackend::Metal);
-    }
+    for_each_available_accelerator(
+        [&](ExecutionBackend execution_backend, const std::string&) {
+            verify_special_values(execution_backend);
+        }
+    );
 }
 
 } // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
+    bool require_metal = RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL != 0;
+    bool require_cuda = RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA != 0;
+    bool require_tpu = RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU != 0;
+    for (int argument = 1; argument < argc; ++argument) {
+        const std::string_view value(argv[argument]);
+        if (value == "--require-metal") {
+            require_metal = true;
+        } else if (value == "--require-cuda") {
+            require_cuda = true;
+        } else if (value == "--require-tpu") {
+            require_tpu = true;
+        } else {
+            std::cerr
+                << "usage: nn_backend_tests [--require-metal] "
+                   "[--require-cuda] [--require-tpu]\n";
+            return 2;
+        }
+    }
+
     try {
-#if RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL
-        require(
-            riftco_transformer::execution_backend_available(
-                ExecutionBackend::Metal
-            ),
-            "Metal is required for this NN backend test, but no Metal device "
-            "is available"
+        const auto require_available = [](
+            bool required,
+            ExecutionBackend execution_backend,
+            std::string_view name
+        ) {
+            require(
+                !required ||
+                    riftco_transformer::execution_backend_available(
+                        execution_backend
+                    ),
+                std::string(name) +
+                    " is required for this NN backend test, but no " +
+                    std::string(name) + " device is available"
+            );
+        };
+        require_available(
+            require_metal,
+            ExecutionBackend::Metal,
+            "Metal"
         );
-#endif
+        require_available(
+            require_cuda,
+            ExecutionBackend::Cuda,
+            "CUDA"
+        );
+        require_available(
+            require_tpu,
+            ExecutionBackend::Tpu,
+            "TPU"
+        );
         test_layer_norm_reference();
         test_cross_entropy_reference();
         test_extreme_loss_and_special_value_backend_parity();
-        test_metal_tensor_neural_substrate_parity();
+        test_accelerator_tensor_neural_substrate_parity();
         test_metal_layout_and_scatter_scalability();
         test_attention_reference_and_gradients();
         test_flash_causal_attention_reference_and_gradients();
         test_flash_causal_attention_stability_and_special_values();
         test_flash_causal_attention_wide_metal_tiles();
-        test_paged_decode_attention_reference_and_metal_parity();
+        test_paged_decode_attention_reference_and_accelerator_parity();
         test_paged_decode_attention_contract_and_special_values();
         std::cout << "NN backend tests passed\n";
         return 0;

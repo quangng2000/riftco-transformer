@@ -1,6 +1,7 @@
 #include "riftco_transformer/model/causal_self_attention.hpp"
 
 #include "core/backend/adapter.hpp"
+#include "core/backend/attention/dispatch.hpp"
 
 #include <array>
 #include <limits>

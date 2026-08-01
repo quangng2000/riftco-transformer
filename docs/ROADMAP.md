@@ -157,8 +157,9 @@ seeded run reproduces its batch sequence.
   temperature/top-k generation — complete slice
 - detached one-token model decode with transactional per-request KV-cache
   updates; full-sequence training forward remains unchanged — complete slice
-- logical page tables over shared per-layer K/V pools, direct CPU/Metal paged
-  attention, and a swappable contiguous reference factory — complete slice
+- logical page tables over shared per-layer K/V pools, backend-owned
+  CPU/Metal/CUDA/TPU paged attention, and a swappable contiguous reference
+  factory — complete slice
 - native artifact, shared-training, stage-contract, stage-stack, and
   serving-generation tests — complete slice
 - shared stage-neutral Python causal training engine — complete slice
@@ -217,14 +218,27 @@ Only after correctness:
   merge lifecycle — complete slice
 - contiguous/paged incremental decode-session lifecycle — complete
   slice
-- dependency-free exact tile-8 Flash causal-attention forward/backward on CPU
-  and Metal, with `[B,H,T]` row statistics instead of saved `[B,H,T,T]`
-  probabilities — complete slice
+- dependency-free exact memory-linear Flash causal-attention forward/backward,
+  tile-8 on CPU/Metal and block-parallel on CUDA, with `[B,H,T]` row statistics
+  instead of saved `[B,H,T,T]` probabilities — complete slice
 - C ABI and Python/native-stage full-sequence attention selection —
   complete slice
 - exception-atomic nested VJPs plus transformer-block activation
-  checkpointing on CPU/Metal, including LoRA dependencies, C ABI, Python,
-  stage, and CLI selection — complete slice
+  checkpointing across the registered backends, including LoRA dependencies,
+  C ABI, Python, stage, and CLI selection — complete slice
+- additive ABI 2.1 CUDA identity, unavailable stub, optional CUDA Toolkit 12+
+  source build, managed tensor storage, and synchronous GPU matmul plus all
+  attention contracts — complete slice; real-GPU parity remains required
+- additive ABI 2.2 TPU identity, unavailable stub, optional Linux x86-64 PJRT
+  source adapter, host-mirrored storage, and one-device StableHLO matmul,
+  materialized attention/VJPs, and paged decode — implemented;
+  real-Cloud-TPU acceptance remains pending
+- TPU device-resident storage, genuinely tiled StableHLO Flash attention,
+  additional native operations, asynchronous execution, SPMD partitioning,
+  and multi-host support
+- CUDA kernels for layout, elementwise, reductions, indexing, normalization,
+  loss, and Adam's transactional candidate-state update — complete slice;
+  a device-native global gradient-norm reduction remains future work
 - optimized CPU matrix multiplication
 - parallel CPU loops
 - SIMD
@@ -232,7 +246,7 @@ Only after correctness:
 - private-memory and asynchronous Metal scheduling
 - attention algorithm contracts separated from serving KV-cache layout —
   complete
-- one-token paged KV caching on CPU and Metal — complete slice
+- one-token paged KV caching on CPU, Metal, CUDA, and TPU — complete slice
 - batched Flash-style serving prefill (current prefill remains
   token-at-a-time)
 - continuous batching and request scheduling

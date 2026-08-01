@@ -8,9 +8,10 @@
 
 namespace riftco_transformer::backend_detail {
 
-// Private, backend-owned contiguous storage. Metal uses a persistent shared
-// MTLBuffer so both GPU kernels and the existing host reference operations can
-// access the same allocation without per-operation copies.
+// Private, backend-owned contiguous storage. Metal and CUDA expose host-visible
+// accelerator allocations; TPU storage keeps a host mirror and stages selected
+// native PJRT programs. Host spans keep the reference capabilities usable while
+// each platform grows native kernels independently.
 class TensorStorage {
 public:
     virtual ~TensorStorage() = default;

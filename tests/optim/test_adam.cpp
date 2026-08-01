@@ -1,8 +1,10 @@
-#include "core/backend/metal_diagnostics.hpp"
+#include "core/backend/optim/adam/metal/diagnostics.hpp"
+#include "core/backend/optim/adam/dispatch.hpp"
 #include "riftco_transformer/model/decoder_only_transformer.hpp"
 #include "riftco_transformer/nn/loss.hpp"
 #include "riftco_transformer/optim/adam.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <exception>
@@ -10,8 +12,10 @@
 #include <limits>
 #include <memory>
 #include <random>
+#include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -33,6 +37,7 @@ using riftco_transformer::global_gradient_norm;
 using riftco_transformer::move_parameters_to;
 using riftco_transformer::backend_detail::metal_adam_path_counts;
 using riftco_transformer::backend_detail::reset_metal_adam_path_counts;
+namespace backend = riftco_transformer::backend_detail;
 
 void require(bool condition, const std::string& message) {
     if (!condition) {
@@ -129,6 +134,24 @@ void seed_gradient(Parameter& parameter, Tensor gradient) {
     parameter.variable().backward(gradient);
 }
 
+template <typename Function>
+void for_each_available_accelerator(Function&& function) {
+    constexpr std::array<ExecutionBackend, 3> backends{
+        ExecutionBackend::Metal,
+        ExecutionBackend::Cuda,
+        ExecutionBackend::Tpu,
+    };
+    for (const auto backend : backends) {
+        if (!riftco_transformer::execution_backend_available(backend)) {
+            continue;
+        }
+        function(
+            backend,
+            std::string(riftco_transformer::execution_backend_name(backend))
+        );
+    }
+}
+
 AdamOptions hand_reference_options() {
     AdamOptions options;
     options.learning_rate = 0.1F;
@@ -137,6 +160,118 @@ AdamOptions hand_reference_options() {
     options.epsilon = 1.0F;
     options.maximum_gradient_norm = 100.0F;
     return options;
+}
+
+void test_adam_dispatch_rejects_candidate_aliases() {
+    Tensor value({1}, 1.0F, ExecutionBackend::Cpu);
+    Tensor gradient({1}, 2.0F, ExecutionBackend::Cpu);
+    Tensor first_moment({1}, 0.0F, ExecutionBackend::Cpu);
+    Tensor second_moment({1}, 0.0F, ExecutionBackend::Cpu);
+    Tensor next_value({1}, 0.0F, ExecutionBackend::Cpu);
+    Tensor next_first_moment({1}, 0.0F, ExecutionBackend::Cpu);
+    Tensor next_second_moment({1}, 0.0F, ExecutionBackend::Cpu);
+
+    const auto require_alias_rejected = [](
+        std::span<const backend::AdamTensorUpdate> updates,
+        const std::string& message
+    ) {
+        try {
+            backend::dispatch_adam_update(
+                ExecutionBackend::Cpu,
+                {
+                    updates,
+                    0.1F,
+                    0.9F,
+                    0.999F,
+                    1.0e-8F,
+                    1.0,
+                    0.1,
+                    0.001,
+                }
+            );
+        } catch (const std::invalid_argument&) {
+            return;
+        }
+        throw std::runtime_error(message);
+    };
+
+    const std::array<backend::AdamTensorUpdate, 1> live_alias{{
+        {
+            backend::tensor_storage(value),
+            backend::tensor_storage(gradient),
+            backend::tensor_storage(first_moment),
+            backend::tensor_storage(second_moment),
+            backend::tensor_storage(value),
+            backend::tensor_storage(next_first_moment),
+            backend::tensor_storage(next_second_moment),
+        },
+    }};
+    require_alias_rejected(
+        live_alias,
+        "Adam dispatch must reject a candidate that aliases live state"
+    );
+
+    const std::array<backend::AdamTensorUpdate, 1> candidate_alias{{
+        {
+            backend::tensor_storage(value),
+            backend::tensor_storage(gradient),
+            backend::tensor_storage(first_moment),
+            backend::tensor_storage(second_moment),
+            backend::tensor_storage(next_value),
+            backend::tensor_storage(next_value),
+            backend::tensor_storage(next_second_moment),
+        },
+    }};
+    require_alias_rejected(
+        candidate_alias,
+        "Adam dispatch must reject aliased candidate outputs"
+    );
+
+    Tensor other_gradient({1}, -1.0F, ExecutionBackend::Cpu);
+    Tensor other_first_moment({1}, 0.0F, ExecutionBackend::Cpu);
+    Tensor other_second_moment({1}, 0.0F, ExecutionBackend::Cpu);
+    Tensor other_next_value({1}, 0.0F, ExecutionBackend::Cpu);
+    Tensor other_next_first_moment({1}, 0.0F, ExecutionBackend::Cpu);
+    Tensor other_next_second_moment({1}, 0.0F, ExecutionBackend::Cpu);
+    const std::array<backend::AdamTensorUpdate, 2> cross_tensor_alias{{
+        {
+            backend::tensor_storage(value),
+            backend::tensor_storage(gradient),
+            backend::tensor_storage(first_moment),
+            backend::tensor_storage(second_moment),
+            backend::tensor_storage(next_value),
+            backend::tensor_storage(next_first_moment),
+            backend::tensor_storage(next_second_moment),
+        },
+        {
+            backend::tensor_storage(next_value),
+            backend::tensor_storage(other_gradient),
+            backend::tensor_storage(other_first_moment),
+            backend::tensor_storage(other_second_moment),
+            backend::tensor_storage(other_next_value),
+            backend::tensor_storage(other_next_first_moment),
+            backend::tensor_storage(other_next_second_moment),
+        },
+    }};
+    require_alias_rejected(
+        cross_tensor_alias,
+        "Adam dispatch must reject aliases across a candidate batch"
+    );
+
+    require_close(
+        value.flat(0),
+        1.0,
+        "Adam alias validation leaves live state unchanged",
+        0.0,
+        0.0
+    );
+    require_close(
+        next_value.flat(0),
+        0.0,
+        "Adam alias validation leaves candidates unchanged",
+        0.0,
+        0.0
+    );
 }
 
 void test_parameter_handle_lifetime_and_moved_identity() {
@@ -518,107 +653,56 @@ void test_adam_backend_validation_if_metal_available() {
         },
         "Adam should reject a parameter moved after construction"
     );
-    require(
-        optimizer.step_count() == 0,
-        "backend-mismatch failure must not advance Adam"
-    );
+    require(optimizer.step_count() == 0,
+            "backend-mismatch failure must not advance Adam");
     require_tensor_close(
-        cpu_parameter.value(),
-        moved_value,
-        "backend-mismatch failure must not change the parameter",
-        0.0
-    );
+        cpu_parameter.value(), moved_value,
+        "backend-mismatch failure must not change the parameter", 0.0);
 
     cpu_parameter.to(ExecutionBackend::Cpu);
-    seed_gradient(
-        cpu_parameter,
-        Tensor({1}, 1.0F, ExecutionBackend::Cpu)
-    );
-    require(
-        optimizer.step().step == 1,
-        "Adam should remain usable after restoring its backend"
-    );
+    seed_gradient(cpu_parameter, Tensor({1}, 1.0F, ExecutionBackend::Cpu));
+    require(optimizer.step().step == 1,
+            "Adam should remain usable after restoring its backend");
 }
 
-void test_cpu_metal_adam_parity_if_available() {
-    const AdamBackendTrace cpu =
-        run_multi_tensor_adam(ExecutionBackend::Cpu);
-    if (!riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
-        return;
-    }
-    const AdamBackendTrace metal =
-        run_multi_tensor_adam(ExecutionBackend::Metal);
-
-    require(
-        metal.statistics.size() == cpu.statistics.size(),
-        "CPU/Metal Adam statistic count"
-    );
-    for (std::size_t step = 0;
-         step < cpu.statistics.size();
-         ++step) {
-        require(
-            metal.statistics[step].step ==
-                cpu.statistics[step].step,
-            "CPU/Metal Adam step parity"
-        );
-        require_close(
-            metal.statistics[step].gradient_norm,
-            cpu.statistics[step].gradient_norm,
-            "CPU/Metal Adam gradient-norm parity",
-            1.0e-12,
-            1.0e-12
-        );
-        require_close(
-            metal.statistics[step].clip_scale,
-            cpu.statistics[step].clip_scale,
-            "CPU/Metal Adam clip-scale parity",
-            1.0e-12,
-            1.0e-12
-        );
-        require_tensor_close(
-            metal.first_values[step],
-            cpu.first_values[step],
-            "CPU/Metal first-parameter Adam parity",
-            5.0e-5
-        );
-        require_tensor_close(
-            metal.second_values[step],
-            cpu.second_values[step],
-            "CPU/Metal second-parameter Adam parity",
-            5.0e-5
-        );
-    }
+void test_accelerator_adam_parity_if_available() {
+    const AdamBackendTrace cpu = run_multi_tensor_adam(ExecutionBackend::Cpu);
+    for_each_available_accelerator([&](ExecutionBackend backend,
+                                       const std::string& name) {
+        const AdamBackendTrace accelerator = run_multi_tensor_adam(backend);
+        const std::string prefix = "CPU/" + name + " Adam ";
+        require(accelerator.statistics.size() == cpu.statistics.size(),
+                prefix + "statistic count");
+        for (std::size_t step = 0; step < cpu.statistics.size(); ++step) {
+            require(accelerator.statistics[step].step ==
+                        cpu.statistics[step].step,
+                    prefix + "step parity");
+            require_close(accelerator.statistics[step].gradient_norm,
+                          cpu.statistics[step].gradient_norm,
+                          prefix + "gradient-norm parity", 1.0e-12, 1.0e-12);
+            require_close(accelerator.statistics[step].clip_scale,
+                          cpu.statistics[step].clip_scale,
+                          prefix + "clip-scale parity", 1.0e-12, 1.0e-12);
+            require_tensor_close(accelerator.first_values[step],
+                                 cpu.first_values[step],
+                                 prefix + "first-parameter parity", 5.0e-5);
+            require_tensor_close(accelerator.second_values[step],
+                                 cpu.second_values[step],
+                                 prefix + "second-parameter parity", 5.0e-5);
+        }
+    });
 }
 
 void test_metal_fused_path_if_available() {
     if (!riftco_transformer::execution_backend_available(
-            ExecutionBackend::Metal
-        )) {
+            ExecutionBackend::Metal)) {
         return;
     }
 
     reset_metal_adam_path_counts();
-    Parameter parameter(
-        Tensor(
-            {1},
-            1.0F,
-            ExecutionBackend::Metal
-        )
-    );
-    Adam optimizer(
-        {{"weight", &parameter}},
-        hand_reference_options()
-    );
-    seed_gradient(
-        parameter,
-        Tensor(
-            {1},
-            2.0F,
-            ExecutionBackend::Metal
-        )
-    );
+    Parameter parameter(Tensor({1}, 1.0F, ExecutionBackend::Metal));
+    Adam optimizer({{"weight", &parameter}}, hand_reference_options());
+    seed_gradient(parameter, Tensor({1}, 2.0F, ExecutionBackend::Metal));
     require(
         optimizer.step().step == 1,
         "ordinary Metal Adam step"
@@ -1755,12 +1839,32 @@ void test_tiny_decoder_integration() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
+    bool require_tpu = false;
+    for (int argument = 1; argument < argc; ++argument) {
+        const std::string_view value(argv[argument]);
+        if (value == "--require-tpu") {
+            require_tpu = true;
+        } else {
+            std::cerr << "usage: adam_tests [--require-tpu]\n";
+            return 2;
+        }
+    }
+
     try {
+        require(
+            !require_tpu ||
+                riftco_transformer::execution_backend_available(
+                    ExecutionBackend::Tpu
+                ),
+            "TPU is required for this Adam test, but no TPU runtime is "
+            "available"
+        );
+        test_adam_dispatch_rejects_candidate_aliases();
         test_parameter_handle_lifetime_and_moved_identity();
         test_parameter_transfer_and_gradient_backend();
         test_adam_backend_validation_if_metal_available();
-        test_cpu_metal_adam_parity_if_available();
+        test_accelerator_adam_parity_if_available();
         test_metal_fused_path_if_available();
         test_metal_extreme_clipping_if_available();
         test_metal_cancellation_retry_if_available();
@@ -1768,13 +1872,11 @@ int main() {
         test_update_overflow_failure_is_atomic(
             ExecutionBackend::Cpu
         );
-        if (riftco_transformer::execution_backend_available(
-                ExecutionBackend::Metal
-            )) {
-            test_update_overflow_failure_is_atomic(
-                ExecutionBackend::Metal
-            );
-        }
+        for_each_available_accelerator(
+            [](ExecutionBackend backend, const std::string&) {
+                test_update_overflow_failure_is_atomic(backend);
+            }
+        );
         test_constant_gradient_bias_correction();
         test_varying_gradient_moments_and_zero_gradient_tail();
         test_fresh_zero_gradient_and_explicit_zeroing();

@@ -133,26 +133,48 @@ options make short experiments convenient:
 - `--steps N` overrides `training_steps` for this run and requires a positive
   count.
 - `--metrics PATH` overrides the default CSV output path for this run.
-- `--backend cpu|metal` selects model, activation, gradient, and optimizer
+- `--backend cpu|metal|cuda|tpu` selects model, activation, gradient, and optimizer
   storage. Metal routes the training graph's layout, elementwise, reduction,
   GELU, LayerNorm, softmax/causal-mask, embedding gather/scatter,
   cross-entropy, materialized or Flash attention/VJP, matmul, and fused Adam
   work to compute kernels on supported Apple systems. The overflow-safe global
   gradient norm and an unsafe Adam retry use the CPU reference over the same
   host-visible shared buffers.
+- CUDA requires a source build configured with
+  `-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON`, CUDA Toolkit 12+, a compatible NVIDIA
+  driver, and an NVIDIA GPU. CUDA storage uses managed allocations; matmul,
+  materialized/Flash attention and their gradients, and paged decode run as
+  CUDA kernels. Layout, elementwise, reduction, indexing, normalization, loss,
+  and Adam's out-of-place candidate-state update also use native CUDA kernels.
+  Adam's overflow-safe global gradient norm and autograd graph traversal remain
+  host control flow over managed storage. The backend supports complete
+  pretraining, Full fine-tuning, LoRA, and evaluation, but does not imply a
+  fully device-resident execution graph or an end-to-end speedup. Standard
+  wheels contain the recognized unavailable CUDA stub.
+- TPU requires a Linux x86-64 source build configured with
+  `-DRIFTCO_TRANSFORMER_ENABLE_TPU=ON`, a compatible `libtpu.so`, and an
+  addressable Google Cloud TPU device. It compiles and executes batched matmul,
+  materialized attention and its gradients, and paged decode through
+  PJRT/StableHLO; Adam, Flash attention, loss, and other operations use
+  synchronous reference paths over host-mirrored storage. Complete
+  pretraining, Full fine-tuning, LoRA, and evaluation are wired, but real
+  hardware validation is pending and this phase is not an end-to-end TPU
+  speedup claim. Standard wheels contain the recognized unavailable TPU stub.
 - `--attention materialized|flash` selects the full-sequence attention
-  implementation. Materialized remains the default. Flash uses the exact
-  tile-8 CPU or Metal path and saves `[B,H,T]` row statistics rather than
-  `[B,H,T,T]` probabilities for backward.
+  implementation. Materialized remains the default. Flash uses an exact
+  memory-linear algorithm and saves `[B,H,T]` row statistics rather than
+  `[B,H,T,T]` probabilities for backward. CPU and Metal use tile-8 paths;
+  CUDA uses cooperating thread blocks. TPU uses StableHLO for materialized
+  attention and the CPU reference implementation for Flash.
 - `--activation-checkpointing disabled|block` retains the ordinary graph or
   discards and replays each transformer's internal block graph during
   backward. Disabled remains the default.
 - Options may appear in any order.
 
-These are execution overrides; they do not edit the configuration file. Metal
-execution is synchronous and does not imply private GPU memory, asynchronous
-streams, bitwise equality with CPU, or an unmeasured speedup from selecting
-Flash.
+These are execution overrides; they do not edit the configuration file. Metal,
+CUDA, and TPU execution are synchronous and do not imply
+asynchronous streams, bitwise equality with CPU, or an unmeasured speedup from
+selecting an accelerator or Flash.
 
 Block checkpointing lowers retained activation state but executes every
 selected block forward a second time during backward. It composes with both

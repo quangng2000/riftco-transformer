@@ -2,12 +2,30 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace riftco_transformer::stages::post_training {
 
 struct InstructionExample {
     std::string prompt;
     std::string response;
+
+    void validate() const;
+};
+
+// Explicit disjoint inputs for a generalization-aware post-training run.
+// The training split is the only split sampled by the optimizer. Validation
+// and test are reserved for deterministic read-only evaluation.
+struct InstructionSplits {
+    std::vector<InstructionExample> train;
+    std::vector<InstructionExample> validation;
+    std::vector<InstructionExample> test;
+
+    InstructionSplits(
+        std::vector<InstructionExample> training_examples,
+        std::vector<InstructionExample> validation_examples,
+        std::vector<InstructionExample> test_examples
+    );
 
     void validate() const;
 };

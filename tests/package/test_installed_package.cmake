@@ -1,6 +1,7 @@
 foreach(required_variable IN ITEMS
         RIFTCO_TRANSFORMER_BUILD_DIR
         RIFTCO_TRANSFORMER_CONSUMER_SOURCE_DIR
+        RIFTCO_TRANSFORMER_PROJECT_VERSION
         RIFTCO_TRANSFORMER_TEST_ROOT
         RIFTCO_TRANSFORMER_GENERATOR)
     if(NOT DEFINED ${required_variable})
@@ -148,6 +149,20 @@ if(DEFINED RIFTCO_TRANSFORMER_EXE_LINKER_FLAGS AND
         "-DCMAKE_EXE_LINKER_FLAGS=${escaped_linker_flags}"
     )
 endif()
+if(DEFINED RIFTCO_TRANSFORMER_CUDA_TOOLKIT_ROOT AND
+   NOT RIFTCO_TRANSFORMER_CUDA_TOOLKIT_ROOT STREQUAL "")
+    list(APPEND toolchain_arguments
+        "-DCUDAToolkit_ROOT=${RIFTCO_TRANSFORMER_CUDA_TOOLKIT_ROOT}"
+    )
+endif()
+
+set(consumer_prefix_path "${install_prefix}")
+if(DEFINED RIFTCO_TRANSFORMER_CMAKE_PREFIX_PATH AND
+   NOT RIFTCO_TRANSFORMER_CMAKE_PREFIX_PATH STREQUAL "")
+    list(APPEND consumer_prefix_path
+        ${RIFTCO_TRANSFORMER_CMAKE_PREFIX_PATH}
+    )
+endif()
 
 execute_process(
     COMMAND
@@ -167,13 +182,33 @@ if(NOT install_result EQUAL 0)
     )
 endif()
 
+file(GLOB_RECURSE installed_package_configs
+    LIST_DIRECTORIES FALSE
+    "${install_prefix}/*/riftco_transformerConfig.cmake"
+)
+list(LENGTH installed_package_configs installed_package_config_count)
+if(NOT installed_package_config_count EQUAL 1)
+    message(FATAL_ERROR
+        "expected exactly one installed package config, found "
+        "${installed_package_config_count}: ${installed_package_configs}"
+    )
+endif()
+list(GET installed_package_configs 0 installed_package_config)
+get_filename_component(
+    installed_package_config_dir
+    "${installed_package_config}"
+    DIRECTORY
+)
+
 execute_process(
     COMMAND
         "${CMAKE_COMMAND}"
         -S "${RIFTCO_TRANSFORMER_CONSUMER_SOURCE_DIR}"
         -B "${consumer_build}"
         ${generator_arguments}
-        "-DCMAKE_PREFIX_PATH=${install_prefix}"
+        "-DCMAKE_PREFIX_PATH=${consumer_prefix_path}"
+        "-DRIFTCO_TRANSFORMER_REQUIRED_VERSION=${RIFTCO_TRANSFORMER_PROJECT_VERSION}"
+        "-Driftco_transformer_DIR=${installed_package_config_dir}"
         ${configure_config_argument}
         ${toolchain_arguments}
     RESULT_VARIABLE configure_result

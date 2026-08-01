@@ -1,6 +1,6 @@
 # riftco-transformer Python distribution
 
-This package is the typed, runtime-dependency-free `ctypes` interface to
+This package is the typed, runtime-dependency-free-by-default `ctypes` interface to
 `libriftco_transformer_c`, plus explicit data preparation, pretraining,
 post-training, experiment, artifact, generation, and local-serving modules.
 A platform wheel carries both the Python modules and its native C ABI library;
@@ -25,6 +25,9 @@ no compiler or environment variable after installation. Initial binary wheels
 cover Linux `x86_64` and `aarch64` for both glibc (`manylinux`) and musl
 (`musllinux`), macOS `x86_64` and `arm64`, and Windows `AMD64`. CPU is
 available on every supported platform; the macOS wheels also include Metal.
+Standard wheels recognize the stable `cuda` and `tpu` backend names but compile
+their unavailable stubs, so installing one does not add CUDA or `libtpu`
+runtime dependencies.
 
 From a source checkout, install at the repository root with:
 
@@ -37,10 +40,46 @@ native compiler and platform SDK. `RIFTCO_TRANSFORMER_LIBRARY` remains an advanc
 development override for selecting a particular local native build; released
 wheels do not require it.
 
-The Python package follows the framework release version (`0.2.0` here), while
-the native C ABI has its own compatibility version (`2.0`). The client accepts
+CUDA is an explicit source-build option. It needs CUDA Toolkit 12 or newer, a
+compatible NVIDIA driver, and an NVIDIA GPU:
+
+```bash
+CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON" \
+  python3 -m pip install .
+```
+
+The CUDA backend provides managed tensor storage plus native GPU matmul,
+materialized/Flash attention, attention gradients, and paged decode. Other
+framework capabilities remain functional through synchronous audited reference
+paths over that storage. Full fine-tuning, LoRA, held-out generalization
+evaluation, artifact creation, and serving can all use `backend="cuda"`, but
+this is not a claim that every operation is GPU-accelerated.
+
+TPU is a separate experimental source-build option for Linux x86-64 Cloud TPU
+VMs. It requires Google's external `libtpu.so` at runtime:
+
+```bash
+export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
+CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_TPU=ON" \
+  python3 -m pip install .
+```
+
+The TPU backend compiles batched matmul, materialized attention and its
+gradients, and paged decode through the PJRT C API and StableHLO. Flash
+attention and the other capabilities use synchronous audited reference paths
+over host-mirrored storage, so full fine-tuning, LoRA, evaluation, and serving
+are functionally wired without implying an end-to-end TPU speedup. Real Cloud
+TPU validation is still pending. Default installs never load `libtpu`.
+
+The Python package follows the framework release version (`0.3.0` here), while
+the native C ABI has its own compatibility version (`2.2`). The client accepts
 the same ABI major and an equal or newer additive minor, and rejects older or
 breaking ABIs before use.
+
+Backend names are `"cpu"`, `"metal"`, `"cuda"`, and `"tpu"`. High-level
+configurations also accept `"auto"`, which prefers TPU when available, then
+CUDA, Metal, and CPU. An explicitly requested unavailable backend raises an
+error instead of silently changing the experiment backend.
 
 ## Release automation
 
@@ -141,9 +180,11 @@ with Tokenizer(
                 print(loss_value, stats.gradient_norm)
 ```
 
-Change `.to("cpu")` to `.to("metal")` on systems with the Metal backend.
-Computation graphs are single-use: build a fresh forward/loss graph for each
-training step. `attention="flash"` selects the dependency-free exact tile-8
+Change `.to("cpu")` to `.to("metal")` on systems with the Metal backend,
+`.to("cuda")` in a CUDA-enabled source build, or `.to("tpu")` in a TPU-enabled
+Cloud TPU build. Computation graphs are single-use: build a fresh forward/loss
+graph for each training step.
+`attention="flash"` selects the dependency-free exact memory-linear
 full-sequence forward/backward implementation; omit it to keep the
 `"materialized"` default. The Flash path saves `[batch, heads, time]` row
 maxima and exponential sums and reconstructs probabilities during backward,
@@ -228,6 +269,25 @@ timings are only smoke measurements. The CLI atomically publishes a new,
 complete output directory and embeds the verified prepared-data manifest plus
 its SHA-256 in `comparison.json`.
 
+`compare_fine_tuning()` generalizes the same held-out protocol to fixed full
+fine-tuning recipes and LoRA rank groups. It exhaustively evaluates train and
+validation to calculate a comparable generalization gap, then evaluates test
+only for the fixed full recipe and validation-selected LoRA rank. The example
+CLI is:
+
+```bash
+python3 examples/python/compare_fine_tuning.py \
+  --base results/stages/tinystories_pretrained.rift \
+  --data data/external/huggingface/dolly-lora-v1 \
+  --output results/experiments/full-vs-lora \
+  --full-learning-rate 0.001 \
+  --lora-learning-rate 0.005 \
+  --backend cpu
+```
+
+The resulting test split is consumed for a final method comparison and must be
+retired before further tuning.
+
 See
 `docs/DATASETS_AND_LORA_EXPERIMENTS.md` in the framework repository for
 license links, exact TinyStories train/validation commands, sample-size
@@ -309,7 +369,7 @@ extension.
 
 ## Incremental generation
 
-Native models use the current ABI 2.0 `DecodeSession` surface instead of
+Native models use the current ABI 2.2 `DecodeSession` surface instead of
 rerunning the full-sequence training forward for every generated token.
 `TextGenerator` creates a request-local session, prefills the
 prompt one token at a time, and then performs one-token decode:
@@ -330,10 +390,12 @@ with bundle.instantiate("cpu") as runtime:
 ```
 
 Paged caching is the default; use `kv_cache="contiguous"` for the reference
-strategy. Both run direct CPU or Metal paged decode attention. When the learned
-absolute-position context fills, `TextGenerator` resets the cache and replays
-the retained suffix from position zero. A raw session exposes the lower-level
-step/reset contract:
+strategy. CPU, Metal, CUDA, and TPU have backend-owned paged-decode
+implementations; TPU stages the request through PJRT from host-mirrored
+storage. When the learned
+absolute-position context fills, `TextGenerator`
+resets the cache and replays the retained suffix from position zero. A raw
+session exposes the lower-level step/reset contract:
 
 ```python
 with bundle.instantiate("cpu") as runtime:
@@ -363,7 +425,7 @@ riftco_transformer/
 ├── native/          # stable C ABI bindings
 ├── artifacts/       # ModelBundle persistence
 ├── data/            # external dataset adapters and preparation
-├── experiments/     # controlled LoRA-rank comparisons
+├── experiments/     # controlled full/LoRA and rank comparisons
 ├── training/        # shared batches, metrics, and trainer
 ├── pretraining/     # next-token pretraining stage
 ├── post_training/   # supervised continuation stage

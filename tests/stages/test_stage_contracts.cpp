@@ -207,6 +207,17 @@ void test_pretraining_config() {
             "pretraining should reject unavailable Metal"
         );
     }
+
+    config = valid;
+    config.backend = ExecutionBackend::Tpu;
+    if (execution_backend_available(ExecutionBackend::Tpu)) {
+        config.validate();
+    } else {
+        require_throws<std::invalid_argument>(
+            [&] { config.validate(); },
+            "pretraining should reject unavailable TPU"
+        );
+    }
 }
 
 void test_post_training_config() {
@@ -356,6 +367,17 @@ void test_post_training_config() {
             "post-training should reject unavailable Metal"
         );
     }
+
+    config = valid;
+    config.backend = ExecutionBackend::Tpu;
+    if (execution_backend_available(ExecutionBackend::Tpu)) {
+        config.validate();
+    } else {
+        require_throws<std::invalid_argument>(
+            [&] { config.validate(); },
+            "post-training should reject unavailable TPU"
+        );
+    }
 }
 
 void test_serving_config() {
@@ -424,6 +446,17 @@ void test_serving_config() {
         require_throws<std::invalid_argument>(
             [&] { config.validate(); },
             "serving should reject unavailable Metal"
+        );
+    }
+
+    config = valid;
+    config.backend = ExecutionBackend::Tpu;
+    if (execution_backend_available(ExecutionBackend::Tpu)) {
+        config.validate();
+    } else {
+        require_throws<std::invalid_argument>(
+            [&] { config.validate(); },
+            "serving should reject unavailable TPU"
         );
     }
 }

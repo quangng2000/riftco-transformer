@@ -27,8 +27,10 @@ class ServingConfig:
     kv_cache_block_size: int = 16
 
     def __post_init__(self) -> None:
-        if self.backend not in {"auto", "cpu", "metal"}:
-            raise ValueError("backend must be 'auto', 'cpu', or 'metal'")
+        if self.backend not in {"auto", "cpu", "metal", "cuda", "tpu"}:
+            raise ValueError(
+                "backend must be 'auto', 'cpu', 'metal', 'cuda', or 'tpu'"
+            )
         _positive_integer(self.maximum_new_tokens, "maximum_new_tokens")
         _positive_integer(
             self.maximum_request_bytes,
@@ -177,9 +179,21 @@ class ModelService:
 
 def _selected_backend(requested: str) -> str:
     if requested == "auto":
-        return "metal" if backend_available("metal") else "cpu"
-    if requested == "metal" and not backend_available("metal"):
-        raise RuntimeError("Metal was requested but is unavailable")
+        for accelerated in ("tpu", "cuda", "metal"):
+            if backend_available(accelerated):
+                return accelerated
+        return "cpu"
+    if requested in {"metal", "cuda", "tpu"} and not backend_available(
+        requested
+    ):
+        display_name = {
+            "metal": "Metal",
+            "cuda": "CUDA",
+            "tpu": "TPU",
+        }[requested]
+        raise RuntimeError(
+            f"{display_name} was requested but is unavailable"
+        )
     return requested
 
 

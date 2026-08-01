@@ -11,6 +11,8 @@ void validate_backend(ExecutionBackend backend) {
     switch (backend) {
         case ExecutionBackend::Cpu:
         case ExecutionBackend::Metal:
+        case ExecutionBackend::Cuda:
+        case ExecutionBackend::Tpu:
             break;
         default:
             throw std::invalid_argument(

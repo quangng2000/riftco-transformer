@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA
+#define RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA 0
+#endif
+
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -3942,6 +3946,180 @@ static void test_parameter_state_api(void) {
     rt_model_release(model);
 }
 
+static void test_cuda_backend(
+    int32_t* cuda_available,
+    rt_tensor** retained_cuda
+) {
+    require_condition(
+        RT_BACKEND_CUDA == (rt_backend)2,
+        "CUDA backend numeric identity"
+    );
+    require_status(
+        rt_backend_is_available(
+            RT_BACKEND_CUDA,
+            cuda_available
+        ),
+        "query CUDA availability"
+    );
+
+    rt_context* cuda_context =
+        (rt_context*)(uintptr_t)1;
+    const rt_status context_status = rt_context_create(
+        RT_BACKEND_CUDA,
+        &cuda_context
+    );
+    if (*cuda_available == 0) {
+        require_condition(
+            context_status == RT_STATUS_BACKEND_UNAVAILABLE,
+            "unavailable CUDA context status"
+        );
+        require_condition(
+            cuda_context == NULL,
+            "failed CUDA creation clears output handle"
+        );
+        require_condition(
+            strstr(rt_last_error(), "cuda") != NULL,
+            "unavailable CUDA diagnostic"
+        );
+        return;
+    }
+
+    require_status(context_status, "create available CUDA context");
+    require_condition(
+        cuda_context != NULL,
+        "available CUDA context handle"
+    );
+    rt_backend actual_backend = RT_BACKEND_CPU;
+    require_status(
+        rt_context_backend(cuda_context, &actual_backend),
+        "query CUDA context backend"
+    );
+    require_condition(
+        actual_backend == RT_BACKEND_CUDA,
+        "CUDA context backend"
+    );
+
+    const uint64_t shape[] = {2, 2};
+    const float left_values[] = {
+        1.0F, 2.0F,
+        3.0F, 4.0F,
+    };
+    const float right_values[] = {
+        5.0F, 6.0F,
+        7.0F, 8.0F,
+    };
+    rt_tensor* left = NULL;
+    rt_tensor* right = NULL;
+    require_status(
+        rt_tensor_create_f32(
+            cuda_context,
+            shape,
+            2,
+            left_values,
+            4,
+            &left
+        ),
+        "create CUDA left tensor"
+    );
+    require_status(
+        rt_tensor_create_f32(
+            cuda_context,
+            shape,
+            2,
+            right_values,
+            4,
+            &right
+        ),
+        "create CUDA right tensor"
+    );
+    require_tensor_backend(
+        left,
+        RT_BACKEND_CUDA,
+        "CUDA tensor intrinsic backend"
+    );
+
+    // Tensor storage retains the CUDA allocation after its construction
+    // context is released.
+    rt_context_release(cuda_context);
+    cuda_context = NULL;
+    require_status(
+        rt_tensor_matmul(left, right, retained_cuda),
+        "CUDA matmul after context release"
+    );
+    require_tensor_backend(
+        *retained_cuda,
+        RT_BACKEND_CUDA,
+        "CUDA matmul output backend"
+    );
+    float product_values[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+    require_status(
+        rt_tensor_copy_to_host_f32(
+            *retained_cuda,
+            product_values,
+            4
+        ),
+        "copy retained CUDA product"
+    );
+    const float expected[] = {
+        19.0F, 22.0F,
+        43.0F, 50.0F,
+    };
+    for (size_t index = 0; index < 4; ++index) {
+        require_close(
+            product_values[index],
+            expected[index],
+            "retained CUDA product value"
+        );
+    }
+    rt_tensor_release(right);
+    rt_tensor_release(left);
+}
+
+static void test_tpu_backend(int32_t* tpu_available) {
+    require_condition(
+        RT_BACKEND_TPU == (rt_backend)3,
+        "TPU backend numeric identity"
+    );
+    require_status(
+        rt_backend_is_available(RT_BACKEND_TPU, tpu_available),
+        "query TPU availability"
+    );
+
+    rt_context* tpu_context = (rt_context*)(uintptr_t)1;
+    const rt_status context_status = rt_context_create(
+        RT_BACKEND_TPU,
+        &tpu_context
+    );
+    if (*tpu_available == 0) {
+        require_condition(
+            context_status == RT_STATUS_BACKEND_UNAVAILABLE,
+            "unavailable TPU context status"
+        );
+        require_condition(
+            tpu_context == NULL,
+            "failed TPU creation clears output handle"
+        );
+        require_condition(
+            strstr(rt_last_error(), "tpu") != NULL,
+            "unavailable TPU diagnostic"
+        );
+        return;
+    }
+
+    require_status(context_status, "create available TPU context");
+    require_condition(tpu_context != NULL, "available TPU context handle");
+    rt_backend actual_backend = RT_BACKEND_CPU;
+    require_status(
+        rt_context_backend(tpu_context, &actual_backend),
+        "query TPU context backend"
+    );
+    require_condition(
+        actual_backend == RT_BACKEND_TPU,
+        "TPU context backend"
+    );
+    rt_context_release(tpu_context);
+}
+
 static void run_model_training(rt_backend backend) {
     rt_transformer_config config;
     require_status(
@@ -4202,6 +4380,11 @@ int main(void) {
         rt_abi_version() == RT_ABI_VERSION,
         "ABI version"
     );
+    require_condition(
+        RT_ABI_VERSION_MAJOR == UINT32_C(2) &&
+            RT_ABI_VERSION_MINOR == UINT32_C(2),
+        "TPU additive ABI version"
+    );
 
     test_thread_local_errors();
     test_tokenizer_api();
@@ -4354,6 +4537,25 @@ int main(void) {
             "failed Metal creation clears output handle"
         );
     }
+
+    int32_t cuda_available = 0;
+    rt_tensor* retained_cuda = NULL;
+    test_cuda_backend(&cuda_available, &retained_cuda);
+#if RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA
+    require_condition(
+        cuda_available != 0,
+        "CUDA is required for this C ABI test"
+    );
+#endif
+
+    int32_t tpu_available = 0;
+    test_tpu_backend(&tpu_available);
+#if RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU
+    require_condition(
+        tpu_available != 0,
+        "TPU is required for this C ABI test"
+    );
+#endif
 
     rt_context* context = NULL;
     require_status(
@@ -4571,6 +4773,24 @@ int main(void) {
             "mixed-backend matmul clears output handle"
         );
     }
+    if (retained_cuda != NULL) {
+        rt_tensor* mixed_product =
+            (rt_tensor*)(uintptr_t)1;
+        const rt_status mixed_status =
+            rt_tensor_matmul(
+                left,
+                retained_cuda,
+                &mixed_product
+            );
+        require_condition(
+            mixed_status == RT_STATUS_INVALID_ARGUMENT,
+            "mixed CPU/CUDA matmul status"
+        );
+        require_condition(
+            mixed_product == NULL,
+            "mixed CPU/CUDA matmul clears output handle"
+        );
+    }
 
     rt_tensor* invalid =
         (rt_tensor*)(uintptr_t)1;
@@ -4608,6 +4828,7 @@ int main(void) {
     );
 
     rt_tensor_release(product);
+    rt_tensor_release(retained_cuda);
     rt_tensor_release(retained_metal);
     rt_tensor_release(scalar);
     rt_tensor_release(zeros);
@@ -4619,6 +4840,9 @@ int main(void) {
     run_model_training(RT_BACKEND_CPU);
     if (metal_available != 0) {
         run_model_training(RT_BACKEND_METAL);
+    }
+    if (cuda_available != 0) {
+        run_model_training(RT_BACKEND_CUDA);
     }
 
     rt_transformer_config invalid_config;

@@ -9,7 +9,10 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -37,10 +40,68 @@ int main() {
     using riftco_transformer::ExecutionBackend;
     using riftco_transformer::Tensor;
 
+    static_assert(
+        static_cast<std::uint8_t>(ExecutionBackend::Cuda) == 2
+    );
+    static_assert(
+        static_cast<std::uint8_t>(ExecutionBackend::Tpu) == 3
+    );
+
     if (!riftco_transformer::execution_backend_available(
             ExecutionBackend::Cpu
-        )) {
+        ) ||
+        !riftco_transformer::execution_backend_unavailability_reason(
+            ExecutionBackend::Cpu
+        ).empty() ||
+        riftco_transformer::execution_backend_name(
+            ExecutionBackend::Cuda
+        ) != std::string_view("cuda") ||
+        riftco_transformer::execution_backend_name(
+            ExecutionBackend::Tpu
+        ) != std::string_view("tpu")) {
         return EXIT_FAILURE;
+    }
+    riftco_transformer::set_execution_backend(
+        ExecutionBackend::Cpu
+    );
+    if (riftco_transformer::execution_backend_available(
+            ExecutionBackend::Cuda
+        )) {
+        {
+            const riftco_transformer::ScopedExecutionBackend use_cuda(
+                ExecutionBackend::Cuda
+            );
+            if (riftco_transformer::execution_backend() !=
+                ExecutionBackend::Cuda) {
+                return EXIT_FAILURE;
+            }
+        }
+        if (riftco_transformer::execution_backend() !=
+            ExecutionBackend::Cpu) {
+            return EXIT_FAILURE;
+        }
+    } else {
+        if (riftco_transformer::
+                execution_backend_unavailability_reason(
+                    ExecutionBackend::Cuda
+                ).empty()) {
+            return EXIT_FAILURE;
+        }
+        bool unavailable_threw = false;
+        try {
+            riftco_transformer::set_execution_backend(
+                ExecutionBackend::Cuda
+            );
+        } catch (const std::runtime_error&) {
+            unavailable_threw = true;
+        } catch (...) {
+            return EXIT_FAILURE;
+        }
+        if (!unavailable_threw ||
+            riftco_transformer::execution_backend() !=
+                ExecutionBackend::Cpu) {
+            return EXIT_FAILURE;
+        }
     }
 
     const riftco_transformer::LoraConfig lora;

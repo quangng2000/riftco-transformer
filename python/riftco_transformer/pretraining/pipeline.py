@@ -95,8 +95,10 @@ class PretrainingConfig:
         )
         if learning_rate <= 0.0:
             raise ValueError("learning_rate must be greater than zero")
-        if self.backend not in {"auto", "cpu", "metal"}:
-            raise ValueError("backend must be 'auto', 'cpu', or 'metal'")
+        if self.backend not in {"auto", "cpu", "metal", "cuda", "tpu"}:
+            raise ValueError(
+                "backend must be 'auto', 'cpu', 'metal', 'cuda', or 'tpu'"
+            )
         if self.attention not in {"materialized", "flash"}:
             raise ValueError(
                 "attention must be 'materialized' or 'flash'"

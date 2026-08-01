@@ -1,10 +1,10 @@
-# Execution Backends and Python ABI
+# Execution Backends and the Python ABI
 
 The backend layer owns tensor storage and focused accelerated operations
 without changing the transformer or autograd equations:
 
 ```text
-Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 2.0
+Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 2.2
                                          │
                                          ▼
                                 public C++ operations
@@ -17,10 +17,14 @@ Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 2.
                      storage · layout · elementwise · reduction
                      matmul · softmax · indexing · LayerNorm
        cross-entropy · materialized/Flash/paged-decode attention · Adam
-                                 │                 │
-                                 ▼                 ▼
-                         CPU reference math   Metal kernels over
-                                              shared MTLBuffers
+             │                 │                 │                 │
+             ▼                 ▼                 ▼                 ▼
+      CPU reference      Metal kernels      CUDA kernels      TPU host mirror
+                           over shared       over managed      + PJRT/StableHLO
+                           MTLBuffers          storage          selected graphs
+                                │                 │                  │
+                                └──────── synchronous ───────────────┘
+                                             explicit host fallbacks
 ```
 
 CPU remains the default and the readable correctness reference. On Apple
@@ -33,6 +37,33 @@ products, matmul, and Adam. `Variable::matmul` captures the input tensor
 backend during the forward pass, so both matrix-gradient products use that
 backend even if the calling thread's construction default changes before
 `backward()`.
+
+CUDA is an optional source-build backend for an NVIDIA GPU. It requires CUDA
+Toolkit 12 or newer and a compatible NVIDIA driver. CUDA tensors own persistent
+managed allocations, which keeps the framework's host-visible tensor contract
+intact. Batched matmul, materialized causal attention and its VJPs,
+memory-linear Flash attention and its VJP, and paged decode execute as CUDA
+kernels. Layout, elementwise, reduction, indexing, normalization, loss, and
+Adam's out-of-place candidate-state update also execute as CUDA kernels. Adam's
+overflow-safe global gradient norm remains a host reduction over managed
+storage. All calls are synchronous. This makes the whole
+framework—including Full and LoRA training, generalization evaluation, and
+serving—functionally available on `cuda`, but it is not a claim that every
+piece of control flow is device-resident or that an end-to-end workload is
+faster.
+
+TPU is an experimental, opt-in Linux x86-64 source backend for Google Cloud
+TPUs. It dynamically loads Google's `libtpu.so`, obtains the versioned PJRT C
+API, compiles shape-specialized StableHLO programs, and executes batched
+matmul, materialized causal attention and its VJPs, and paged decode on one
+addressable TPU device. TPU tensors retain a host mirror; Flash attention and
+the remaining capabilities use the same synchronous reference implementations
+as CPU. Full and LoRA training, Adam, evaluation, and serving are therefore
+functionally wired, but transfers occur around each PJRT program and this is
+not an end-to-end acceleration claim. The source/ABI boundary and no-device
+behavior are tested. A tests-only fake PJRT plugin also exercises the successful
+loader, client, compile, transfer, execute, and download path; real `libtpu`
+and Cloud TPU hardware validation remain pending.
 
 ## Selecting a C++ backend
 
@@ -58,11 +89,39 @@ On a Metal-capable Mac:
   --activation-checkpointing block
 ```
 
+In a CUDA-enabled source build:
+
+```bash
+./build/cuda/riftco-transformer \
+  --config configs/tiny.conf \
+  --steps 20 \
+  --backend cuda \
+  --attention flash \
+  --activation-checkpointing block
+```
+
+In a TPU-enabled Cloud TPU build:
+
+```bash
+./build/tpu-release/riftco-transformer \
+  --config configs/tiny.conf \
+  --steps 20 \
+  --backend tpu \
+  --attention flash \
+  --activation-checkpointing block
+```
+
 `--attention materialized|flash` selects the full-sequence algorithm;
 materialized is the default. It is independent from
-`--backend cpu|metal`.
+`--backend cpu|metal|cuda|tpu`.
 `--activation-checkpointing disabled|block` controls full-sequence autograd
 retention independently of both selectors.
+
+The native CLI and low-level C++/C/Python APIs use the explicit names `cpu`,
+`metal`, `cuda`, and `tpu`. High-level Python stage and experiment
+configurations also accept `auto`: it selects TPU when available, then CUDA,
+Metal, and CPU. Requesting an unavailable explicit backend fails instead of
+silently changing the experiment backend.
 
 The public C++ default-selection interface is:
 
@@ -72,20 +131,20 @@ The public C++ default-selection interface is:
 using riftco_transformer::ExecutionBackend;
 
 if (riftco_transformer::execution_backend_available(
-        ExecutionBackend::Metal
+        ExecutionBackend::Cuda
     )) {
-    const riftco_transformer::ScopedExecutionBackend use_metal(
-        ExecutionBackend::Metal
+    const riftco_transformer::ScopedExecutionBackend use_cuda(
+        ExecutionBackend::Cuda
     );
-    // Tensors and modules constructed in this scope default to Metal.
+    // Tensors and modules constructed in this scope default to CUDA.
 }
 ```
 
 Existing tensors keep their intrinsic backend. Transfer them explicitly:
 
 ```cpp
-Tensor on_metal = on_cpu.to(ExecutionBackend::Metal);
-model.to(ExecutionBackend::Metal);
+Tensor on_cuda = on_cpu.to(ExecutionBackend::Cuda);
+model.to(ExecutionBackend::Cuda);
 Adam optimizer(model.parameters(), options);
 ```
 
@@ -107,18 +166,21 @@ backend; it never changes thread-local state.
   softmax, indexing, normalization, loss, and attention requests;
 - execute a validated transactional Adam update batch.
 
-The Adapter normalizes CPU loops and Metal APIs. The selected
-`ExecutionBackend` is the Strategy used by ordinary tensor operations.
+The Adapter normalizes CPU loops, Metal APIs, CUDA runtime calls, and the
+TPU/PJRT boundary. The selected `ExecutionBackend` is the Strategy used by
+ordinary tensor operations.
 
 | Backend value | Name | Availability | Selection behavior |
 | --- | --- | --- | --- |
 | `Cpu` | `cpu` | Always | Succeeds |
 | `Metal` | `metal` | Runtime/build dependent | Succeeds or throws `runtime_error` |
+| `Cuda` | `cuda` | CUDA build, driver, and device dependent | Succeeds or throws `runtime_error` |
+| `Tpu` | `tpu` | TPU build, `libtpu`, and Cloud TPU device dependent | Succeeds or throws `runtime_error` |
 | Unknown value | None | False | Throws `invalid_argument` |
 
 The framework guarantees:
 
-- no silent backend-identity or storage migration from Metal to CPU;
+- no silent backend-identity change from Metal, CUDA, or TPU to CPU;
 - the documented Adam numerical-safety retry executes on the host over the
   original Metal candidate storage;
 - failed selection leaves the previous selection unchanged;
@@ -143,6 +205,28 @@ source library but cache their pipeline construction independently. A neural
 source-compilation failure affects the neural capabilities, while storage,
 matmul, and Adam remain independent; deterministic compilation and pipeline
 failures are cached and rethrown.
+
+For CUDA, availability requires both a CUDA-enabled build and at least one
+device visible through the CUDA runtime. The default build and all standard
+wheels instead compile a recognized unavailable stub: querying
+`execution_backend_available(ExecutionBackend::Cuda)` or
+`backend_available("cuda")` returns false, while explicitly selecting CUDA
+raises the ordinary backend-unavailable error. The stable name and numeric ABI
+value therefore do not depend on how a particular binary was built.
+
+For TPU, availability requires a TPU-enabled Linux x86-64 build, a compatible
+PJRT table exported by `libtpu.so`, and at least one addressable device. The
+loader checks `RIFTCO_TRANSFORMER_TPU_LIBRARY`, then `TPU_LIBRARY_PATH`, then
+the system loader path for `libtpu.so`. Initialization is attempted once and a
+failure is cached. Default builds and standard wheels compile the same stable
+`tpu` identity to an unavailable stub.
+
+Native callers can pair `execution_backend_available(...)` with
+`execution_backend_unavailability_reason(...)` to distinguish a backend that
+was not compiled from a TPU loader, PJRT compatibility, or device-discovery
+failure. The returned view is process-lifetime state and is empty for available
+or unknown backend values. Selection errors and C API error messages include
+the same diagnostic automatically.
 
 `ScopedExecutionBackend` objects must be properly nested and destroyed on the
 same thread that constructed them. The type is non-copyable and non-movable,
@@ -176,6 +260,121 @@ cmake -S . -B build/stub \
 cmake --build build/stub
 ctest --test-dir build/stub --output-on-failure
 ```
+
+CUDA is disabled by default on every platform so ordinary builds and release
+wheels do not acquire a CUDA runtime dependency. Build it explicitly with:
+
+```bash
+cmake -S . -B build/cuda -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON
+cmake --build build/cuda
+ctest --test-dir build/cuda --output-on-failure
+```
+
+This path requires CUDA Toolkit 12 or newer at configure time and a compatible
+NVIDIA driver and GPU at runtime. CUDA and the project's sanitizer option
+cannot currently be enabled in the same build. An installed CUDA-enabled CMake
+package records its CUDA Toolkit dependency for downstream CMake consumers.
+To build the Python package from source with the same option, pass it through
+the build backend:
+
+```bash
+CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON" \
+  python3 -m pip install .
+```
+
+TPU is also disabled by default. Its source adapter compiles without linking
+`libtpu`, then loads the runtime dynamically so a TPU-enabled binary still has
+clean unavailable behavior off-device. Configure it only on Linux x86-64:
+
+```bash
+export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
+cmake --preset tpu-release
+cmake --build --preset tpu-release
+ctest --preset tpu-release
+```
+
+`RIFTCO_TRANSFORMER_TPU_LIBRARY` is the clearest way to select the runtime; the
+loader then falls back to `TPU_LIBRARY_PATH` and `libtpu.so`. Google distributes
+`libtpu` separately for Cloud TPU environments. It is an unavoidable external
+runtime for real TPU execution and is never bundled in this repository or its
+standard wheels. On a real device, configure the preset with
+`-DRIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON` so missing hardware fails the test
+run. The ordinary TPU CI job intentionally verifies only compilation and the
+no-runtime/no-device contract plus fake-PJRT happy paths. The fake checks the
+project's PJRT calls and matmul/attention parity, but it is not a StableHLO
+compiler or a substitute for `libtpu` on real hardware.
+
+## What the CUDA slice does
+
+Each CUDA tensor owns a `cudaMallocManaged` allocation for its lifetime. The
+same pointer is host-visible and device-addressable, so existing tensor,
+artifact, autograd, optimizer, and cache contracts do not need a CUDA-specific
+public representation:
+
+```text
+persistent managed inputs
+          ↓
+CUDA NN, matmul, attention, or Adam-update kernel family
+          ↓
+device synchronization and error check
+          ↓
+persistent managed outputs
+```
+
+The matmul kernel uses a grid-stride loop and produces one output element per
+thread visit. Attention is separated into materialized causal, memory-linear
+Flash causal, and paged-decode modules. Their backward requests also dispatch
+through the captured tensor backend.
+
+The CUDA NN module covers layout, elementwise/GELU, axis reductions,
+softmax/causal softmax, embedding gather/scatter, LayerNorm, and fused
+cross-entropy. Its optimizer module writes Adam's next parameter and moment
+buffers with double intermediates and rejects a whole update batch before live
+state is committed if any candidate is non-finite. Complete model forward,
+backward, Adam, Full fine-tuning, LoRA, exhaustive train/validation/test
+evaluation, artifact capture, and incremental serving retain CUDA tensor
+identity. Host and device access can migrate managed pages, and the framework
+synchronizes each CUDA kernel sequence before returning. Autograd graph
+traversal and Adam's global gradient norm remain host control flow. There are
+no CUDA streams, broad graph fusion, cuBLAS/cuDNN integration,
+device-resident optimizer reductions, or multi-GPU selection. Benchmark the
+exact workload; do not infer a broad speedup merely from `backend="cuda"`.
+
+## What the TPU slice does
+
+TPU storage keeps the public host-readable tensor representation. The runtime
+specializes StableHLO programs for batched matmul, materialized attention
+forward/backward, and paged decode, compiles them through the PJRT C API, and
+caches shape- and operation-specific loaded executables:
+
+```text
+host-mirrored inputs
+        ↓ upload
+one-device PJRT execution of StableHLO
+        ↓ download every result and validate
+atomic commit to host-mirrored outputs
+```
+
+Output is copied into the tensor only after execution and download succeed.
+The runtime validates the PJRT major/minor and every function-table entry it
+uses, initializes once, serializes execution, and supports one process with one
+addressable execution device. The PJRT client, executable cache, and loaded
+`libtpu` mapping intentionally have process lifetime: this avoids calling PJRT
+after `libtpu` has torn down its own process-global state during exit. The OS
+reclaims them. It does not implement multi-host coordination,
+SPMD partitioning, persistent device-resident model state, asynchronous graph
+scheduling, or mixing with another framework's `libtpu` ownership.
+
+Layout, elementwise, normalization, loss, Flash attention, and Adam requests
+execute through audited host reference paths. Matmul—including the two matmuls
+in its autograd rule—plus materialized attention and its VJPs and paged decode
+use PJRT. This makes complete framework workflows testable with
+`backend="tpu"`, but host-mirrored tensors and frequent transfer make it an
+educational integration rather than a performance-ready TPU stack. TPU Flash
+stays on the reference path because a naive StableHLO score matrix would break
+the API's linear-storage Flash contract.
 
 ## What the Metal slice does
 
@@ -242,13 +441,16 @@ erf-form equation and float32 parity without claiming bitwise equality.
 Full-sequence attention has two exact backend requests. The default
 materialized path returns probabilities and context and retains
 `[batch, heads, time, time]` probabilities for its VJPs. The opt-in Flash path
-returns context, processes tile-8 query/key blocks, and saves only
+returns context through a memory-linear traversal and saves only
 `[batch, heads, time]` row maxima and exponential sums. Its backward kernels
 recompute scores and probabilities from `Q`, `K`, and those row statistics
 instead of allocating a global quadratic probability buffer. CPU supplies the
-readable reference implementation; Metal uses tile-8 threadgroup-memory
-forward and backward kernels. The explicit probability-returning diagnostic
-always uses the materialized path.
+readable tile-8 reference implementation; Metal uses tile-8 GPU kernels and
+CUDA uses cooperating thread blocks. TPU runs materialized attention through
+StableHLO but keeps Flash on the CPU reference implementation until a
+genuinely memory-linear StableHLO program can preserve the same storage
+contract. The explicit
+probability-returning diagnostic always uses the materialized path.
 
 Metal Flash scratch usage grows with head width. In float elements, forward
 uses `32*d_h + 96`, while the largest backward phase uses
@@ -261,19 +463,27 @@ attention. The CPU Flash reference has no GPU threadgroup-memory ceiling.
 
 Autograd graph construction, reverse-topological traversal, and gradient-node
 bookkeeping remain host control flow. Local numerical backward rules dispatch
-through the same backend capabilities, so Metal graphs launch Metal VJP
-kernels rather than copying their arithmetic to CPU. Adam's global clipping
-norm remains an overflow-safe host reduction over host-visible shared storage
-before the fused update.
+through the same backend capabilities. Metal and CUDA attention graphs launch
+their backend VJP kernels. TPU matmul and materialized-attention gradients
+dispatch through PJRT, while TPU Flash and the remaining VJPs use host
+reference paths over the TPU tensor's host mirror.
+Adam's global clipping norm remains an overflow-safe host reduction over
+host-visible storage. Metal then uses its fused update with a whole-batch wide
+reference retry when necessary; CUDA uses its double-intermediate native
+candidate-state kernel, and TPU uses the portable Adam reference path.
 
-The runtime remains deliberately synchronous and shared-memory based. Every
-Adapter call completes its command buffer and checks any device status before
-returning. There are no asynchronous streams, private GPU heaps, or scheduling
-of several graph operations into one submission. Small workloads may therefore
-be slower on Metal because launch and synchronization costs dominate. CPU and
-Metal use different floating-point implementations and reduction orders, so
-the contract is numerical parity within operation-appropriate tolerances—not
-bitwise equality.
+The runtime remains deliberately synchronous. Metal finishes its command
+buffer, CUDA synchronizes each kernel sequence, and TPU awaits PJRT execution
+and download before the Adapter call returns. There are no
+asynchronous graph streams or scheduling of several operations into one
+submission. Small workloads may therefore
+be slower on Metal because launch and synchronization costs dominate. CUDA
+kernels have the same per-operation synchronization boundary, and managed-page
+migration can dominate small or host-control-heavy CUDA workloads. TPU transfer
+and shape-specialized compilation can dominate its small workloads. CPU,
+Metal, CUDA, and TPU matmul use different floating-point implementations and
+reduction orders, so the contract is numerical parity within
+operation-appropriate tolerances—not bitwise equality.
 
 ## Incremental attention
 
@@ -284,13 +494,15 @@ request views them as `[H,d_h]`. Key and value pools use
 logical page to a fixed-width physical page ID.
 
 The CPU reference loops over the logical sequence and resolves each K/V
-address through that table. Metal runs the corresponding probability and
-context kernels while reading the same backend-resident page layout. Neither
-backend gathers the complete K/V sequence into a public contiguous tensor.
-This operation is detached and has no backward rule; full-sequence
-materialized or Flash causal attention remains the training/autograd
-operation. Current serving prefill calls this same paged operation one token
-at a time, so the full-sequence Flash selector does not affect serving.
+address through that table. Metal and CUDA run backend-owned probability and
+context kernels while reading the page layout. TPU stages the validated paged
+request through a shape-specialized StableHLO program. No path gathers the
+complete K/V sequence into a public
+contiguous tensor. This operation is detached and has no backward rule;
+full-sequence materialized or Flash causal attention remains the
+training/autograd operation. Current serving prefill calls this same paged
+operation one token at a time, so the full-sequence Flash selector does not
+affect serving.
 
 The serving-level `KeyValueCacheFactory` separates allocation policy from the
 model. `PagedKvCachePool` leases pages from shared per-layer pools;
@@ -356,15 +568,18 @@ flight. Python uses one shared reentrant lock for a model and its derived
 objects, which is why its concurrent `close()` behavior is stronger than the
 raw C contract.
 
-ABI version `0x00020000` represents version 2.0: the upper 16 bits are the
-major and the lower 16 bits are the minor. Version 2.0 is an intentional
-breaking namespace reset. It exports only the `rt_` function/type prefix and
-`RT_` constants; no legacy symbol-prefix aliases are provided. Future major
-changes may break callers, while a minor change may only add compatible API.
-Clients accept the same major and an equal or newer minor. Published status and
-backend integer values must never be renumbered. CMake checks the public
-header's major/minor against the shared-library version during configuration
-so their metadata cannot drift.
+ABI version `0x00020002` represents the current version 2.2: the upper 16 bits
+are the major and the lower 16 bits are the minor. Version 2.0 was the
+intentional breaking namespace reset. It exports only the `rt_` function/type
+prefix and `RT_` constants; no legacy symbol-prefix aliases are provided.
+Version 2.1 additively appends the stable `RT_BACKEND_CUDA = 2` value without
+renumbering CPU (`0`) or Metal (`1`). Version 2.2 additively appends
+`RT_BACKEND_TPU = 3` without changing those values. Future major changes may
+break callers, while a minor change may only add compatible API. Clients accept
+the same major and an equal or newer minor. Published status and backend
+integer values must never be renumbered. CMake checks the public header's
+major/minor against the shared-library version during configuration so their
+metadata cannot drift.
 
 The 2.0 surface includes immutable byte/BPE tokenizer handles and binary-safe
 size-query APIs; exact tokenizer reconstruction; deterministic named-parameter
@@ -398,16 +613,25 @@ metadata. CMake install exports `riftco_transformer::c_api` and
 
 ## Python client
 
-The runtime-dependency-free client in `riftco_transformer.native` uses
+The default runtime-dependency-free client in `riftco_transformer.native` uses
 `ctypes`; the package root re-exports this public low-level API without
 installing a legacy package-name alias. A released platform wheel bundles this
 same C ABI implementation rather than substituting a separate Python numerical
-path:
+path. Only an explicitly TPU-enabled source build adds the external `libtpu`
+runtime:
 
 ```python
 from riftco_transformer import Context, Tensor, backend_available
 
-backend = "metal" if backend_available("metal") else "cpu"
+backend = (
+    "tpu"
+    if backend_available("tpu")
+    else "cuda"
+    if backend_available("cuda")
+    else "metal"
+    if backend_available("metal")
+    else "cpu"
+)
 
 with Context(backend) as context:
     with Tensor.from_data(
@@ -468,7 +692,7 @@ model = DecoderOnlyTransformer(
     config,
     attention="flash",
     activation_checkpointing="block",
-).to("metal")
+).to("cuda")
 optimizer = Adam(model.parameters())
 
 loss = cross_entropy(model(tokens), targets)
@@ -482,7 +706,8 @@ print(loss.item(), stats.gradient_norm)
 `full_sequence_attention` property reports the current policy, and
 `set_full_sequence_attention("flash")` changes future full-sequence forwards.
 The same choice is available as `attention` on `PretrainingConfig` and
-`PostTrainingConfig`. It is independent of `to("cpu" | "metal")` and of the
+`PostTrainingConfig`. It is independent of
+`to("cpu" | "metal" | "cuda" | "tpu")` and of the
 serving session's paged/contiguous cache choice.
 
 `activation_checkpointing` defaults to `"disabled"`. Select `"block"` to
@@ -500,9 +725,10 @@ training corpus. The common `vocabulary` property exposes every token as
 bytes; `vocabulary_bytes` remains available in byte mode.
 
 `encode()`/`decode()` are strict UTF-8 conveniences, while
-`encode_bytes()`/`decode_bytes()` preserve arbitrary bytes. Use `"cpu"` on a
-system without Metal. Tokens and targets may be one flat row or a rectangular
-Python batch and are checked before crossing as `uint32`. Tokenizer
+`encode_bytes()`/`decode_bytes()` preserve arbitrary bytes. Use `"cpu"` when
+no optional accelerator backend is available. Tokens and targets may be one flat row
+or a rectangular Python batch and are checked before crossing as `uint32`.
+Tokenizer
 `Tokenizer.from_state(...)` restores an ordered byte vocabulary or ordered BPE
 merge table without retraining. The higher-level `ModelBundle` stores that
 state beside model configuration, named parameter shapes, float32 weights,
@@ -530,9 +756,11 @@ riftco_transformer/.libs/riftco_transformer_c.dll          Windows
 ```
 
 The library contains the statically linked framework implementation behind the
-stable C ABI. The installed package has no third-party runtime dependencies;
-users of a matching wheel do not need CMake, a C++ compiler, a system-wide
-native installation, or `RIFTCO_TRANSFORMER_LIBRARY`.
+stable C ABI. A standard installed wheel has no third-party runtime
+dependencies; users of a matching wheel do not need CMake, a C++ compiler, a
+system-wide native installation, or `RIFTCO_TRANSFORMER_LIBRARY`. Standard
+wheels recognize `cuda` and `tpu` through ABI 2.2 but build their unavailable
+stubs, so they do not require or silently load CUDA or `libtpu` runtimes.
 
 The initial binary matrix provides Linux `x86_64` and `aarch64` wheels for
 both glibc (`manylinux`) and musl (`musllinux`), macOS `x86_64` and `arm64`,
@@ -548,9 +776,15 @@ Install from a source checkout at the repository root with:
 python3 -m pip install .
 ```
 
-A source install compiles the native C++20 target and therefore needs a
-supported compiler and platform SDK. The build backend and wheel builder are
-build-time tools, not installed runtime dependencies.
+A default source install compiles the native C++20 target and its CUDA and TPU
+stubs. It therefore needs a supported compiler and platform SDK, but no CUDA
+Toolkit or `libtpu`.
+Set `CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON"` only for an explicitly
+CUDA-enabled source build; that build additionally requires CUDA Toolkit 12+
+and a compatible NVIDIA driver/GPU. A TPU-enabled library is built with
+`RIFTCO_TRANSFORMER_ENABLE_TPU=ON` on Linux x86-64 and discovers `libtpu.so` at
+runtime as described above. The build backend and wheel builder are build-time
+tools, not installed runtime dependencies.
 
 For an in-tree native development cycle, the explicit build-and-test route
 remains available:
@@ -608,18 +842,18 @@ an optimizer are alive produces an explicit native error.
 The backend tests compare:
 
 - non-square CPU matmul with hand-calculated values;
-- batched CPU and Metal outputs;
-- CPU and Metal autograd forward values;
-- CPU and Metal left/right gradients;
+- batched CPU/accelerator outputs;
+- CPU/accelerator autograd forward values;
+- CPU/accelerator left/right gradients;
 - deep-copy and CPU/Metal transfer value semantics;
 - backend-preserving tensor operations, autograd values, and gradients;
-- CPU-reference and real-Metal layout, elementwise, reduction, GELU,
+- CPU-reference and conditional-accelerator layout, elementwise, reduction, GELU,
   LayerNorm, softmax/causal-softmax, gather/scatter, cross-entropy, and
   materialized-causal-, Flash-causal-, and paged-decode-attention results;
 - routed forward results and vector-Jacobian products, including repeated-row
   scatter-add, materialized outputs, and Flash recomputing backward;
 - backward behavior after changing the thread-local construction default;
-- multi-step CPU/Metal fused Adam parity, clipping, and momentum tails;
+- multi-step CPU/accelerator Adam parity, clipping, and momentum tails;
 - extreme clipping below scalar `float` range, minimum-normal epsilon, and the
   unclipped minimum-normal boundary;
 - fused-path and reference-retry counters, rounded cancellation, float-square
@@ -629,6 +863,49 @@ The backend tests compare:
 - typed unknown/unavailable errors and transactional selection;
 - explicit-dispatch side-effect freedom;
 - the forced Metal-stub path on an Apple build.
+
+CUDA verification additionally covers its stable name and unavailable-stub
+contract in ordinary builds. A CUDA-enabled NVIDIA system must exercise
+CPU/CUDA transfer, NN-operation parity, matmul/autograd parity, every attention
+forward/VJP, paged decode, Adam update/atomic-failure parity, and full-model,
+Full fine-tuning, LoRA, evaluation, and serving smoke paths. The toolkit-only
+CI job proves compilation and no-device behavior; it cannot establish kernel
+numerical parity without a visible NVIDIA GPU.
+
+TPU verification covers its additive ABI identity, unavailable-stub contract,
+stage/CLI recognition, TPU-runtime source compilation on Linux, and fake-PJRT
+matmul plus materialized/paged-attention execution. On a Cloud TPU host it
+additionally requires CPU/TPU transfer, batched matmul/autograd parity,
+materialized attention/VJP and paged-decode parity, and complete pretraining,
+Full/LoRA, evaluation, and serving smoke paths. Fake PJRT is an API emulator,
+not a StableHLO compiler or real-device acceptance test.
+
+On a real NVIDIA test host, make device absence a hard failure instead of a
+skip:
+
+```bash
+cmake -S . -B build/cuda-gpu -G Ninja \
+  -DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON \
+  -DRIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA=ON
+cmake --build build/cuda-gpu
+ctest --test-dir build/cuda-gpu --output-on-failure
+```
+
+The repository's hosted CUDA workflow is intentionally a compile and
+no-device contract job. It does not replace this real-GPU run.
+
+The equivalent hardware-required Cloud TPU gate is:
+
+```bash
+export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
+cmake --preset tpu-release \
+  -DRIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON
+cmake --build --preset tpu-release
+ctest --preset tpu-release
+```
+
+The hosted TPU workflow covers the compile/no-device boundary and a tests-only
+fake-PJRT execution path. It does not replace this real-device run.
 
 The pure C11 test verifies the ABI independently of C++, including tokenizer
 option validation, method selection, token-piece and merge queries,
@@ -650,8 +927,13 @@ The intended validation matrix is:
 | Release | Optimized-build behavior and ABI/Python execution |
 | ASan + UBSan | Host memory, lifetime, and undefined-behavior checks around the same interfaces |
 | `RIFTCO_TRANSFORMER_ENABLE_METAL=OFF` | Deterministic recognized-but-unavailable stub behavior |
+| Default CUDA-disabled build | Stable `cuda` identity with deterministic unavailable-stub behavior |
+| CUDA Toolkit 12+ on an NVIDIA runner | Managed-storage transfer, GPU matmul parity, and full-framework smoke coverage |
+| Default TPU-disabled build | Stable `tpu` identity with deterministic unavailable-stub behavior |
+| TPU-enabled Linux runner | Dynamic PJRT source boundary, clean runtime-unavailable behavior, and fake-PJRT matmul parity |
+| Google Cloud TPU hardware runner | PJRT matmul parity plus full-framework functional smoke coverage |
 | Installed-package consumer | Public C++ and C targets without private Adapter headers |
 
-Metal comparisons use documented absolute/relative tolerances. Different
-device math and reduction order make bitwise CPU/Metal parity an invalid
-acceptance criterion.
+Metal, CUDA-matmul, and TPU-matmul comparisons use documented absolute/relative
+tolerances. Different device math and reduction order make bitwise
+accelerator/CPU parity an invalid acceptance criterion.

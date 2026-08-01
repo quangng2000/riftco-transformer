@@ -1,6 +1,7 @@
 #include "riftco_transformer/nn/layer_norm.hpp"
 
 #include "core/backend/adapter.hpp"
+#include "core/backend/nn/dispatch.hpp"
 
 #include <cmath>
 #include <memory>

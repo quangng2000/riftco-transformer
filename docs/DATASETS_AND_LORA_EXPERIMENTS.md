@@ -212,8 +212,17 @@ python3 examples/python/compare_lora_ranks.py \
   --max-new-tokens 16
 ```
 
-Use `--backend metal` on a Metal-capable Mac. The base artifact's maximum
-context must be at least the experiment's `--context` value. The `--output`
+Use `--backend metal` on a Metal-capable Mac, `--backend cuda` with the
+optional CUDA Toolkit 12+ source build, or `--backend tpu` with the
+experimental Linux x86-64 Cloud TPU build. CUDA runs its NN, matmul, attention,
+loss, and Adam candidate-state capabilities as native kernels, while its graph
+traversal and gradient norm remain host control flow. TPU accelerates matmul,
+materialized attention, and paged decode while retaining reference paths for
+Flash and the other operations. These remain functional experiment backends
+rather than broad performance claims. The TPU
+path still requires real-hardware
+validation. The base artifact's maximum context must be at least the experiment's
+`--context` value. The `--output`
 directory must not exist: the CLI stages every rank artifact and
 `comparison.json` together, then atomically publishes the complete directory
 without replacing an earlier run. A failed run removes its staging directory.
@@ -227,7 +236,7 @@ Every candidate:
 2. uses the same train, validation, and test fingerprints;
 3. uses the same training seed, adapter-initialization seed, sampling
    strategy, optimizer steps, batch size, context, learning rate, LoRA
-   targets, and resolved backend; and
+   targets, attention/checkpointing policy, and resolved backend; and
 4. keeps `alpha / rank` constant by setting `alpha = rank ×
    alpha_over_rank`.
 
@@ -272,6 +281,49 @@ claim that one merged rank serves faster based on this experiment. Rank
 changes training-time adapter capacity and parameter count, not the topology
 of the merged serving artifact.
 
+## Stage 3: full fine-tuning versus LoRA
+
+Use the same verified prepared dataset to measure both post-training methods
+with one held-out metric:
+
+```bash
+python3 examples/python/compare_fine_tuning.py \
+  --base results/stages/tinystories_pretrained.rift \
+  --data data/external/huggingface/dolly-lora-v1 \
+  --output results/experiments/dolly-full-vs-lora \
+  --methods full,lora \
+  --lora-ranks 1,2,4,8 \
+  --alpha-over-rank 2 \
+  --steps 50 \
+  --context 16 \
+  --batch-size 2 \
+  --full-learning-rate 0.001 \
+  --lora-learning-rate 0.005 \
+  --seed 29 \
+  --adapter-seed 5489 \
+  --sampling-strategy example_uniform \
+  --backend cpu
+```
+
+The full recipe and every LoRA rank start independently from the same base.
+All candidates receive exhaustive train and validation measurements. The
+lowest-validation-loss LoRA rank is fixed before any test forward pass; then
+the base, full recipe, and selected LoRA recipe receive final test scores.
+Nonwinning ranks keep `null` test fields.
+
+`comparison.json` reports held-out loss/perplexity and the generalization gaps
+`validation_loss - train_loss` and `test_loss - train_loss`. It also records
+trainable parameter counts and fractions, making the memory/capacity tradeoff
+visible beside quality. Full and LoRA have separate learning-rate controls;
+the run compares the supplied recipes, not the best possible version of each
+method.
+
+Because the command reports test results for both methods, the test split is
+consumed for that final comparison. Do not adjust rank, learning rate, steps,
+or another choice from those results and rerun the same test. See
+[Post-training generalization](GENERALIZATION.md) for the metric formulas,
+native C++ API, and interpretation limits.
+
 ## Preference data is a future stage
 
 The following command can prepare HH-RLHF for inspecting a future
@@ -299,7 +351,8 @@ PPO, or another preference objective.
 - Keep dataset, source split, offset, limit, selection strategy, page size,
   split seed, and split fractions fixed.
 - Keep all rank-sweep controls fixed except rank and the derived alpha.
-- Select on validation, then inspect the selected test result once.
+- Select on validation, then inspect each final method's test result once and
+  retire that test split.
 - Treat generated text and latency as qualitative smoke checks.
 - Do not compare runs that used different data fingerprints as if only rank
   changed.

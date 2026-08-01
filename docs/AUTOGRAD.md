@@ -9,6 +9,21 @@ If this parameter changes slightly, how does the final loss change?
 The answer is the parameter's gradient. Our implementation applies the chain
 rule to an operation graph built during the forward pass.
 
+The public `Variable` contract stays in
+`include/riftco_transformer/core/autograd.hpp`. Its implementation is split by
+responsibility so each algorithm can be studied independently:
+
+```text
+src/core/autograd/
+├── graph.cpp              # nodes, traversal, accumulation, and VJPs
+├── operations.cpp         # differentiable arithmetic and tensor transforms
+├── custom_gradient.cpp    # validated user-supplied VJP boundary
+├── checkpoint.cpp         # discard-and-recompute activation checkpointing
+└── detail/node.hpp        # private graph-node representation
+```
+
+`detail/node.hpp` is private implementation glue, not a second public API.
+
 ## Tensor versus Variable
 
 `Tensor` remains a plain numeric container:

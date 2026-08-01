@@ -4,7 +4,10 @@
 #include <stdlib.h>
 
 int main(void) {
-    if (rt_abi_version() != RT_ABI_VERSION) {
+    if (rt_abi_version() != RT_ABI_VERSION ||
+        RT_ABI_VERSION_MINOR != UINT32_C(2) ||
+        RT_BACKEND_CUDA != (rt_backend)2 ||
+        RT_BACKEND_TPU != (rt_backend)3) {
         return EXIT_FAILURE;
     }
 
@@ -128,6 +131,36 @@ int main(void) {
             &cpu_available
         ) != RT_STATUS_OK ||
         cpu_available == 0) {
+        return EXIT_FAILURE;
+    }
+
+    int32_t cuda_available = -1;
+    if (rt_backend_is_available(
+            RT_BACKEND_CUDA,
+            &cuda_available
+        ) != RT_STATUS_OK) {
+        return EXIT_FAILURE;
+    }
+    rt_context* cuda_context =
+        (rt_context*)(uintptr_t)1;
+    const rt_status cuda_status = rt_context_create(
+        RT_BACKEND_CUDA,
+        &cuda_context
+    );
+    if (cuda_available != 0) {
+        rt_backend selected = RT_BACKEND_CPU;
+        if (cuda_status != RT_STATUS_OK ||
+            cuda_context == NULL ||
+            rt_context_backend(cuda_context, &selected) !=
+                RT_STATUS_OK ||
+            selected != RT_BACKEND_CUDA) {
+            rt_context_release(cuda_context);
+            return EXIT_FAILURE;
+        }
+        rt_context_release(cuda_context);
+    } else if (cuda_status != RT_STATUS_BACKEND_UNAVAILABLE ||
+               cuda_context != NULL) {
+        rt_context_release(cuda_context);
         return EXIT_FAILURE;
     }
 

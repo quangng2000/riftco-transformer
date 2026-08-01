@@ -23,7 +23,7 @@ namespace {
 
 constexpr const char* kUsage =
     "usage: riftco-transformer [--config path] [--steps count] "
-    "[--metrics path] [--backend cpu|metal] "
+    "[--metrics path] [--backend cpu|metal|cuda|tpu] "
     "[--attention materialized|flash] "
     "[--activation-checkpointing disabled|block]";
 
@@ -63,8 +63,14 @@ riftco_transformer::ExecutionBackend parse_backend(
     if (value == "metal") {
         return riftco_transformer::ExecutionBackend::Metal;
     }
+    if (value == "cuda") {
+        return riftco_transformer::ExecutionBackend::Cuda;
+    }
+    if (value == "tpu") {
+        return riftco_transformer::ExecutionBackend::Tpu;
+    }
     throw std::runtime_error(
-        "--backend must be 'cpu' or 'metal'"
+        "--backend must be 'cpu', 'metal', 'cuda', or 'tpu'"
     );
 }
 

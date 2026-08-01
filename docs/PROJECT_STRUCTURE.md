@@ -21,7 +21,7 @@ model ────────────→ nn ─────→ core
 
 Python pretraining/post-training ──→ Python shared training ──→ C ABI
 Python dataset preparation ────────→ stdlib HTTP/JSON + prepared files
-Python rank experiments ───────────→ artifacts + post_training + serving
+Python tuning experiments ─────────→ artifacts + post_training + evaluation
 Python serving ──→ Python ModelBundle + generation ──────────→ C ABI
 ```
 
@@ -73,9 +73,10 @@ Python serving ──→ Python ModelBundle + generation ───────�
   serialization, provenance manifests, and prepared-file verification. It
   does not own a training objective.
 - `python/riftco_transformer/experiments` composes existing artifact,
-  post-training, evaluation, and serving APIs into controlled comparisons.
-  The LoRA-rank experiment verifies prepared splits, fixes shared controls,
-  selects on validation, and defers test evaluation until after selection.
+  post-training, and evaluation APIs into controlled comparisons. The generic
+  fine-tuning experiment compares full and LoRA recipes, while the specialized
+  rank experiment preserves rank-only selection. Both verify prepared splits,
+  select on validation, and defer test evaluation until after selection.
 - `python/riftco_transformer/training` owns stage-neutral batching, evaluation,
   and optimizer-loop policy. The `pretraining` and `post_training` packages
   configure that engine rather than duplicating it.
@@ -108,7 +109,25 @@ implementation uses the corresponding path below `src/`:
 
 ```text
 include/riftco_transformer/core/tensor.hpp
-src/core/tensor.cpp
+src/core/tensor/
+  storage.cpp
+  layout.cpp
+
+include/riftco_transformer/core/tensor_ops.hpp
+src/core/tensor/
+  elementwise.cpp
+  matmul.cpp
+  layout_ops.cpp
+  indexing.cpp
+  reductions.cpp
+  softmax.cpp
+
+include/riftco_transformer/core/autograd.hpp
+src/core/autograd/
+  graph.cpp
+  operations.cpp
+  custom_gradient.cpp
+  checkpoint.cpp
 
 include/riftco_transformer/model/feed_forward.hpp
 src/model/feed_forward.cpp
@@ -136,7 +155,7 @@ module and parameter lifecycle
 
 public custom-gradient operation
   include/riftco_transformer/core/autograd.hpp
-  src/core/autograd.cpp
+  src/core/autograd/custom_gradient.cpp
   tests/core/test_autograd.cpp
   docs/AUTOGRAD.md
 
@@ -159,7 +178,7 @@ decoder-only transformer
 
 activation checkpoint primitive
   include/riftco_transformer/core/autograd.hpp
-  src/core/autograd.cpp
+  src/core/autograd/checkpoint.cpp
   tests/core/test_autograd.cpp
   docs/ACTIVATION_CHECKPOINTING.md
 
@@ -221,37 +240,92 @@ native pretraining CLI
 
 execution backends
   include/riftco_transformer/core/backend.hpp
-  src/core/backend/storage.hpp
-  src/core/backend/adapter.hpp
-  src/core/backend/attention/
-    contracts.hpp
-    capability.hpp
-    dispatch.hpp
-    dispatch.cpp
-    reference/
-      materialized_causal.hpp
-      materialized_causal.cpp
-      flash_causal.hpp
-      flash_causal.cpp
-      paged_decode.hpp
-      paged_decode.cpp
-    metal/
-      materialized_causal_kernels.hpp
-      flash_causal_kernels.hpp
-      paged_decode_kernels.hpp
-  src/core/backend/adam_reference.hpp
-  src/core/backend/adam_reference.cpp
-  src/core/backend/nn_reference.hpp
-  src/core/backend/nn_reference.cpp
-  src/core/backend/metal_diagnostics.hpp
-  src/core/backend/registry.cpp
-  src/core/backend/cpu_adapter.cpp
-  src/core/backend/metal_adapter.mm
-  src/core/backend/metal_nn_runtime.hpp
-  src/core/backend/metal_nn_runtime.mm
-  src/core/backend/metal_adapter_stub.cpp
+  src/core/backend/
+    storage.hpp                       shared storage contract
+    adapter.hpp                       composition facade for capabilities
+    registry.cpp                      closed backend selection
+    unavailable_adapter.hpp           shared optional-backend stub
+    adapters/
+      cpu/adapter.cpp
+      cuda/adapter.cu
+      cuda/stub.cpp
+      metal/adapter.mm
+      metal/stub.cpp
+      metal/runtime.mm
+      tpu/adapter.cpp
+      tpu/stub.cpp
+      tpu/compile_options.hpp
+      tpu/runtime.hpp
+      tpu/runtime.cpp
+    attention/
+      contracts.hpp
+      capability.hpp
+      dispatch.hpp
+      dispatch.cpp
+      reference/
+        materialized_causal.hpp
+        materialized_causal.cpp
+        flash_causal.hpp
+        flash_causal.cpp
+        paged_decode.hpp
+        paged_decode.cpp
+      cuda/
+        launch.hpp
+        common.cuh
+        materialized_causal.cu
+        flash_causal.cu
+        paged_decode.cu
+      metal/
+        launch.hpp
+        materialized_causal_kernels.hpp
+        flash_causal_kernels.hpp
+        paged_decode_kernels.hpp
+      tpu/
+        common.hpp
+        materialized_causal.hpp
+        materialized_causal.cpp
+        paged_decode.hpp
+        paged_decode.cpp
+    nn/
+      contracts.hpp
+      capability.hpp
+      dispatch.hpp
+      dispatch.cpp
+      reference/
+        operations.hpp
+        operations.cpp
+      cuda/
+        launch.hpp
+        common.cuh
+        elementwise.cu
+        reduction.cu
+        layout.cu
+        softmax.cu
+        indexing.cu
+        normalization.cu
+        loss.cu
+      metal/
+        kernels.hpp
+        launch.hpp
+    optim/adam/
+      contracts.hpp
+      capability.hpp
+      dispatch.hpp
+      dispatch.cpp
+      reference/
+        update.hpp
+        update.cpp
+      cuda/
+        launch.hpp
+        update.cu
+      metal/
+        kernels.hpp
+        launch.hpp
+        diagnostics.hpp
+  third_party/pjrt/                   pinned PJRT C ABI header and license
   tests/core/backend/test_backend.cpp
   tests/core/backend/test_nn_backend.cpp
+  tests/fakes/fake_pjrt_tpu.cpp       tests-only PJRT boundary emulator
 
 C ABI and Python
   include/riftco_transformer/c_api.h
@@ -270,12 +344,14 @@ C ABI and Python
       serialization.py            canonical JSONL/plain-text writers
       preparation.py              atomic output and provenance verification
     experiments/
+      fine_tuning.py               full/LoRA generalization comparison
       lora_rank.py                validation-selected rank comparison
     training/
       engine.py                   shared batches and optimizer loop
     pretraining/
       pipeline.py                 stage 1 orchestration
     post_training/
+      evaluation.py               split integrity and exhaustive scoring
       pipeline.py                 stage 2 orchestration
     serving/
       generation.py               sampling and ABI decode-session orchestration
@@ -283,9 +359,11 @@ C ABI and Python
       http.py                     local JSON HTTP adapter
   examples/python/
     prepare_huggingface_data.py   bounded dataset preparation CLI
+    compare_fine_tuning.py        full-versus-LoRA generalization CLI
     compare_lora_ranks.py         reproducible LoRA-rank CLI
   tests/python/test_python_binding.py
   tests/python/test_huggingface_data.py
+  tests/python/test_fine_tuning_experiment.py
   tests/python/test_lora_rank_experiment.py
   tests/python/test_generation.py
   tests/python/test_stage_stack.py
@@ -301,8 +379,9 @@ Downloaded corpora are generated inputs below ignored `data/external/`;
 experiment bundles and summaries are generated outputs below ignored
 `results/`. Their manifests and fingerprints should be retained with
 experimental records rather than committed as framework source. The data
-preparation and rank-selection contracts are documented in
-`docs/DATASETS_AND_LORA_EXPERIMENTS.md`.
+preparation and selection contracts are documented in
+`docs/DATASETS_AND_LORA_EXPERIMENTS.md`; metric definitions and the native
+split-aware stage are documented in `docs/GENERALIZATION.md`.
 Avoid generic helper directories: a helper should live with the domain that
 owns its behavior.
 
@@ -368,20 +447,32 @@ The `src/core/backend/` folder mirrors the design roles:
 | `attention/capability.hpp` | Attention-only Adapter interface |
 | `attention/dispatch.*` | Backend selection plus attention contract and alias validation |
 | `attention/reference/*` | Readable CPU materialized-causal, tile-8 Flash-causal, and paged-decode algorithms |
+| `attention/cuda/*` | Native CUDA materialized-causal, memory-linear Flash-causal, and paged-decode launchers/kernels |
 | `attention/metal/*` | Focused materialized, tile-8 Flash, and paged-decode Metal shader-source families |
-| `adam_reference.hpp/.cpp` | Shared wide-intermediate Adam retry semantics |
-| `nn_reference.hpp/.cpp` | Shared readable CPU math for non-attention neural requests |
-| `metal_diagnostics.hpp` | Private fused-versus-reference path counters used by tests |
+| `attention/tpu/*` | Shape-specialized StableHLO materialized-causal and paged-decode programs; Flash intentionally remains reference-backed |
+| `nn/contracts.hpp` | Elementwise, reduction, layout, softmax, indexing, normalization, and loss request shapes |
+| `nn/capability.hpp` | Segregated NN Adapter interfaces |
+| `nn/dispatch.*` | Backend selection plus NN shape, storage, and alias validation |
+| `nn/reference/*` | Shared readable host math and the CPU/TPU semantic oracle |
+| `nn/cuda/*` | Native synchronous CUDA launchers/kernels for every NN request |
+| `nn/metal/*` | Native Metal NN shader source and launch boundary into the shared runtime |
+| `optim/adam/contracts.hpp` | Transactional out-of-place Adam batch request |
+| `optim/adam/capability.hpp` | Adam-only Adapter interface |
+| `optim/adam/dispatch.*` | Backend selection plus Adam scalar, storage, and candidate-alias validation |
+| `optim/adam/reference/*` | Shared double-intermediate Adam semantics used by CPU, TPU, and Metal safety retry |
+| `optim/adam/cuda/*` | Native double-intermediate CUDA candidate-state update |
+| `optim/adam/metal/*` | Fused Metal shader source, launch boundary, and path diagnostics |
 | `registry.cpp` | Backend identity lookup, availability, and selection |
-| `cpu_adapter.cpp` | CPU storage, matmul, and reference-operation delegation |
-| `metal_adapter.mm` | Apple Metal storage, matmul/Adam pipelines, and Adapter facade |
-| `metal_nn_runtime.hpp/.mm` | Shared lazy Metal compilation, buffers, queues, and neural dispatch |
-| `metal_adapter_stub.cpp` | Recognized-but-unavailable behavior elsewhere |
+| `adapters/cpu/adapter.cpp` | CPU storage, matmul, and reference-operation delegation |
+| `adapters/metal/*` | Apple Metal adapter/stub and shared lazy kernel runtime |
+| `adapters/cuda/*` | Optional managed CUDA adapter, native capability delegation, and default-build stub |
+| `adapters/tpu/*` | Optional host-mirrored TPU adapter, generic dynamic PJRT runtime, and default-build stub |
+| `unavailable_adapter.hpp` | Shared closed-registry stub implementation for optional backends |
 
 This structure applies the useful parts of SOLID without hiding control flow:
 
-- **Single responsibility:** selection, CPU math, and Metal integration live in
-  separate files.
+- **Single responsibility:** shared contracts, portable reference math, backend
+  selection, and each device integration live in separate subtrees.
 - **Open/closed:** a built-in backend adds one adapter and one explicit registry
   entry; tensor, autograd, model, C ABI, and Python code do not change unless
   that backend is exposed through those public surfaces.
@@ -391,9 +482,15 @@ This structure applies the useful parts of SOLID without hiding control flow:
   softmax, indexing, normalization, loss, attention, and Adam remain focused
   capability interfaces rather than one unstructured device API.
 - **Dependency inversion:** `tensor_ops` dispatches through `BackendAdapter`;
-  it never includes CPU, Objective-C, or Metal implementation details.
+  it never includes CPU, Objective-C, Metal, CUDA, or PJRT implementation
+  details.
 
 The registry remains explicit rather than using static self-registration.
 That makes startup order, duplicate identity, and adapter lifetime behavior
 deterministic. Future kernels should extend or add focused capability
 interfaces instead of accumulating unrelated methods in one contract.
+
+There are deliberately no empty `nn/tpu/` or `optim/adam/tpu/` directories.
+The TPU adapter names those two fallbacks by calling the shared reference
+modules directly; a TPU-specific subtree should appear only when it owns a
+real PJRT/StableHLO implementation.

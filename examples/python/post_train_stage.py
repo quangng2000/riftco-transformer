@@ -71,9 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--backend",
-        choices=("auto", "cpu", "metal"),
+        choices=("auto", "cpu", "metal", "cuda", "tpu"),
         default="auto",
-        help="Execution backend; auto prefers Metal when available.",
+        help=(
+            "Execution backend; auto prefers TPU, then CUDA, Metal, and CPU."
+        ),
     )
     parser.add_argument(
         "--attention",

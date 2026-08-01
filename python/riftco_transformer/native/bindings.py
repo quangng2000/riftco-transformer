@@ -15,7 +15,7 @@ from typing import Iterable, Sequence
 
 
 ABI_VERSION_MAJOR = 2
-ABI_VERSION_MINOR = 0
+ABI_VERSION_MINOR = 2
 ABI_VERSION = (ABI_VERSION_MAJOR << 16) | ABI_VERSION_MINOR
 
 STATUS_OK = 0
@@ -29,6 +29,8 @@ STATUS_UNKNOWN_ERROR = 255
 
 BACKEND_CPU = 0
 BACKEND_METAL = 1
+BACKEND_CUDA = 2
+BACKEND_TPU = 3
 
 FULL_SEQUENCE_ATTENTION_MATERIALIZED = 0
 FULL_SEQUENCE_ATTENTION_FLASH = 1
@@ -57,6 +59,8 @@ LORA_TARGET_ALL_LINEAR = (1 << 7) - 1
 _BACKEND_CODES = {
     "cpu": BACKEND_CPU,
     "metal": BACKEND_METAL,
+    "cuda": BACKEND_CUDA,
+    "tpu": BACKEND_TPU,
 }
 _BACKEND_NAMES = {
     value: key for key, value in _BACKEND_CODES.items()
@@ -848,20 +852,25 @@ def _backend_code(backend: str | int) -> int:
             return _BACKEND_CODES[backend.strip().lower()]
         except KeyError as error:
             raise ValueError(
-                f"unknown backend {backend!r}; expected 'cpu' or 'metal'"
+                f"unknown backend {backend!r}; expected 'cpu', 'metal', "
+                "'cuda', or 'tpu'"
             ) from error
 
     if isinstance(backend, bool):
-        raise TypeError("backend must be 'cpu', 'metal', 0, or 1")
+        raise TypeError(
+            "backend must be 'cpu', 'metal', 'cuda', 'tpu', "
+            "0, 1, 2, or 3"
+        )
     try:
         value = operator.index(backend)
     except TypeError as error:
         raise TypeError(
-            "backend must be 'cpu', 'metal', 0, or 1"
+            "backend must be 'cpu', 'metal', 'cuda', 'tpu', "
+            "0, 1, 2, or 3"
         ) from error
     if value not in _BACKEND_NAMES:
         raise ValueError(
-            f"unknown backend {value!r}; expected 0 or 1"
+            f"unknown backend {value!r}; expected 0, 1, 2, or 3"
         )
     return value
 
@@ -1723,7 +1732,7 @@ class Tokenizer:
 
 
 class Context:
-    """Owns a CPU or Metal backend selection for tensor construction."""
+    """Owns a CPU, Metal, CUDA, or TPU selection for tensor construction."""
 
     __slots__ = ("_handle", "_lock", "__weakref__")
 
@@ -3210,6 +3219,8 @@ __all__ = [
     "ABI_VERSION_MINOR",
     "BACKEND_CPU",
     "BACKEND_METAL",
+    "BACKEND_CUDA",
+    "BACKEND_TPU",
     "ACTIVATION_CHECKPOINTING_DISABLED",
     "ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK",
     "FULL_SEQUENCE_ATTENTION_FLASH",

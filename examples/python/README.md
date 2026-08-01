@@ -13,6 +13,7 @@ examples/python/
 ├── prepare_huggingface_data.py
 ├── pretrain_stage.py
 ├── post_train_stage.py
+├── compare_fine_tuning.py
 ├── compare_lora_ranks.py
 └── serve_stage.py
 ```
@@ -25,11 +26,41 @@ python3 -m pip install .
 
 After a release is available on PyPI, `python3 -m pip install riftco-transformer`
 provides the same self-contained package without a source checkout or compiler.
-The wheel has no third-party runtime dependencies. Run the local example with:
+The standard wheel has no third-party runtime dependencies. It recognizes the
+`cuda` and `tpu` backends but contains their unavailable stubs; both require
+explicit source builds. Run the local example with:
 
 ```bash
 python3 examples/python/train_tiny.py
 ```
+
+To install the CUDA backend, use an NVIDIA GPU and compatible driver
+with CUDA Toolkit 12 or newer:
+
+```bash
+CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON" \
+  python3 -m pip install .
+```
+
+CUDA tensors use managed memory. Matmul, materialized/Flash attention and its
+gradients, and paged decode run as native GPU kernels; other operations use
+synchronous reference implementations over that storage. The examples are
+functionally supported, but selecting CUDA alone is not evidence that the
+complete run is GPU-accelerated or faster.
+
+The experimental TPU path requires Linux x86-64, a Google Cloud TPU, and
+Google's separately installed `libtpu.so`:
+
+```bash
+export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
+CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_TPU=ON" \
+  python3 -m pip install .
+```
+
+TPU matmul, materialized attention and its gradients, and paged decode run
+through PJRT/StableHLO; Flash attention and other operations use host reference
+paths. The examples are functionally wired, but real-hardware validation is
+pending and this phase does not claim end-to-end TPU acceleration.
 
 For the artifact-based workflow, run the three explicit stage commands:
 
@@ -131,11 +162,30 @@ checks rather than rank-speed evidence. The output directory must not exist;
 the CLI stages and atomically publishes the complete run. Its
 `comparison.json` embeds the verified prepared manifest and manifest SHA-256.
 
+Compare a fixed Full recipe with validation-selected LoRA ranks under the same
+held-out protocol:
+
+```bash
+python3 examples/python/compare_fine_tuning.py \
+  --base results/stages/tinystories_pretrained.rift \
+  --data data/external/huggingface/dolly-lora-v1 \
+  --output results/experiments/full-vs-lora \
+  --methods full,lora \
+  --lora-ranks 1,2,4,8 \
+  --backend cpu
+```
+
+Use `--backend cuda` with the CUDA-enabled source build or `--backend tpu` with
+the experimental TPU-enabled Cloud TPU build. Training,
+validation-based selection, and final held-out evaluation use one resolved
+backend for all candidates. The final test comparison consumes that test
+split; retire it rather than tuning against the result.
+
 HH-RLHF is prepared only as `chosen`/`rejected` preference data. The current
 SFT and rank scripts do not consume it because the lab has no pairwise
 preference objective yet. See
 [the full data and experiment guide](../../docs/DATASETS_AND_LORA_EXPERIMENTS.md)
-for dataset-card and license links, CPU/Metal sample-size guidance, and every
+for dataset-card and license links, sample-size guidance, and every
 reproducibility caveat.
 
 Select adapter-only LoRA post-training while keeping the output artifact
@@ -154,12 +204,15 @@ weights, and then saves the ordinary child `.rift` bundle. See
 [the LoRA guide](../../docs/LORA.md) for target selection, direct APIs, and
 the current adapter-checkpoint limitation.
 
-The script selects Metal when available and otherwise uses CPU. A backend can
-also be selected explicitly:
+The scripts' `auto` setting selects TPU when available, then CUDA, Metal, and
+CPU. A backend can also be selected explicitly; an unavailable explicit
+backend is an error:
 
 ```bash
 python3 examples/python/train_tiny.py --backend cpu --steps 3
 ```
+
+The accepted explicit names are `cpu`, `metal`, `cuda`, and `tpu`.
 
 Add `--activation-checkpointing block` to recompute transformer blocks during
 backward and reduce retained activation graph state. The default is

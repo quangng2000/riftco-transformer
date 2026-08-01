@@ -123,14 +123,28 @@ class TrainingMetric:
 
 
 def selected_backend(requested: str) -> str:
-    """Resolve ``auto`` and reject an unavailable explicitly requested GPU."""
+    """Resolve ``auto`` and reject an unavailable requested accelerator."""
 
-    if requested not in {"auto", "cpu", "metal"}:
-        raise ValueError("backend must be 'auto', 'cpu', or 'metal'")
+    if requested not in {"auto", "cpu", "metal", "cuda", "tpu"}:
+        raise ValueError(
+            "backend must be 'auto', 'cpu', 'metal', 'cuda', or 'tpu'"
+        )
     if requested == "auto":
-        return "metal" if backend_available("metal") else "cpu"
-    if requested == "metal" and not backend_available("metal"):
-        raise RuntimeError("Metal was requested but is unavailable")
+        for accelerated in ("tpu", "cuda", "metal"):
+            if backend_available(accelerated):
+                return accelerated
+        return "cpu"
+    if requested in {"metal", "cuda", "tpu"} and not backend_available(
+        requested
+    ):
+        display_name = {
+            "metal": "Metal",
+            "cuda": "CUDA",
+            "tpu": "TPU",
+        }[requested]
+        raise RuntimeError(
+            f"{display_name} was requested but is unavailable"
+        )
     return requested
 
 

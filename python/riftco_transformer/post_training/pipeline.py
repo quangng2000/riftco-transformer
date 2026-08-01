@@ -21,6 +21,13 @@ from ..training import (
 
 
 FULL_SEQUENCE_OBJECTIVE = "full_sequence_causal_sft"
+_ASCII_WHITESPACE = " \t\n\r\f\v"
+
+
+def _trim_ascii(value: str) -> str:
+    """Match the native UTF-8 formatter's locale-independent trimming."""
+
+    return value.strip(_ASCII_WHITESPACE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +42,9 @@ class InstructionExample:
             raise TypeError("instruction prompt must be a str")
         if not isinstance(self.response, str):
             raise TypeError("instruction response must be a str")
-        if not self.prompt.strip():
+        if not _trim_ascii(self.prompt):
             raise ValueError("instruction prompt must not be blank")
-        if not self.response.strip():
+        if not _trim_ascii(self.response):
             raise ValueError("instruction response must not be blank")
 
 
@@ -58,11 +65,11 @@ class PlainChatFormatter:
 
         if not isinstance(prompt, str):
             raise TypeError("prompt must be a str")
-        if not prompt.strip():
+        if not _trim_ascii(prompt):
             raise ValueError("prompt must not be blank")
         return (
             "### User:\n"
-            f"{prompt.strip()}\n"
+            f"{_trim_ascii(prompt)}\n"
             "### Assistant:\n"
         )
 
@@ -71,7 +78,7 @@ class PlainChatFormatter:
             raise TypeError("example must be an InstructionExample")
         return (
             self.format_prompt(example.prompt)
-            + f"{example.response.strip()}\n"
+            + f"{_trim_ascii(example.response)}\n"
         )
 
 
@@ -109,8 +116,10 @@ class PostTrainingConfig:
         )
         if learning_rate <= 0.0:
             raise ValueError("learning_rate must be greater than zero")
-        if self.backend not in {"auto", "cpu", "metal"}:
-            raise ValueError("backend must be 'auto', 'cpu', or 'metal'")
+        if self.backend not in {"auto", "cpu", "metal", "cuda", "tpu"}:
+            raise ValueError(
+                "backend must be 'auto', 'cpu', 'metal', 'cuda', or 'tpu'"
+            )
         if self.attention not in {"materialized", "flash"}:
             raise ValueError(
                 "attention must be 'materialized' or 'flash'"

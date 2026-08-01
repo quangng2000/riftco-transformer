@@ -331,16 +331,28 @@ riftco_transformer::ExecutionBackend checked_backend(
         case RT_BACKEND_METAL:
             result = riftco_transformer::ExecutionBackend::Metal;
             break;
+        case RT_BACKEND_CUDA:
+            result = riftco_transformer::ExecutionBackend::Cuda;
+            break;
+        case RT_BACKEND_TPU:
+            result = riftco_transformer::ExecutionBackend::Tpu;
+            break;
         default:
             throw std::invalid_argument("unknown C API backend");
     }
     if (!riftco_transformer::execution_backend_available(result)) {
-        throw BackendUnavailable(
-            std::string(
-                riftco_transformer::execution_backend_name(result)
-            ) +
-            " execution backend is unavailable"
-        );
+        std::string message = std::string(
+            riftco_transformer::execution_backend_name(result)
+        ) + " execution backend is unavailable";
+        const std::string_view reason =
+            riftco_transformer::execution_backend_unavailability_reason(
+                result
+            );
+        if (!reason.empty()) {
+            message += ": ";
+            message += reason;
+        }
+        throw BackendUnavailable(message);
     }
     return result;
 }
@@ -353,6 +365,10 @@ rt_backend c_backend(
             return RT_BACKEND_CPU;
         case riftco_transformer::ExecutionBackend::Metal:
             return RT_BACKEND_METAL;
+        case riftco_transformer::ExecutionBackend::Cuda:
+            return RT_BACKEND_CUDA;
+        case riftco_transformer::ExecutionBackend::Tpu:
+            return RT_BACKEND_TPU;
     }
     throw std::invalid_argument("unknown native backend");
 }
@@ -1478,6 +1494,14 @@ rt_status RT_CALL rt_backend_is_available(
             case RT_BACKEND_METAL:
                 native =
                     riftco_transformer::ExecutionBackend::Metal;
+                break;
+            case RT_BACKEND_CUDA:
+                native =
+                    riftco_transformer::ExecutionBackend::Cuda;
+                break;
+            case RT_BACKEND_TPU:
+                native =
+                    riftco_transformer::ExecutionBackend::Tpu;
                 break;
             default:
                 throw std::invalid_argument(

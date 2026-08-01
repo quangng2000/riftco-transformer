@@ -565,11 +565,36 @@ class LoraRankExperimentTests(unittest.TestCase):
                     metadata["sampling_strategy"],
                     "example_uniform",
                 )
+                self.assertEqual(metadata["attention"], "materialized")
+                self.assertEqual(
+                    metadata["activation_checkpointing"],
+                    "disabled",
+                )
                 self.assertEqual(metadata["lora"]["random_seed"], 37)
                 self.assertEqual(
                     metadata["lora"]["rank"],
                     expected_rank,
                 )
+
+    def test_accelerator_configuration_and_cli_parsing(self) -> None:
+        for backend in ("cuda", "tpu"):
+            with self.subTest(backend=backend):
+                config = LoraRankExperimentConfig(
+                    ranks=(1,),
+                    backend=backend,
+                )
+                self.assertEqual(config.backend, backend)
+                arguments = rank_cli.build_parser().parse_args(
+                    [
+                        "--base",
+                        "base.rift",
+                        "--data",
+                        "prepared",
+                        "--backend",
+                        backend,
+                    ]
+                )
+                self.assertEqual(arguments.backend, backend)
 
     def test_configuration_and_overlap_validation(self) -> None:
         for ranks, error_type in (
@@ -581,6 +606,51 @@ class LoraRankExperimentTests(unittest.TestCase):
             with self.subTest(ranks=ranks):
                 with self.assertRaises(error_type):
                     LoraRankExperimentConfig(ranks=ranks)
+
+        with self.assertRaisesRegex(ValueError, "attention"):
+            LoraRankExperimentConfig(attention="unknown")
+        with self.assertRaisesRegex(ValueError, "activation_checkpointing"):
+            LoraRankExperimentConfig(
+                activation_checkpointing="unknown"
+            )
+
+        positional = LoraRankExperimentConfig(
+            (1,),
+            2.0,
+            ("attention.query", "attention.value"),
+            11,
+            13,
+            1,
+            2,
+            1,
+            1,
+            1,
+            1.0e-3,
+            "cpu",
+            "example_uniform",
+            2,
+            True,
+            3,
+            "paged",
+            4,
+        )
+        self.assertEqual(positional.evaluation_context_size, 2)
+        self.assertEqual(positional.kv_cache_block_size, 4)
+        self.assertEqual(positional.attention, "materialized")
+        self.assertEqual(positional.activation_checkpointing, "disabled")
+
+        unicode_space = "\N{NO-BREAK SPACE}"
+        unicode_example = InstructionExample(
+            f"{unicode_space}prompt{unicode_space}",
+            f"{unicode_space}response{unicode_space}",
+        )
+        self.assertEqual(
+            PlainChatFormatter().format(unicode_example),
+            "### User:\n"
+            f"{unicode_space}prompt{unicode_space}\n"
+            "### Assistant:\n"
+            f"{unicode_space}response{unicode_space}\n",
+        )
 
         overlapping = InstructionSplits(
             train=(InstructionExample("ab", "cd"),),

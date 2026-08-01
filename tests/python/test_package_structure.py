@@ -18,9 +18,15 @@ import riftco_transformer.training
 from riftco_transformer import Tensor
 from riftco_transformer.artifacts import ModelBundle
 from riftco_transformer.data import HuggingFaceDatasetClient
-from riftco_transformer.experiments import LoraRankExperimentConfig
+from riftco_transformer.experiments import (
+    FineTuningExperimentConfig,
+    LoraRankExperimentConfig,
+)
 from riftco_transformer.native import Tensor as NativeTensor
-from riftco_transformer.post_training import PostTrainingConfig
+from riftco_transformer.post_training import (
+    CausalEvaluation,
+    PostTrainingConfig,
+)
 from riftco_transformer.pretraining import PretrainingConfig
 from riftco_transformer.serving import (
     ModelService,
@@ -38,9 +44,15 @@ class PackageStructureTests(unittest.TestCase):
             LoraRankExperimentConfig: (
                 "riftco_transformer.experiments.lora_rank"
             ),
+            FineTuningExperimentConfig: (
+                "riftco_transformer.experiments.fine_tuning"
+            ),
             CausalLanguageModelTrainer: "riftco_transformer.training.engine",
             PretrainingConfig: "riftco_transformer.pretraining.pipeline",
             PostTrainingConfig: "riftco_transformer.post_training.pipeline",
+            CausalEvaluation: (
+                "riftco_transformer.post_training.evaluation"
+            ),
             TextGenerator: "riftco_transformer.serving.generation",
             ModelService: "riftco_transformer.serving.service",
             create_http_server: "riftco_transformer.serving.http",
@@ -52,6 +64,18 @@ class PackageStructureTests(unittest.TestCase):
 
     def test_root_reexports_native_objects(self) -> None:
         self.assertIs(Tensor, NativeTensor)
+        self.assertEqual(riftco_transformer.BACKEND_CUDA, 2)
+        self.assertEqual(
+            riftco_transformer.BACKEND_CUDA,
+            riftco_transformer.native.BACKEND_CUDA,
+        )
+        self.assertIn("BACKEND_CUDA", riftco_transformer.__all__)
+        self.assertEqual(riftco_transformer.BACKEND_TPU, 3)
+        self.assertEqual(
+            riftco_transformer.BACKEND_TPU,
+            riftco_transformer.native.BACKEND_TPU,
+        )
+        self.assertIn("BACKEND_TPU", riftco_transformer.__all__)
 
     def test_stage_names_are_physical_packages(self) -> None:
         packages = (

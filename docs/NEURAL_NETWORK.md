@@ -200,7 +200,7 @@ precise.
 
 ## Backend execution
 
-The layers contain no CPU- or Metal-specific branches. They construct validated
+The layers contain no device-specific branches. They construct validated
 requests and let the input tensor backend choose the Adapter:
 
 - embedding uses row-gather forward and repeated-row scatter-add backward;
@@ -211,9 +211,13 @@ requests and let the input tensor backend choose the Adapter:
 - cross-entropy computes a stable mean loss and saved base gradient in one
   backend request.
 
-CPU implements these contracts in `backend/nn_reference.cpp`; attention has
-its own reference implementations under `backend/attention/reference/`. Metal
-executes them over persistent shared buffers and waits before each call returns.
+CPU implements these contracts in `backend/nn/reference/`; attention has its
+own reference implementations under `backend/attention/reference/`. Metal and
+CUDA execute the NN contracts and attention over persistent
+accelerator-visible buffers. TPU sends materialized attention and paged decode
+through PJRT but retains the reference Flash path; its non-attention NN
+requests also use the synchronous reference contracts over host-mirrored
+storage.
 Different reduction order and device math mean the parity contract uses
 tolerances rather than bitwise equality.
 

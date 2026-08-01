@@ -1,0 +1,22 @@
+name: TPU source boundary
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-without-device:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+      - name: Configure the optional PJRT adapter
+        run: cmake --preset tpu-release
+      - name: Build
+        run: cmake --build --preset tpu-release --parallel 2
+      - name: Test unavailable and fake-PJRT execution paths
+        run: ctest --preset tpu-release

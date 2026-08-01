@@ -1,5 +1,12 @@
 """Reproducible, dependency-free experiment orchestration."""
 
+from .fine_tuning import (
+    FineTuningCandidate,
+    FineTuningComparison,
+    FineTuningExperimentConfig,
+    FineTuningTrial,
+    compare_fine_tuning,
+)
 from .lora_rank import (
     CausalEvaluation,
     DatasetFingerprints,
@@ -20,6 +27,10 @@ from .lora_rank import (
 __all__ = [
     "CausalEvaluation",
     "DatasetFingerprints",
+    "FineTuningCandidate",
+    "FineTuningComparison",
+    "FineTuningExperimentConfig",
+    "FineTuningTrial",
     "IdentityPromptFormatter",
     "InferenceSample",
     "InferencePromptFormatter",
@@ -27,6 +38,7 @@ __all__ = [
     "LoraRankComparison",
     "LoraRankExperimentConfig",
     "LoraRankTrial",
+    "compare_fine_tuning",
     "compare_lora_ranks",
     "evaluate_instruction_examples",
     "load_instruction_splits",

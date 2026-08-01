@@ -3,7 +3,7 @@
 Riftco Transformer supports low-rank adaptation (LoRA) as an explicit
 post-training alternative to full-parameter fine-tuning. The implementation
 uses only the framework's native tensor operations, autograd graph, Adam
-optimizer, CPU backend, and Metal backend.
+optimizer, and CPU, Metal, or optional source-built CUDA and TPU backends.
 
 ## What LoRA changes
 
@@ -88,8 +88,9 @@ base artifact, and fixes:
 
 - dataset fingerprints and split membership;
 - training and adapter-initialization seeds;
-- optimizer steps, learning rate, batch size, context, and sampler;
-- target projections and resolved CPU/Metal backend; and
+- optimizer steps, learning rate, batch size, context, sampler, attention, and
+  activation checkpointing;
+- target projections and resolved CPU/Metal/CUDA/TPU backend; and
 - the scale ratio `alpha / rank`.
 
 Only rank and the derived `alpha = rank × alpha_over_rank` change. This keeps
@@ -134,6 +135,13 @@ manifest plus its SHA-256. Because all candidates are merged into ordinary
 model weights, they have identical serving topology. Do not interpret the
 included generation timings as evidence that a lower or higher LoRA rank
 serves faster.
+
+To compare the validation-selected LoRA recipe with full-parameter
+fine-tuning, use `examples/python/compare_fine_tuning.py`. It evaluates both
+methods with the same exhaustive train/validation/test metric, reports actual
+generalization gaps, and keeps separate learning-rate controls. See
+[Post-training generalization](GENERALIZATION.md). Reporting both final test
+results consumes that test split, so it must be retired afterward.
 
 The data preparation and end-to-end commands are documented in
 [DATASETS_AND_LORA_EXPERIMENTS.md](DATASETS_AND_LORA_EXPERIMENTS.md).

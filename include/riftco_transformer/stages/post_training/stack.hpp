@@ -2,12 +2,14 @@
 
 #include "riftco_transformer/artifacts/state.hpp"
 #include "riftco_transformer/stages/post_training/config.hpp"
+#include "riftco_transformer/stages/post_training/evaluation.hpp"
 #include "riftco_transformer/stages/post_training/instruction.hpp"
 #include "riftco_transformer/training/causal_language_model_trainer.hpp"
 
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace riftco_transformer {
@@ -22,6 +24,8 @@ struct PostTrainingResult {
     std::vector<training::TrainingStepMetrics> metrics;
     std::size_t example_count;
     FineTuningMethod fine_tuning_method = FineTuningMethod::Full;
+    // Empty for the legacy single-training-set constructor.
+    std::optional<PostTrainingEvaluationMetrics> evaluation;
 };
 
 using MetricSink =
@@ -34,6 +38,15 @@ public:
     PostTrainingStack(
         const artifacts::ModelSnapshot& base_snapshot,
         std::vector<InstructionExample> examples,
+        const InstructionFormatter& formatter,
+        PostTrainingConfig config = {}
+    );
+    // This overload trains from splits.train only, then evaluates the restored
+    // baseline and final model exhaustively on all three splits. Test forward
+    // passes begin only after every optimizer update and any LoRA merge.
+    PostTrainingStack(
+        const artifacts::ModelSnapshot& base_snapshot,
+        InstructionSplits splits,
         const InstructionFormatter& formatter,
         PostTrainingConfig config = {}
     );
@@ -52,7 +65,7 @@ public:
     [[nodiscard]] const TokenizerStrategy& tokenizer() const noexcept;
 
     // One fail-stop attempt. Completed updates are not rolled back if a later
-    // metric callback or snapshot capture throws.
+    // metric callback, held-out evaluation, or snapshot capture throws.
     [[nodiscard]] PostTrainingResult run(
         const MetricSink& metric_sink = {}
     );

@@ -22,6 +22,16 @@ option(
     "Fail the NN backend test when no Metal device is available"
     OFF
 )
+option(
+    RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA
+    "Fail CUDA-aware native tests when no CUDA device is available"
+    OFF
+)
+option(
+    RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU
+    "Fail TPU-aware native tests when no Cloud TPU device is available"
+    OFF
+)
 
 add_riftco_transformer_test(
     config_tests
@@ -41,6 +51,11 @@ target_link_libraries(c_api_tests
 
 riftco_transformer_enable_warnings(c_api_tests)
 riftco_transformer_enable_sanitizers(c_api_tests)
+target_compile_definitions(c_api_tests
+    PRIVATE
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA}>
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU}>
+)
 
 add_test(
     NAME c_api
@@ -198,6 +213,14 @@ if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS)
                 ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/python/test_lora_rank_experiment.py
         )
+        add_test(
+            NAME python_fine_tuning_experiment
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_fine_tuning_experiment.py
+        )
         set_tests_properties(
             python_binding
             python_generation
@@ -206,6 +229,7 @@ if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS)
             python_package_structure
             python_huggingface_data
             python_lora_rank_experiment
+            python_fine_tuning_experiment
             PROPERTIES
                 TIMEOUT 120
         )
@@ -213,6 +237,14 @@ if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS)
 endif()
 
 if(RIFTCO_TRANSFORMER_ENABLE_INSTALL)
+    string(REPLACE ";" "\\;"
+        riftco_transformer_test_cmake_prefix_path
+        "${CMAKE_PREFIX_PATH}"
+    )
+    string(REPLACE ";" "\\;"
+        riftco_transformer_test_cuda_toolkit_root
+        "${CUDAToolkit_ROOT}"
+    )
     add_test(
         NAME installed_package
         COMMAND
@@ -220,6 +252,7 @@ if(RIFTCO_TRANSFORMER_ENABLE_INSTALL)
             -DRIFTCO_TRANSFORMER_BUILD_DIR=${PROJECT_BINARY_DIR}
             -DRIFTCO_TRANSFORMER_BUILD_CONFIG=$<CONFIG>
             -DRIFTCO_TRANSFORMER_CONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/package
+            -DRIFTCO_TRANSFORMER_PROJECT_VERSION=${PROJECT_VERSION}
             -DRIFTCO_TRANSFORMER_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/installed_package
             -DRIFTCO_TRANSFORMER_GENERATOR=${CMAKE_GENERATOR}
             "-DRIFTCO_TRANSFORMER_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
@@ -239,6 +272,8 @@ if(RIFTCO_TRANSFORMER_ENABLE_INSTALL)
             "-DRIFTCO_TRANSFORMER_C_FLAGS=${CMAKE_C_FLAGS}"
             "-DRIFTCO_TRANSFORMER_CXX_FLAGS=${CMAKE_CXX_FLAGS}"
             "-DRIFTCO_TRANSFORMER_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+            "-DRIFTCO_TRANSFORMER_CMAKE_PREFIX_PATH=${riftco_transformer_test_cmake_prefix_path}"
+            "-DRIFTCO_TRANSFORMER_CUDA_TOOLKIT_ROOT=${riftco_transformer_test_cuda_toolkit_root}"
             -P
             ${CMAKE_CURRENT_SOURCE_DIR}/package/test_installed_package.cmake
     )
@@ -274,9 +309,63 @@ add_riftco_transformer_test(
     backend
     core/backend/test_backend.cpp
 )
+target_compile_definitions(backend_tests
+    PRIVATE
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA}>
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU}>
+)
+target_include_directories(backend_tests
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
+)
 find_package(Threads REQUIRED)
 target_link_libraries(c_api_tests PRIVATE Threads::Threads)
 target_link_libraries(backend_tests PRIVATE Threads::Threads)
+
+if(RIFTCO_TRANSFORMER_ENABLE_TPU)
+    add_library(riftco_transformer_fake_pjrt_tpu SHARED
+        fakes/fake_pjrt_tpu.cpp
+    )
+    target_include_directories(riftco_transformer_fake_pjrt_tpu
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/third_party/pjrt/include
+    )
+    target_compile_features(riftco_transformer_fake_pjrt_tpu
+        PRIVATE
+            cxx_std_20
+    )
+    riftco_transformer_enable_warnings(
+        riftco_transformer_fake_pjrt_tpu
+    )
+    riftco_transformer_enable_pjrt_header_compatibility(
+        riftco_transformer_fake_pjrt_tpu
+    )
+    riftco_transformer_enable_sanitizers(
+        riftco_transformer_fake_pjrt_tpu
+    )
+    set_target_properties(riftco_transformer_fake_pjrt_tpu
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES
+    )
+    add_dependencies(
+        backend_tests
+        riftco_transformer_fake_pjrt_tpu
+    )
+
+    add_test(
+        NAME backend_fake_pjrt_tpu
+        COMMAND
+            ${CMAKE_COMMAND} -E env
+            RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            $<TARGET_FILE:backend_tests>
+            --require-tpu
+    )
+    set_tests_properties(backend_fake_pjrt_tpu
+        PROPERTIES
+            LABELS "backend;tpu;fake-pjrt"
+    )
+endif()
 
 add_riftco_transformer_test(
     nn_backend_tests
@@ -290,7 +379,28 @@ target_include_directories(nn_backend_tests
 target_compile_definitions(nn_backend_tests
     PRIVATE
         RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL}>
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA}>
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU}>
 )
+
+if(RIFTCO_TRANSFORMER_ENABLE_TPU)
+    add_dependencies(
+        nn_backend_tests
+        riftco_transformer_fake_pjrt_tpu
+    )
+    add_test(
+        NAME nn_backend_fake_pjrt_tpu
+        COMMAND
+            ${CMAKE_COMMAND} -E env
+            RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            $<TARGET_FILE:nn_backend_tests>
+            --require-tpu
+    )
+    set_tests_properties(nn_backend_fake_pjrt_tpu
+        PROPERTIES
+            LABELS "backend;attention;tpu;fake-pjrt"
+    )
+endif()
 
 add_riftco_transformer_test(
     autograd_tests
@@ -368,6 +478,25 @@ target_include_directories(adam_tests
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src
 )
+
+if(RIFTCO_TRANSFORMER_ENABLE_TPU)
+    add_dependencies(
+        adam_tests
+        riftco_transformer_fake_pjrt_tpu
+    )
+    add_test(
+        NAME adam_fake_pjrt_tpu
+        COMMAND
+            ${CMAKE_COMMAND} -E env
+            RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            $<TARGET_FILE:adam_tests>
+            --require-tpu
+    )
+    set_tests_properties(adam_fake_pjrt_tpu
+        PROPERTIES
+            LABELS "backend;optim;adam;tpu;fake-pjrt"
+    )
+endif()
 
 add_riftco_transformer_test(
     artifact_state_tests

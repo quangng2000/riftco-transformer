@@ -3,27 +3,22 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 from dataclasses import asdict
-import json
-import math
-import os
 from pathlib import Path
-import shutil
 import sys
-import tempfile
-from typing import Iterator
 
-from riftco_transformer._atomic_publish import publish_directory_no_replace
 from riftco_transformer.artifacts import ModelBundle
-from riftco_transformer.data import (
-    PreparedDataset,
-    verify_prepared_dataset,
-)
+from riftco_transformer.data import verify_prepared_dataset
 from riftco_transformer.experiments import (
     LoraRankExperimentConfig,
     compare_lora_ranks,
     load_prepared_instruction_splits,
+)
+from riftco_transformer.experiments._reporting import (
+    json_safe,
+    prepared_dataset_provenance,
+    staged_output_directory,
+    write_json,
 )
 
 
@@ -61,88 +56,6 @@ def comma_separated_ranks(value: str) -> tuple[int, ...]:
     if len(set(ranks)) != len(ranks):
         raise argparse.ArgumentTypeError("ranks must not contain duplicates")
     return ranks
-
-
-@contextmanager
-def staged_output_directory(destination: Path) -> Iterator[Path]:
-    """Publish a complete new output directory with one rename."""
-
-    if not isinstance(destination, Path):
-        raise TypeError("destination must be a Path")
-    if destination.exists() or destination.is_symlink():
-        raise FileExistsError(
-            f"experiment output already exists: {destination}"
-        )
-    parent = destination.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(
-        tempfile.mkdtemp(
-            prefix=f".{destination.name}.staging-",
-            dir=parent,
-        )
-    )
-    try:
-        yield staging
-        fsync_directory(staging)
-        publish_directory_no_replace(staging, destination)
-        staging = None
-        fsync_directory(parent)
-    finally:
-        if staging is not None:
-            shutil.rmtree(staging, ignore_errors=True)
-
-
-def write_json(path: Path, value: object) -> None:
-    with path.open("w", encoding="utf-8") as output:
-        json.dump(
-            json_safe(value),
-            output,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            indent=2,
-        )
-        output.write("\n")
-        output.flush()
-        os.fsync(output.fileno())
-
-
-def prepared_dataset_provenance(
-    prepared: PreparedDataset,
-) -> dict[str, object]:
-    """Return provenance captured by the same manifest verification."""
-
-    if not isinstance(prepared, PreparedDataset):
-        raise TypeError("prepared must be a PreparedDataset")
-    return {
-        "manifest_sha256": prepared.manifest_sha256,
-        "manifest": dict(prepared.manifest),
-    }
-
-
-def fsync_directory(path: Path) -> None:
-    try:
-        descriptor = os.open(path, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(descriptor)
-    except OSError:
-        pass
-    finally:
-        os.close(descriptor)
-
-
-def json_safe(value: object) -> object:
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    if isinstance(value, dict):
-        return {
-            str(key): json_safe(item) for key, item in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [json_safe(item) for item in value]
-    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -226,9 +139,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--backend",
-        choices=("auto", "cpu", "metal"),
+        choices=("auto", "cpu", "metal", "cuda", "tpu"),
         default="auto",
-        help="Execution backend; auto resolves once for the complete sweep.",
+        help=(
+            "Execution backend; auto prefers TPU, then CUDA, Metal, and CPU, "
+            "and resolves once for the complete sweep."
+        ),
     )
     parser.add_argument(
         "--sampling-strategy",
@@ -238,6 +154,18 @@ def build_parser() -> argparse.ArgumentParser:
             "Training sampler shared by every rank; example_uniform avoids "
             "overweighting long instructions (default: example_uniform)."
         ),
+    )
+    parser.add_argument(
+        "--attention",
+        choices=("materialized", "flash"),
+        default="materialized",
+        help="Training and evaluation attention implementation.",
+    )
+    parser.add_argument(
+        "--activation-checkpointing",
+        choices=("disabled", "block"),
+        default="disabled",
+        help="Training activation policy (default: disabled).",
     )
     parser.add_argument(
         "--prompt",
@@ -280,6 +208,10 @@ def main() -> int:
                     learning_rate=arguments.learning_rate,
                     backend=arguments.backend,
                     sampling_strategy=arguments.sampling_strategy,
+                    attention=arguments.attention,
+                    activation_checkpointing=(
+                        arguments.activation_checkpointing
+                    ),
                     evaluation_context_size=arguments.context,
                     inference_max_new_tokens=arguments.max_new_tokens,
                 ),

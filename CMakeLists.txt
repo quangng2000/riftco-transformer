@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     riftco_transformer
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "An auditable dependency-free transformer framework"
     LANGUAGES C CXX
 )
@@ -10,7 +10,7 @@ project(
 include(GNUInstallDirs)
 find_package(Threads REQUIRED)
 
-set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.0.0)
+set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.2.0)
 string(REPLACE "." ";" riftco_transformer_c_abi_components
     "${RIFTCO_TRANSFORMER_C_ABI_VERSION}"
 )
@@ -94,9 +94,19 @@ add_library(riftco_transformer_library STATIC
     src/config.cpp
     ${riftco_transformer_backend_sources}
     src/artifacts/state.cpp
-    src/core/autograd.cpp
-    src/core/tensor.cpp
-    src/core/tensor_ops.cpp
+    src/core/autograd/checkpoint.cpp
+    src/core/autograd/custom_gradient.cpp
+    src/core/autograd/graph.cpp
+    src/core/autograd/operations.cpp
+    src/core/tensor/detail/validation.cpp
+    src/core/tensor/elementwise.cpp
+    src/core/tensor/indexing.cpp
+    src/core/tensor/layout.cpp
+    src/core/tensor/layout_ops.cpp
+    src/core/tensor/matmul.cpp
+    src/core/tensor/reductions.cpp
+    src/core/tensor/softmax.cpp
+    src/core/tensor/storage.cpp
     src/data/token_batch.cpp
     src/data/tokenizer.cpp
     src/model/causal_self_attention.cpp
@@ -114,6 +124,7 @@ add_library(riftco_transformer_library STATIC
     src/nn/module.cpp
     src/nn/parameter.cpp
     src/stages/post_training/config.cpp
+    src/stages/post_training/evaluation.cpp
     src/stages/post_training/instruction.cpp
     src/stages/post_training/stack.cpp
     src/stages/pretraining/config.cpp
@@ -150,6 +161,12 @@ target_include_directories(riftco_transformer_library
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+if(RIFTCO_TRANSFORMER_ENABLE_TPU)
+    target_include_directories(riftco_transformer_library
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pjrt/include
+    )
+endif()
 target_compile_features(riftco_transformer_library
     PUBLIC
         cxx_std_20
@@ -158,8 +175,51 @@ target_link_libraries(riftco_transformer_library
     PRIVATE
         Threads::Threads
 )
+if(RIFTCO_TRANSFORMER_ENABLE_TPU)
+    target_link_libraries(riftco_transformer_library
+        PRIVATE
+            ${CMAKE_DL_LIBS}
+    )
+endif()
+
+if(RIFTCO_TRANSFORMER_ENABLE_CUDA)
+    add_library(riftco_transformer_cuda_objects OBJECT
+        ${riftco_transformer_cuda_sources}
+    )
+    target_include_directories(riftco_transformer_cuda_objects
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(riftco_transformer_cuda_objects
+        PRIVATE
+            CUDA::cudart_static
+    )
+    set_target_properties(riftco_transformer_cuda_objects
+        PROPERTIES
+            CUDA_STANDARD 20
+            CUDA_STANDARD_REQUIRED YES
+            CUDA_EXTENSIONS OFF
+            CUDA_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES
+            POSITION_INDEPENDENT_CODE ON
+    )
+    target_sources(riftco_transformer_library
+        PRIVATE
+            $<TARGET_OBJECTS:riftco_transformer_cuda_objects>
+    )
+    target_link_libraries(riftco_transformer_library
+        PRIVATE
+            CUDA::cudart_static
+    )
+endif()
 
 riftco_transformer_enable_warnings(riftco_transformer_library)
+if(RIFTCO_TRANSFORMER_ENABLE_TPU)
+    riftco_transformer_enable_pjrt_header_compatibility(
+        riftco_transformer_library
+    )
+endif()
 riftco_transformer_enable_sanitizers(riftco_transformer_library)
 riftco_transformer_propagate_sanitizer_runtime(riftco_transformer_library)
 

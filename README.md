@@ -6,8 +6,10 @@
 [![License](https://img.shields.io/github/license/quangng2000/riftco-transformer.svg)](LICENSE)
 
 A small, auditable decoder-only Transformer built directly in C++20, with a
-runtime-dependency-free Python API. Train on CPU or Apple Metal, post-train with
-LoRA, save portable artifacts, and serve through paged attention.
+zero-third-party-dependency default Python API. Train on CPU, Apple Metal, or
+optional source-built NVIDIA CUDA and Google Cloud TPU backends; post-train
+with full fine-tuning or LoRA, measure held-out generalization, save portable
+artifacts, and serve through paged attention.
 
 | Install | Import | Third-party Python dependencies |
 | --- | --- | --- |
@@ -15,6 +17,26 @@ LoRA, save portable artifacts, and serve through paged attention.
 
 This breaking rename exposes only the `riftco_transformer` Python package;
 no legacy package-name alias is installed.
+
+## Backend support
+
+| Backend | Status | Current execution path |
+| --- | --- | --- |
+| CPU | Supported in every build | Complete readable reference implementation |
+| Apple Metal | Supported on compatible Macs | Persistent shared buffers and native Metal kernels |
+| NVIDIA CUDA | Optional source build | Managed CUDA storage with native tensor/NN, matmul, attention, and Adam-update kernels |
+| Google Cloud TPU | Experimental Linux x86-64 source build | Host-mirrored storage with PJRT/StableHLO matmul, materialized attention, and paged decode |
+
+The TPU adapter is opt-in and dynamically loads Google's external `libtpu.so`;
+an absolute zero-library TPU build is therefore not possible. Default builds
+and standard wheels retain the dependency-free behavior and contain a clean
+unavailable TPU stub. The TPU slice targets one addressable device in one
+process. It runs batched matmul, materialized attention and its gradients, and
+paged decode through PJRT; Flash attention and the remaining capabilities stay
+on audited host reference paths. CI covers compilation, no-device behavior,
+and the loader/compile/transfer/execute/download sequence with a tests-only fake
+PJRT plugin. Real `libtpu` and Cloud TPU hardware validation is still required
+before treating it as production support.
 
 ## Architecture
 
@@ -44,7 +66,7 @@ flowchart LR
         Decode <--> Cache["Paged KV<br/>cache"]
     end
 
-    Runtime["CPU reference or Apple Metal"] -.-> Model
+    Runtime["CPU · Apple Metal · optional NVIDIA CUDA / Cloud TPU"] -.-> Model
     Runtime -.-> Tune
     Runtime -.-> Decode
 ```
@@ -102,8 +124,10 @@ python3 -m pip install riftco-transformer
 python3 -c "from riftco_transformer import Context; print(Context().backend)"
 ```
 
-Python 3.10+ is supported on Linux, macOS, and Windows. Released wheels include
-the native C ABI; macOS wheels also include the Metal backend.
+Python 3.10+ is supported on Linux, macOS, and Windows. Standard released
+wheels include CPU, and macOS wheels also include Metal. They recognize the
+stable `cuda` and `tpu` backend names but contain unavailable stubs; both
+accelerators require explicit source builds below.
 
 ### Homebrew
 
@@ -123,6 +147,42 @@ cmake --install build/debug --prefix "$PWD/install"
 ```
 
 Source builds require CMake 3.24+, Ninja, and a C++20 compiler.
+
+For CUDA, use an NVIDIA GPU and compatible driver plus CUDA Toolkit 12 or
+newer:
+
+```bash
+cmake -S . -B build/cuda -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON
+cmake --build build/cuda
+ctest --test-dir build/cuda --output-on-failure
+```
+
+CUDA is functionally available to tensors, autograd, pretraining, Full and LoRA
+post-training, held-out evaluation, and serving. CUDA tensors use managed
+memory; layout, elementwise, reduction, indexing, normalization, loss, matmul,
+materialized and memory-linear Flash attention, their gradient kernels, paged
+decode, and Adam's candidate-state update run on the GPU. Autograd traversal
+and Adam's overflow-safe global gradient norm remain host control flow over
+host-visible storage, so selecting CUDA is not a claim that every part of the
+workload is device-resident or faster.
+
+For the experimental Cloud TPU path, use a Linux x86-64 Cloud TPU VM and make
+Google's `libtpu.so` available at runtime:
+
+```bash
+export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
+cmake --preset tpu-release
+cmake --build --preset tpu-release
+ctest --preset tpu-release
+```
+
+The loader also checks `TPU_LIBRARY_PATH` and then the system loader path for
+`libtpu.so`. On a real TPU host, reconfigure with
+`-DRIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON` to make device absence a test
+failure. The TPU option is off by default and standard wheels do not bundle or
+load `libtpu`.
 
 ## One training step
 
@@ -159,8 +219,9 @@ with Tokenizer(text, method="byte") as tokenizer:
                         optimizer.step()
 ```
 
-Use `.to("metal")` on a supported Mac. Construct a fresh forward/loss graph for
-every optimizer step.
+Use `.to("metal")` on a supported Mac, `.to("cuda")` in a CUDA-enabled source
+build, or `.to("tpu")` in a TPU-enabled Cloud TPU build. Construct a fresh
+forward/loss graph for every optimizer step.
 
 ## Train → LoRA → chat
 
@@ -200,8 +261,9 @@ Open `http://127.0.0.1:8000/`. The stages exchange immutable `.rift` bundles in
 | Learn tensors and gradients | [Tensor](docs/TENSOR.md) · [Tensor operations](docs/TENSOR_OPS.md) · [Autograd](docs/AUTOGRAD.md) |
 | Extend layers and modules | [Neural network](docs/NEURAL_NETWORK.md) · [Modules](docs/MODULES.md) |
 | Understand training | [Training](docs/TRAINING.md) · [Adam](docs/ADAM.md) · [Activation checkpointing](docs/ACTIVATION_CHECKPOINTING.md) |
-| Compare attention paths | [Attention](docs/ATTENTION.md) · [CPU, Metal, and Python](docs/BACKENDS_AND_PYTHON.md) |
+| Compare attention paths | [Attention](docs/ATTENTION.md) · [Execution backends and Python](docs/BACKENDS_AND_PYTHON.md) |
 | Run all three stages | [Pipeline](docs/PIPELINE.md) · [LoRA](docs/LORA.md) · [Serving](docs/SERVING.md) |
+| Compare full tuning and LoRA | [Post-training generalization](docs/GENERALIZATION.md) |
 | Prepare Hugging Face data | [Datasets and LoRA experiments](docs/DATASETS_AND_LORA_EXPERIMENTS.md) |
 | Navigate or contribute | [Project structure](docs/PROJECT_STRUCTURE.md) · [Roadmap](docs/ROADMAP.md) · [Release automation](python/README.md#release-automation) |
 | See feature superposition | [3D vector lab source](visualizations/vector-distribution.html) · [Run the visualization](visualizations/README.md) |
@@ -216,7 +278,7 @@ target_link_libraries(my_app PRIVATE riftco_transformer::library)
 Install Riftco Transformer first, then configure the consuming project with
 `-DCMAKE_PREFIX_PATH=/path/to/riftco-transformer/install`. The public C API is
 `riftco_transformer::c_api`. See
-[CPU, Metal, and Python](docs/BACKENDS_AND_PYTHON.md) for the stable ABI and
+[Execution backends and Python](docs/BACKENDS_AND_PYTHON.md) for the stable ABI and
 backend boundary.
 
 ## License

@@ -1,7 +1,9 @@
 #include "riftco_transformer/stages/post_training/instruction.hpp"
 
 #include <algorithm>
+#include <set>
 #include <stdexcept>
+#include <utility>
 
 namespace riftco_transformer::stages::post_training {
 namespace {
@@ -64,6 +66,83 @@ void InstructionExample::validate() const {
             "instruction response must not be blank"
         );
     }
+}
+
+InstructionSplits::InstructionSplits(
+    std::vector<InstructionExample> training_examples,
+    std::vector<InstructionExample> validation_examples,
+    std::vector<InstructionExample> test_examples
+)
+    : train(std::move(training_examples)),
+      validation(std::move(validation_examples)),
+      test(std::move(test_examples)) {
+    validate();
+}
+
+void InstructionSplits::validate() const {
+    const auto validate_split = [](
+        const std::vector<InstructionExample>& examples,
+        const char* name
+    ) {
+        if (examples.empty()) {
+            throw std::invalid_argument(
+                std::string("post-training ") + name +
+                " split must not be empty"
+            );
+        }
+        for (const auto& example : examples) {
+            example.validate();
+        }
+    };
+    validate_split(train, "train");
+    validate_split(validation, "validation");
+    validate_split(test, "test");
+
+    using Record = std::pair<std::string, std::string>;
+    const auto records = [](const std::vector<InstructionExample>& examples) {
+        std::set<Record> result;
+        for (const auto& example : examples) {
+            result.emplace(example.prompt, example.response);
+        }
+        return result;
+    };
+    const std::set<Record> training_records = records(train);
+    const std::set<Record> validation_records = records(validation);
+    const std::set<Record> test_records = records(test);
+
+    const auto reject_overlap = [](
+        const std::set<Record>& left,
+        const char* left_name,
+        const std::set<Record>& right,
+        const char* right_name
+    ) {
+        const auto& smaller = left.size() <= right.size() ? left : right;
+        const auto& larger = left.size() <= right.size() ? right : left;
+        const bool found = std::any_of(
+            smaller.begin(),
+            smaller.end(),
+            [&](const Record& record) { return larger.contains(record); }
+        );
+        if (found) {
+            throw std::invalid_argument(
+                std::string("post-training ") + left_name + " and " +
+                right_name + " splits overlap by an exact instruction record"
+            );
+        }
+    };
+    reject_overlap(
+        training_records,
+        "train",
+        validation_records,
+        "validation"
+    );
+    reject_overlap(training_records, "train", test_records, "test");
+    reject_overlap(
+        validation_records,
+        "validation",
+        test_records,
+        "test"
+    );
 }
 
 std::string PlainChatFormatter::format(

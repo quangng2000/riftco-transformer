@@ -161,7 +161,8 @@ operation. The request cache owns a logical page table; the default
 `PagedKvCachePool` leases physical pages from backend-resident key/value pools
 with one pool pair per transformer layer. `ContiguousKvCacheFactory` supplies a
 fixed-layout reference strategy behind the same `KeyValueCacheFactory`
-interface. CPU and Metal both read the paged layout directly.
+interface. CPU, Metal, and CUDA use backend-owned paged implementations. TPU
+stages paged decode through PJRT from host-mirrored storage.
 
 The model uses learned absolute positions. At maximum context, generation
 cannot preserve the existing cropped-window result by evicting only the oldest
@@ -192,19 +193,28 @@ BackendAdapter capabilities
     └── AdamCapability
          │
          ├── CpuBackendAdapter
-         └── MetalBackendAdapter / unavailable platform stub
+         ├── MetalBackendAdapter / unavailable platform stub
+         ├── CudaBackendAdapter / unavailable build stub
+         └── TpuBackendAdapter / unavailable build stub
 ```
 
 The adapter normalizes different implementation technologies behind one
 synchronous storage contract. CPU storage owns a vector; Metal storage owns a
-persistent shared `MTLBuffer`. Selecting CPU or Metal is the Strategy choice;
-adapting each implementation to the common capabilities is the Adapter role.
+persistent shared `MTLBuffer`; CUDA storage owns a persistent managed
+allocation; TPU storage owns a host mirror and stages selected programs through
+PJRT.
+Selecting CPU, Metal, CUDA, or TPU is the Strategy choice; adapting each
+implementation to the common capabilities is the Adapter role.
 Capability-specific base interfaces keep storage, generic tensor math, neural
 operations, attention, and optimizer growth independent. CPU delegates the
 capabilities to readable reference functions. Metal implements the same
-requests with compute pipelines over persistent shared buffers. The registry
-is immutable after compilation, so lookup is deterministic and thread-safe
-without runtime registration races.
+requests with compute pipelines over persistent shared buffers. CUDA
+implements the NN, matmul, attention, and Adam candidate-state capabilities as
+native kernels over managed storage. TPU
+compiles StableHLO matmul, materialized attention/VJPs, and paged decode through
+the dynamically loaded PJRT C API; Flash and other capabilities use reference
+functions over its host mirror. The registry is immutable after compilation, so lookup is
+deterministic and thread-safe without runtime registration races.
 
 Autograd graph traversal remains host control flow, but its values, saved
 tensors, seeds, and accumulated gradients retain one backend. Local backward
@@ -212,14 +222,16 @@ rules route layout, elementwise, reduction, GELU, LayerNorm, softmax,
 gather/scatter, loss, matmul, and full-sequence attention vector-Jacobian
 products through that backend. Paged decode attention is serving-only and
 returns a detached context. Adam computes the overflow-safe global norm on
-host-visible
-shared storage, then batch-encodes one out-of-place fused update dispatch per
-parameter tensor in a single command buffer for safe, well-conditioned
-arithmetic. The precise-math kernel requests a whole-batch retry when its
-actual operation sequence becomes subnormal, non-finite, or ill-conditioned;
-that retry uses the shared `double` reference without changing tensor storage.
-Live parameter and moment state is committed only after the whole batch
-succeeds.
+host-visible storage. Metal then batch-encodes one out-of-place fused update
+dispatch per parameter tensor in a single command buffer for safe,
+well-conditioned arithmetic. Its precise-math kernel requests a whole-batch
+retry when its actual operation sequence becomes subnormal, non-finite, or
+ill-conditioned; that retry uses the shared `double` reference without
+changing tensor storage. CUDA computes the candidate parameter and moments in
+a native kernel using double intermediates and a device status flag; TPU uses
+the reference Adam path directly. Live parameter and moment state is committed
+only after the whole batch succeeds. The global clipping norm remains a
+separate overflow-safe host reduction for every backend.
 
 Metal matmul, neural, attention, and Adam shader sources build focused pipeline
 states lazily. Failure to build one operation therefore does not invalidate
@@ -236,17 +248,20 @@ layout.
 Metal storage is persistent but shared and synchronously host-addressable.
 Adapter calls wait for command completion before returning; graph operations
 are not scheduled into asynchronous streams. Full-sequence attention defaults
-to the materialized probability path, with an opt-in exact tile-8 Flash path
-on CPU and Metal. Flash saves `[B,H,T]` row maxima and exponential sums and
-reconstructs probabilities during backward instead of retaining a
+to the materialized probability path, with an opt-in exact memory-linear Flash
+path: tile-8 on CPU/Metal and block-parallel on CUDA. TPU runs materialized
+attention through StableHLO and keeps Flash on the CPU reference algorithm.
+Flash saves `[B,H,T]` row maxima
+and exponential sums and reconstructs probabilities during backward instead of retaining a
 `[B,H,T,T]` tensor. This memory contract is not itself a claim of measured
 speedup.
 
 Transformer-block activation checkpointing is another independent opt-in
 policy. It drops internal block graph nodes after forward and rebuilds them in
 an isolated nested VJP during backward. The numerical work automatically uses
-the model's CPU or Metal backend. Checkpointing reduces retained activations,
-not parameters or Adam state, and adds one block replay per backward pass.
+the model's CPU, Metal, CUDA, or TPU backend. Checkpointing reduces retained
+activations, not parameters or Adam state, and adds one block replay per
+backward pass.
 
 Incremental serving has paged KV caching but no batched prefill,
 continuous-batching scheduler, or shared-prefix cache. Its prefill remains
