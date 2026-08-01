@@ -136,6 +136,20 @@ void PretrainingConfig::validate() const {
             "pretraining Adam options are invalid"
         );
     }
+    switch (optimizer.state_storage) {
+        case AdamStateStorageKind::Contiguous:
+        case AdamStateStorageKind::Paged:
+            break;
+        default:
+            throw std::invalid_argument(
+                "pretraining Adam state storage is not recognized"
+            );
+    }
+    if (optimizer.page_size == 0) {
+        throw std::invalid_argument(
+            "pretraining Adam page size must be greater than zero"
+        );
+    }
 }
 
 }  // namespace riftco_transformer::stages::pretraining

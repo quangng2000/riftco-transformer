@@ -303,6 +303,34 @@ void test_active_lora_requires_merge_before_state_handoff() {
     }
 }
 
+void test_packed_quantized_weights_reject_state_handoff() {
+    std::mt19937 random(109U);
+    DecoderOnlyTransformer model(
+        kDimensions,
+        random,
+        kLayerNormEpsilon
+    );
+    const BytePairTokenizer tokenizer("abababab", 258, 2);
+
+    model.quantize_linear_weights_nf4();
+    require(
+        model.has_quantized_linear_weights(),
+        "model should own packed weights before artifact rejection"
+    );
+    require_logic_error(
+        [&] {
+            static_cast<void>(capture_model_state(model));
+        },
+        "packed quantized model-state capture"
+    );
+    require_logic_error(
+        [&] {
+            static_cast<void>(capture_snapshot(model, tokenizer));
+        },
+        "packed quantized snapshot capture"
+    );
+}
+
 void require_rejected_without_mutation(
     DecoderOnlyTransformer& target,
     const ModelState& invalid,
@@ -510,6 +538,7 @@ int main() {
     try {
         test_model_and_snapshot_round_trip();
         test_active_lora_requires_merge_before_state_handoff();
+        test_packed_quantized_weights_reject_state_handoff();
         test_invalid_model_state_is_transactional();
         test_capture_rejects_non_finite_values();
         test_byte_tokenizer_round_trip();

@@ -48,17 +48,39 @@ snapshot contains the updated copy; the input snapshot is not mutated.
 `PostTrainingConfig::fine_tuning_method` selects the parameter-update policy.
 `Full` is the compatibility default and gives Adam every base-model parameter.
 `Lora` attaches low-rank factors and gives Adam only those adapter parameters.
+`Qlora` first packs every eligible Linear base weight as blockwise NF4, then
+attaches the same floating-point LoRA factors and gives Adam only those
+adapters. Quantized weights are immutable buffers rather than Parameters, so
+they have neither gradients nor Adam moments.
+QLoRA defaults to double-quantized first-level scales with scale-group width
+256 and bounded-page Adam with 4096-element pages. The config exposes legacy
+FP32 scales and contiguous Adam as explicit alternatives. CPU uses the readable
+packed reference path, Metal and CUDA decode inside kernels, and TPU uploads
+packed U8 data and dequantizes inside StableHLO. CUDA and TPU source paths are
+implemented, although actual NVIDIA/Cloud-TPU hardware validation was not
+available on this macOS host.
+
 `LoraConfig` controls rank, alpha, initialization seed, and target
 projections; its default targets are the query and value projections in every
 transformer block.
 
-At the end of a LoRA run, the stack releases the trainer, optimizer adapter,
-and Adam before performing the one-way merge. It then captures the same
-ordinary base-parameter schema used by full training. The returned
+At the end of a LoRA or QLoRA run, the stack releases the trainer, optimizer
+adapter, and Adam before performing the one-way merge. QLoRA also explicitly
+dequantizes every packed projection during this export step. It then captures
+the same ordinary FP32 base-parameter schema used by full training. The returned
 `ModelSnapshot` is therefore directly consumable by `ServingStack`; it
 contains merged weights, not separate adapter factors. Capturing or restoring
 model state while an unmerged adapter is active is rejected, preventing an
 accidentally incomplete handoff.
+
+The QLoRA export has a documented one-time FP32 memory spike after training.
+During forward, backward, and Adam steps, the base linear weights remain packed.
+Paged Adam bounds individual moment allocations and update requests but still
+stores two FP32 moment values per trainable adapter scalar. CUDA pages use
+managed memory; this is not an OS spill, eviction, disk-paging, or page-fault
+manager.
+
+See [QLORA.md](QLORA.md) for the storage and kernel contracts.
 
 The native objective is currently `full_sequence_causal_sft`.
 Cross-entropy applies to every shifted token in the formatted sequence,
@@ -200,7 +222,7 @@ prepared UTF-8 corpus
   → self-supervised pretraining
   → immutable base ModelBundle
   → prepared prompt/response splits
-  → supervised post-training or controlled LoRA-rank selection
+  → supervised Full/LoRA/QLoRA post-training or controlled rank selection
   → immutable child ModelBundle
   → local generation service
 ```
@@ -341,11 +363,31 @@ config = PostTrainingConfig(
 )
 ```
 
+Selecting `"qlora"` uses the same LoRA factors over an NF4-packed frozen base:
+
+```python
+config = PostTrainingConfig(
+    backend="auto",
+    fine_tuning_method="qlora",
+    nf4_block_size=64,
+    double_quantization=True,
+    nf4_scale_block_size=256,
+    optimizer_state="auto",       # resolves to paged for QLoRA
+    optimizer_page_size=4096,
+    lora=LoraConfig(rank=4, alpha=8.0),
+)
+```
+
+The ordinary `auto` backend order—TPU, CUDA, Metal, then CPU—applies to QLoRA.
+`optimizer_state="contiguous"` opts out of its default paged state, while
+`double_quantization=False` selects legacy FP32 block scales.
+
 After training, Python closes the adapter parameter list and Adam handle,
-merges the factors, and captures a normal child `ModelBundle`. Metadata records
-the method and parameter scope, but the persisted weights use the standard
-base-model schema. This release does not define an adapter-only artifact or an
-unmerge operation.
+merges the factors, explicitly dequantizes a QLoRA base when needed, and
+captures a normal child `ModelBundle`. Metadata records the method, parameter
+scope, quantization, and optimizer-state diagnostics, but the persisted weights
+use the standard base-model schema. This release does not define an adapter-only
+or packed-weight artifact or an unmerge operation.
 
 The current objective is deliberately named
 `full_sequence_causal_sft`. Cross-entropy applies to every shifted token in
@@ -415,7 +457,7 @@ chosen/rejected pairs as SFT examples.
 ### Python generation and local serving
 
 `TextGenerator` performs single-request autoregressive generation. For a
-native `DecoderOnlyTransformer`, it uses the current stable ABI 2.2
+native `DecoderOnlyTransformer`, it uses the current stable ABI 2.4
 `DecodeSession` surface, prefills one token at a time,
 and then appends one generated token per step.
 Paged caching with 16-token pages is the default; callers can select the

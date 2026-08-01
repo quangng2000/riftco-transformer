@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .bindings import (
+    ADAM_STATE_CONTIGUOUS,
+    ADAM_STATE_PAGED,
     ABI_VERSION,
     ABI_VERSION_MAJOR,
     ABI_VERSION_MINOR,
@@ -43,6 +45,7 @@ from .bindings import (
     DecoderOnlyTransformer,
     LoraConfig,
     ParameterList,
+    QuantizedMemoryStats,
     Tensor,
     RiftcoTransformerError,
     Tokenizer,
@@ -54,6 +57,8 @@ from .bindings import (
 
 
 __all__ = [
+    "ADAM_STATE_CONTIGUOUS",
+    "ADAM_STATE_PAGED",
     "ABI_VERSION",
     "ABI_VERSION_MAJOR",
     "ABI_VERSION_MINOR",
@@ -86,6 +91,7 @@ __all__ = [
     "DecoderOnlyTransformer",
     "LoraConfig",
     "ParameterList",
+    "QuantizedMemoryStats",
     "STATUS_BACKEND_UNAVAILABLE",
     "STATUS_INVALID_ARGUMENT",
     "STATUS_OK",

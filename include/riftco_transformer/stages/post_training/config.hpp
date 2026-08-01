@@ -14,6 +14,7 @@ namespace riftco_transformer::stages::post_training {
 enum class FineTuningMethod {
     Full,
     Lora,
+    Qlora,
 };
 
 // Post-training reuses a model artifact, so architecture and tokenizer
@@ -37,6 +38,11 @@ struct PostTrainingConfig {
         FullSequenceAttentionKind::Materialized;
     ActivationCheckpointingKind activation_checkpointing =
         ActivationCheckpointingKind::Disabled;
+    std::size_t nf4_block_size = 64;
+    bool nf4_double_quantization = true;
+    std::size_t nf4_scale_block_size = 256;
+    bool qlora_paged_optimizer = true;
+    std::size_t qlora_optimizer_page_size = 4096;
 
     void validate() const;
 };

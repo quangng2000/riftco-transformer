@@ -48,12 +48,13 @@ CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON" \
   python3 -m pip install .
 ```
 
-The CUDA backend provides managed tensor storage plus native GPU matmul,
-materialized/Flash attention, attention gradients, and paged decode. Other
-framework capabilities remain functional through synchronous audited reference
-paths over that storage. Full fine-tuning, LoRA, held-out generalization
-evaluation, artifact creation, and serving can all use `backend="cuda"`, but
-this is not a claim that every operation is GPU-accelerated.
+The CUDA backend provides managed tensor and packed-weight storage plus native
+GPU NN, matmul, packed NF4 linear, materialized/Flash attention, attention
+gradient, paged-decode, and Adam-update kernels. Full fine-tuning, LoRA, QLoRA,
+held-out generalization evaluation, artifact creation, and serving can all use
+`backend="cuda"`, but host control flow and managed-memory migration remain.
+The actual NVIDIA hardware path was not validated on the macOS development
+host used for this milestone.
 
 TPU is a separate experimental source-build option for Linux x86-64 Cloud TPU
 VMs. It requires Google's external `libtpu.so` at runtime:
@@ -64,15 +65,16 @@ CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_TPU=ON" \
   python3 -m pip install .
 ```
 
-The TPU backend compiles batched matmul, materialized attention and its
-gradients, and paged decode through the PJRT C API and StableHLO. Flash
-attention and the other capabilities use synchronous audited reference paths
-over host-mirrored storage, so full fine-tuning, LoRA, evaluation, and serving
-are functionally wired without implying an end-to-end TPU speedup. Real Cloud
-TPU validation is still pending. Default installs never load `libtpu`.
+The TPU backend compiles packed NF4 linear forward/input backward, batched
+matmul, materialized attention and its gradients, and paged decode through the
+PJRT C API and StableHLO. Flash attention and the other capabilities use
+synchronous audited reference paths over host-mirrored storage, so full
+fine-tuning, LoRA, QLoRA, evaluation, and serving are functionally wired
+without implying an end-to-end TPU speedup. Real Cloud TPU validation is still
+pending. Default installs never load `libtpu`.
 
-The Python package follows the framework release version (`0.3.0` here), while
-the native C ABI has its own compatibility version (`2.2`). The client accepts
+The Python package follows the framework release version (`0.5.0` here), while
+the native C ABI has its own compatibility version (`2.4`). The client accepts
 the same ABI major and an equal or newer additive minor, and rejects older or
 breaking ABIs before use.
 
@@ -80,6 +82,7 @@ Backend names are `"cpu"`, `"metal"`, `"cuda"`, and `"tpu"`. High-level
 configurations also accept `"auto"`, which prefers TPU when available, then
 CUDA, Metal, and CPU. An explicitly requested unavailable backend raises an
 error instead of silently changing the experiment backend.
+QLoRA uses the same auto-selection order and accepts every available backend.
 
 ## Release automation
 
@@ -345,6 +348,50 @@ serve_model(
 )
 ```
 
+For memory-constrained adapter training, select QLoRA instead:
+
+```python
+assistant = post_train_jsonl(
+    restored,
+    "data/post_training/tiny_instructions.jsonl",
+    PostTrainingConfig(
+        steps=10,
+        backend="auto",
+        fine_tuning_method="qlora",
+        nf4_block_size=64,
+        double_quantization=True,
+        nf4_scale_block_size=256,
+        optimizer_state="auto",
+        optimizer_page_size=4096,
+        lora=LoraConfig(rank=4, alpha=8.0),
+    ),
+)
+print(assistant.bundle.metadata["quantization"]["training_memory"])
+```
+
+During QLoRA training, every eligible frozen `Linear` base weight remains in
+blockwise packed NF4 storage while Adam updates only floating-point LoRA
+adapters. First-level NF4 scales are double-quantized by default; set
+`double_quantization=False` to retain legacy FP32 block scales. CPU decodes in
+the readable reference loop, Metal and CUDA decode inside accelerator kernels,
+and TPU dequantizes packed inputs inside its StableHLO program. No backend
+retains a full FP32 base-weight matrix during training.
+
+`optimizer_state="auto"` selects paged Adam for QLoRA and contiguous Adam for
+the other methods. Paged Adam stores each first/second-moment vector in bounded
+`optimizer_page_size` chunks and updates one chunk at a time; its total moment
+payload is still two FP32 values per trainable parameter. CUDA pages use
+managed allocations, but this implementation has no general OS spill budget,
+explicit eviction, disk paging, or page-fault manager. Use `"contiguous"` or
+`"paged"` to override the automatic choice.
+
+The lower-level model API exposes `model.quantize_nf4()` and
+`model.quantized_memory` for direct lifecycle control and memory accounting.
+Packed `ModelBundle` artifacts are deliberately unsupported in this release:
+`post_train_jsonl()` merges the adapter and materializes an ordinary FP32
+serving bundle, and direct `ModelBundle.capture()` rejects a still-packed
+model.
+
 The HTTP adapter serves a dependency-free browser chat at `/` and keeps
 `POST /v1/generate` as the stable JSON generation endpoint. Each chat message
 is formatted with `PlainChatFormatter` as one independent single-turn SFT
@@ -369,7 +416,7 @@ extension.
 
 ## Incremental generation
 
-Native models use the current ABI 2.2 `DecodeSession` surface instead of
+Native models use the current ABI 2.4 `DecodeSession` surface instead of
 rerunning the full-sequence training forward for every generated token.
 `TextGenerator` creates a request-local session, prefills the
 prompt one token at a time, and then performs one-token decode:

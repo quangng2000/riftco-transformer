@@ -5,6 +5,8 @@ set(riftco_transformer_backend_sources
     src/core/backend/attention/reference/materialized_causal.cpp
     src/core/backend/attention/reference/paged_decode.cpp
     src/core/backend/nn/dispatch.cpp
+    src/core/backend/nn/quantized_linear/dispatch.cpp
+    src/core/backend/nn/quantized_linear/reference/operations.cpp
     src/core/backend/nn/reference/operations.cpp
     src/core/backend/optim/adam/dispatch.cpp
     src/core/backend/optim/adam/reference/update.cpp
@@ -45,10 +47,12 @@ if(RIFTCO_TRANSFORMER_ENABLE_METAL)
     list(APPEND riftco_transformer_backend_sources
         src/core/backend/adapters/metal/adapter.mm
         src/core/backend/adapters/metal/runtime.mm
+        src/core/backend/nn/quantized_linear/metal/runtime.mm
     )
     set_source_files_properties(
         src/core/backend/adapters/metal/adapter.mm
         src/core/backend/adapters/metal/runtime.mm
+        src/core/backend/nn/quantized_linear/metal/runtime.mm
         PROPERTIES
             COMPILE_OPTIONS "-fobjc-arc"
     )
@@ -91,6 +95,8 @@ if(RIFTCO_TRANSFORMER_ENABLE_CUDA)
         src/core/backend/nn/cuda/layout.cu
         src/core/backend/nn/cuda/loss.cu
         src/core/backend/nn/cuda/normalization.cu
+        src/core/backend/nn/quantized_linear/cuda/operations.cu
+        src/core/backend/nn/quantized_linear/cuda/storage.cu
         src/core/backend/nn/cuda/reduction.cu
         src/core/backend/nn/cuda/softmax.cu
         src/core/backend/optim/adam/cuda/update.cu
@@ -124,6 +130,7 @@ if(RIFTCO_TRANSFORMER_ENABLE_TPU)
         src/core/backend/adapters/tpu/runtime.cpp
         src/core/backend/attention/tpu/materialized_causal.cpp
         src/core/backend/attention/tpu/paged_decode.cpp
+        src/core/backend/nn/quantized_linear/tpu/runtime.cpp
     )
 else()
     list(APPEND riftco_transformer_backend_sources

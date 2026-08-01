@@ -4,7 +4,7 @@ The backend layer owns tensor storage and focused accelerated operations
 without changing the transformer or autograd equations:
 
 ```text
-Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 2.2
+Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 2.4
                                          │
                                          ▼
                                 public C++ operations
@@ -15,7 +15,7 @@ Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 2.
                                          ▼
                        private capability-specific Adapter
                      storage · layout · elementwise · reduction
-                     matmul · softmax · indexing · LayerNorm
+                matmul · packed NF4 linear · softmax · indexing · LayerNorm
        cross-entropy · materialized/Flash/paged-decode attention · Adam
              │                 │                 │                 │
              ▼                 ▼                 ▼                 ▼
@@ -33,37 +33,45 @@ platforms with an available Metal device, tensors own persistent shared
 Metal kernels: layout transforms, elementwise math, reductions, GELU,
 LayerNorm, softmax, causal masking, embedding gather/scatter, cross-entropy,
 materialized and tile-8 Flash causal attention and their vector-Jacobian
-products, matmul, and Adam. `Variable::matmul` captures the input tensor
-backend during the forward pass, so both matrix-gradient products use that
-backend even if the calling thread's construction default changes before
-`backward()`.
+products, matmul, packed NF4 linear forward/input backward, and Adam. Packed
+weights own persistent Metal buffers and are decoded inside the quantized-linear
+kernels. `Variable::matmul` captures the input tensor backend during the
+forward pass, so both matrix-gradient products use that backend even if the
+calling thread's construction default changes before `backward()`.
 
 CUDA is an optional source-build backend for an NVIDIA GPU. It requires CUDA
 Toolkit 12 or newer and a compatible NVIDIA driver. CUDA tensors own persistent
 managed allocations, which keeps the framework's host-visible tensor contract
-intact. Batched matmul, materialized causal attention and its VJPs,
-memory-linear Flash attention and its VJP, and paged decode execute as CUDA
-kernels. Layout, elementwise, reduction, indexing, normalization, loss, and
-Adam's out-of-place candidate-state update also execute as CUDA kernels. Adam's
-overflow-safe global gradient norm remains a host reduction over managed
-storage. All calls are synchronous. This makes the whole
-framework—including Full and LoRA training, generalization evaluation, and
-serving—functionally available on `cuda`, but it is not a claim that every
-piece of control flow is device-resident or that an end-to-end workload is
-faster.
+intact. Packed NF4 codes and scale metadata likewise own managed allocations;
+quantized-linear forward and input backward decode them inside CUDA kernels.
+Batched matmul, materialized causal attention and its VJPs, memory-linear
+Flash attention and its VJP, and paged decode also execute as CUDA kernels.
+Layout, elementwise, reduction, indexing, normalization, loss, and Adam's
+out-of-place candidate-state update use CUDA kernels. Adam's overflow-safe
+global gradient norm remains a host reduction over managed storage. All calls
+are synchronous. This makes the whole framework—including Full, LoRA, and
+QLoRA training, generalization evaluation, and serving—functionally available
+on `cuda`, but it is not a claim that every piece of control flow is
+device-resident or that an end-to-end workload is faster. The CUDA source and
+conditional parity coverage are implemented; actual NVIDIA hardware was not
+validated on the macOS host used for this milestone.
 
 TPU is an experimental, opt-in Linux x86-64 source backend for Google Cloud
 TPUs. It dynamically loads Google's `libtpu.so`, obtains the versioned PJRT C
-API, compiles shape-specialized StableHLO programs, and executes batched
-matmul, materialized causal attention and its VJPs, and paged decode on one
-addressable TPU device. TPU tensors retain a host mirror; Flash attention and
-the remaining capabilities use the same synchronous reference implementations
-as CPU. Full and LoRA training, Adam, evaluation, and serving are therefore
+API, compiles shape-specialized StableHLO programs, and executes packed NF4
+linear forward/input backward, batched matmul, materialized causal attention
+and its VJPs, and paged decode on one addressable TPU device. TPU tensors retain
+a host mirror, while quantized weights retain packed U8 host payloads that are
+dequantized inside the StableHLO computation. Flash attention and the remaining
+capabilities use the same synchronous reference implementations as CPU. Full,
+LoRA, and QLoRA training, Adam, evaluation, and serving are therefore
 functionally wired, but transfers occur around each PJRT program and this is
 not an end-to-end acceleration claim. The source/ABI boundary and no-device
-behavior are tested. A tests-only fake PJRT plugin also exercises the successful
-loader, client, compile, transfer, execute, and download path; real `libtpu`
-and Cloud TPU hardware validation remain pending.
+behavior are tested. A tests-only fake PJRT plugin also exercises the existing
+loader, client, compile, transfer, execute, and download paths. It recognizes
+the generated quantized-linear program contract and checks legacy and
+double-quantized forward/input-backward results against CPU oracles. Real
+`libtpu` and Cloud TPU hardware validation remain pending.
 
 ## Selecting a C++ backend
 
@@ -163,7 +171,8 @@ backend; it never changes thread-local state.
 - report whether its base runtime and storage can run;
 - allocate and clone backend-owned storage;
 - execute validated synchronous layout, elementwise, reduction, matmul,
-  softmax, indexing, normalization, loss, and attention requests;
+  packed quantized-linear, softmax, indexing, normalization, loss, and
+  attention requests;
 - execute a validated transactional Adam update batch.
 
 The Adapter normalizes CPU loops, Metal APIs, CUDA runtime calls, and the
@@ -303,20 +312,23 @@ standard wheels. On a real device, configure the preset with
 `-DRIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON` so missing hardware fails the test
 run. The ordinary TPU CI job intentionally verifies only compilation and the
 no-runtime/no-device contract plus fake-PJRT happy paths. The fake checks the
-project's PJRT calls and matmul/attention parity, but it is not a StableHLO
-compiler or a substitute for `libtpu` on real hardware.
+project's PJRT calls, matmul/attention parity, and the generated
+quantized-linear contract for both scale encodings. It emulates the resulting
+math; it is not a StableHLO compiler or a substitute for `libtpu` on real
+hardware.
 
 ## What the CUDA slice does
 
 Each CUDA tensor owns a `cudaMallocManaged` allocation for its lifetime. The
 same pointer is host-visible and device-addressable, so existing tensor,
 artifact, autograd, optimizer, and cache contracts do not need a CUDA-specific
-public representation:
+public representation. Quantized weights use separate managed allocations for
+packed codes and either legacy FP32 or double-quantized scale metadata:
 
 ```text
-persistent managed inputs
+persistent managed tensor or packed NF4 inputs
           ↓
-CUDA NN, matmul, attention, or Adam-update kernel family
+CUDA NN, matmul, quantized-linear, attention, or Adam-update kernel family
           ↓
 device synchronization and error check
           ↓
@@ -328,29 +340,39 @@ thread visit. Attention is separated into materialized causal, memory-linear
 Flash causal, and paged-decode modules. Their backward requests also dispatch
 through the captured tensor backend.
 
+Quantized-linear kernels reconstruct either scale encoding and decode each NF4
+nibble while accumulating forward or input-gradient products. They do not
+allocate or retain a full FP32 base-weight matrix. This makes QLoRA a packed
+execution path, rather than merely loading a quantized checkpoint and expanding
+it before training.
+
 The CUDA NN module covers layout, elementwise/GELU, axis reductions,
 softmax/causal softmax, embedding gather/scatter, LayerNorm, and fused
 cross-entropy. Its optimizer module writes Adam's next parameter and moment
 buffers with double intermediates and rejects a whole update batch before live
 state is committed if any candidate is non-finite. Complete model forward,
-backward, Adam, Full fine-tuning, LoRA, exhaustive train/validation/test
-evaluation, artifact capture, and incremental serving retain CUDA tensor
-identity. Host and device access can migrate managed pages, and the framework
-synchronizes each CUDA kernel sequence before returning. Autograd graph
-traversal and Adam's global gradient norm remain host control flow. There are
-no CUDA streams, broad graph fusion, cuBLAS/cuDNN integration,
+backward, Adam, Full fine-tuning, LoRA, QLoRA, exhaustive
+train/validation/test evaluation, artifact capture, and incremental serving
+retain CUDA tensor identity. Host and device access can migrate managed pages,
+and the framework synchronizes each CUDA kernel sequence before returning.
+Autograd graph traversal and Adam's global gradient norm remain host control
+flow. There are no CUDA streams, broad graph fusion, cuBLAS/cuDNN integration,
 device-resident optimizer reductions, or multi-GPU selection. Benchmark the
 exact workload; do not infer a broad speedup merely from `backend="cuda"`.
+Actual NVIDIA-device validation remains an acceptance run outside the macOS
+development host.
 
 ## What the TPU slice does
 
-TPU storage keeps the public host-readable tensor representation. The runtime
-specializes StableHLO programs for batched matmul, materialized attention
-forward/backward, and paged decode, compiles them through the PJRT C API, and
-caches shape- and operation-specific loaded executables:
+TPU tensor storage keeps the public host-readable representation. TPU
+quantized-weight storage separately retains packed U8 codes and either FP32 or
+double-quantized scale metadata. The runtime specializes StableHLO programs
+for quantized-linear forward/input backward, batched matmul, materialized
+attention forward/backward, and paged decode, compiles them through the PJRT C
+API, and caches shape- and operation-specific loaded executables:
 
 ```text
-host-mirrored inputs
+host-mirrored tensor or packed NF4 inputs
         ↓ upload
 one-device PJRT execution of StableHLO
         ↓ download every result and validate
@@ -368,13 +390,17 @@ SPMD partitioning, persistent device-resident model state, asynchronous graph
 scheduling, or mixing with another framework's `libtpu` ownership.
 
 Layout, elementwise, normalization, loss, Flash attention, and Adam requests
-execute through audited host reference paths. Matmul—including the two matmuls
-in its autograd rule—plus materialized attention and its VJPs and paged decode
-use PJRT. This makes complete framework workflows testable with
-`backend="tpu"`, but host-mirrored tensors and frequent transfer make it an
-educational integration rather than a performance-ready TPU stack. TPU Flash
-stays on the reference path because a naive StableHLO score matrix would break
-the API's linear-storage Flash contract.
+execute through audited host reference paths. Quantized linear reconstructs
+the selected scale encoding and dequantizes packed codes inside its StableHLO
+program; the model retains no persistent FP32 base matrix. Matmul—including
+the two matmuls in its autograd rule—plus materialized attention and its VJPs
+and paged decode also use PJRT. This makes complete Full, LoRA, and QLoRA
+workflows testable with `backend="tpu"`, but host-mirrored tensors and frequent
+transfer make it an educational integration rather than a performance-ready
+TPU stack. TPU Flash stays on the reference path because a naive StableHLO
+score matrix would break the API's linear-storage Flash contract. The source
+and generated StableHLO are checked, but actual Cloud TPU execution remains a
+pending hardware acceptance run.
 
 ## What the Metal slice does
 
@@ -472,6 +498,14 @@ host-visible storage. Metal then uses its fused update with a whole-batch wide
 reference retry when necessary; CUDA uses its double-intermediate native
 candidate-state kernel, and TPU uses the portable Adam reference path.
 
+Adam can store each parameter's first and second moments contiguously or as
+fixed-size tensor pages. The paged form submits one bounded page at a time to
+the same backend update contract. It still owns two FP32 moment values per
+trainable scalar; its benefit is bounded allocation and update granularity,
+not a smaller total moment payload. CUDA pages use managed allocations, but
+there is no explicit eviction, spill budget, disk paging, prefetch policy, or
+general OS page-fault manager.
+
 The runtime remains deliberately synchronous. Metal finishes its command
 buffer, CUDA synchronizes each kernel sequence, and TPU awaits PJRT execution
 and download before the Adapter call returns. There are no
@@ -568,23 +602,28 @@ flight. Python uses one shared reentrant lock for a model and its derived
 objects, which is why its concurrent `close()` behavior is stronger than the
 raw C contract.
 
-ABI version `0x00020002` represents the current version 2.2: the upper 16 bits
+ABI version `0x00020003` represents the current version 2.3: the upper 16 bits
 are the major and the lower 16 bits are the minor. Version 2.0 was the
 intentional breaking namespace reset. It exports only the `rt_` function/type
 prefix and `RT_` constants; no legacy symbol-prefix aliases are provided.
 Version 2.1 additively appends the stable `RT_BACKEND_CUDA = 2` value without
 renumbering CPU (`0`) or Metal (`1`). Version 2.2 additively appends
-`RT_BACKEND_TPU = 3` without changing those values. Future major changes may
+`RT_BACKEND_TPU = 3` without changing those values. Version 2.3 additively
+exposes NF4 model conversion and exact packed-memory
+statistics without changing existing structures or numeric values. Future
+major changes may
 break callers, while a minor change may only add compatible API. Clients accept
 the same major and an equal or newer minor. Published status and backend
 integer values must never be renumbered. CMake checks the public header's
 major/minor against the shared-library version during configuration so their
 metadata cannot drift.
 
-The 2.0 surface includes immutable byte/BPE tokenizer handles and binary-safe
+The current 2.x surface includes immutable byte/BPE tokenizer handles and binary-safe
 size-query APIs; exact tokenizer reconstruction; deterministic named-parameter
 inspection and transactional float32 copy/load; LoRA attachment, adapter-only
-optimization, and one-way merge; contiguous and paged decode sessions;
+optimization, NF4/double-scale conversion and memory accounting, one-way QLoRA
+export, and contiguous or bounded-page Adam moment storage;
+contiguous and paged decode sessions;
 materialized or Flash full-sequence attention; and disabled or block-level
 activation checkpointing. A live decode session pins its model backend and
 parameter epoch. Parameter loading, transfer, LoRA lifecycle changes, and Adam
@@ -759,7 +798,7 @@ The library contains the statically linked framework implementation behind the
 stable C ABI. A standard installed wheel has no third-party runtime
 dependencies; users of a matching wheel do not need CMake, a C++ compiler, a
 system-wide native installation, or `RIFTCO_TRANSFORMER_LIBRARY`. Standard
-wheels recognize `cuda` and `tpu` through ABI 2.2 but build their unavailable
+wheels recognize `cuda` and `tpu` through ABI 2.4 but build their unavailable
 stubs, so they do not require or silently load CUDA or `libtpu` runtimes.
 
 The initial binary matrix provides Linux `x86_64` and `aarch64` wheels for
@@ -850,10 +889,14 @@ The backend tests compare:
 - CPU-reference and conditional-accelerator layout, elementwise, reduction, GELU,
   LayerNorm, softmax/causal-softmax, gather/scatter, cross-entropy, and
   materialized-causal-, Flash-causal-, and paged-decode-attention results;
+- CPU-oracle packed quantized-linear forward/input backward for legacy FP32
+  scales and double-quantized scales, plus packed-residency invariants and
+  unavailable-backend rejection;
 - routed forward results and vector-Jacobian products, including repeated-row
   scatter-add, materialized outputs, and Flash recomputing backward;
 - backward behavior after changing the thread-local construction default;
-- multi-step CPU/accelerator Adam parity, clipping, and momentum tails;
+- multi-step CPU/accelerator Adam parity, clipping, momentum tails, and
+  contiguous-versus-paged state parity/accounting;
 - extreme clipping below scalar `float` range, minimum-normal epsilon, and the
   unclipped minimum-normal boundary;
 - fused-path and reference-retry counters, rounded cancellation, float-square
@@ -866,19 +909,24 @@ The backend tests compare:
 
 CUDA verification additionally covers its stable name and unavailable-stub
 contract in ordinary builds. A CUDA-enabled NVIDIA system must exercise
-CPU/CUDA transfer, NN-operation parity, matmul/autograd parity, every attention
-forward/VJP, paged decode, Adam update/atomic-failure parity, and full-model,
-Full fine-tuning, LoRA, evaluation, and serving smoke paths. The toolkit-only
-CI job proves compilation and no-device behavior; it cannot establish kernel
-numerical parity without a visible NVIDIA GPU.
+CPU/CUDA transfer, NN-operation parity, matmul/autograd parity, both packed
+quantized-linear scale encodings and their input VJPs, every attention
+forward/VJP, paged decode, contiguous/paged Adam update parity, and full-model,
+Full fine-tuning, LoRA, QLoRA, evaluation, and serving smoke paths. The
+toolkit-only CI job proves compilation and no-device behavior; it cannot
+establish kernel numerical parity without a visible NVIDIA GPU. That real-GPU
+acceptance run was not available on the macOS development host.
 
 TPU verification covers its additive ABI identity, unavailable-stub contract,
 stage/CLI recognition, TPU-runtime source compilation on Linux, and fake-PJRT
-matmul plus materialized/paged-attention execution. On a Cloud TPU host it
-additionally requires CPU/TPU transfer, batched matmul/autograd parity,
-materialized attention/VJP and paged-decode parity, and complete pretraining,
-Full/LoRA, evaluation, and serving smoke paths. Fake PJRT is an API emulator,
-not a StableHLO compiler or real-device acceptance test.
+matmul, packed quantized-linear, and materialized/paged-attention execution. On
+a Cloud TPU host it
+additionally requires CPU/TPU transfer, batched matmul/autograd parity, both
+packed quantized-linear scale encodings and their input VJPs, materialized
+attention/VJP and paged-decode parity, and complete pretraining,
+Full/LoRA/QLoRA, evaluation, and serving smoke paths. Fake PJRT is an API
+emulator, not a StableHLO compiler or real-device acceptance test; actual
+Cloud TPU execution was not available on the macOS development host.
 
 On a real NVIDIA test host, make device absence a hard failure instead of a
 skip:
@@ -928,12 +976,12 @@ The intended validation matrix is:
 | ASan + UBSan | Host memory, lifetime, and undefined-behavior checks around the same interfaces |
 | `RIFTCO_TRANSFORMER_ENABLE_METAL=OFF` | Deterministic recognized-but-unavailable stub behavior |
 | Default CUDA-disabled build | Stable `cuda` identity with deterministic unavailable-stub behavior |
-| CUDA Toolkit 12+ on an NVIDIA runner | Managed-storage transfer, GPU matmul parity, and full-framework smoke coverage |
+| CUDA Toolkit 12+ on an NVIDIA runner | Managed tensor/packed-weight transfer, GPU matmul and quantized-linear parity, paged Adam, and full-framework smoke coverage |
 | Default TPU-disabled build | Stable `tpu` identity with deterministic unavailable-stub behavior |
-| TPU-enabled Linux runner | Dynamic PJRT source boundary, clean runtime-unavailable behavior, and fake-PJRT matmul parity |
-| Google Cloud TPU hardware runner | PJRT matmul parity plus full-framework functional smoke coverage |
+| TPU-enabled Linux runner | Dynamic PJRT boundary, clean runtime-unavailable behavior, fake-PJRT matmul/quantized-linear parity, and quantized-linear source compilation |
+| Google Cloud TPU hardware runner | PJRT matmul/quantized-linear parity plus full-framework functional smoke coverage |
 | Installed-package consumer | Public C++ and C targets without private Adapter headers |
 
-Metal, CUDA-matmul, and TPU-matmul comparisons use documented absolute/relative
-tolerances. Different device math and reduction order make bitwise
-accelerator/CPU parity an invalid acceptance criterion.
+Metal, CUDA, and TPU comparisons use documented absolute/relative tolerances.
+Different device math and reduction order make bitwise accelerator/CPU parity
+an invalid acceptance criterion.

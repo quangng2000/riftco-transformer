@@ -45,6 +45,14 @@ target_link_libraries(c_abi_2_1_package_consumer
         riftco_transformer::c_api
 )
 
+add_executable(c_abi_2_3_package_consumer
+    abi_2_3_consumer.c
+)
+target_link_libraries(c_abi_2_3_package_consumer
+    PRIVATE
+        riftco_transformer::c_api
+)
+
 add_executable(cpp_c_api_package_consumer
     cpp_c_api_consumer.cpp
 )
@@ -58,6 +66,7 @@ if(WIN32)
             c_package_consumer
             c_abi_2_0_package_consumer
             c_abi_2_1_package_consumer
+            c_abi_2_3_package_consumer
             cpp_c_api_package_consumer)
         add_custom_command(
             TARGET ${consumer}
@@ -81,6 +90,10 @@ add_test(
 add_test(
     NAME c_abi_2_1_package_consumer
     COMMAND c_abi_2_1_package_consumer
+)
+add_test(
+    NAME c_abi_2_3_package_consumer
+    COMMAND c_abi_2_3_package_consumer
 )
 add_test(
     NAME cpp_c_api_package_consumer

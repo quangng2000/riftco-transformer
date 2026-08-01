@@ -32,8 +32,11 @@ public:
     [[nodiscard]] ParameterList parameters();
 
     // Transfers the complete registered parameter tree transactionally.
-    // Call before constructing a forward graph or backend-specific optimizer.
-    void to(ExecutionBackend backend);
+    // Derived modules that own backend resources outside the Parameter tree
+    // must override this operation and include those resources in the same
+    // transfer transaction. Call before constructing a forward graph or
+    // backend-specific optimizer.
+    virtual void to(ExecutionBackend backend);
 
 protected:
     // A registration segment must be nonempty and cannot contain '.', which is
@@ -47,6 +50,22 @@ protected:
         Module& module
     );
 
+    // Controlled lifecycle for a dense parameter slot that is replaced by an
+    // immutable packed weight. The preflight rejects retained external handles
+    // so deactivation can actually release the dense allocation.
+    void preflight_parameter_deactivation(
+        std::string_view name,
+        Parameter& parameter
+    ) const;
+    void deactivate_parameter(
+        std::string_view name,
+        Parameter& parameter
+    );
+    void reactivate_parameter(
+        std::string_view name,
+        Parameter& parameter
+    );
+
     // Dynamic parameter collections that intentionally remain outside the
     // stable parameters() schema can participate in transactional transfer by
     // overriding this hook. Returned names are relative to this module.
@@ -54,10 +73,17 @@ protected:
     extra_parameters_for_transfer();
 
 private:
+    enum class RegistrationKind {
+        Parameter,
+        Module,
+    };
+
     struct Registration {
         std::string name;
+        RegistrationKind kind;
         ParameterHandle parameter;
         Module* module;
+        bool active;
     };
 
     std::vector<Registration> registrations_;

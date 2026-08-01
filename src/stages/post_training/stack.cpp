@@ -259,6 +259,7 @@ struct PostTrainingStack::Implementation {
         );
         artifacts::load_model_state(*model, base_snapshot.model);
         ParameterList optimizer_parameters;
+        AdamOptions optimizer_options = config.optimizer;
         switch (config.fine_tuning_method) {
             case FineTuningMethod::Full:
                 optimizer_parameters = model->parameters();
@@ -267,10 +268,30 @@ struct PostTrainingStack::Implementation {
                 model->attach_lora(config.lora);
                 optimizer_parameters = model->lora_parameters();
                 break;
+            case FineTuningMethod::Qlora:
+                if (config.nf4_double_quantization) {
+                    model->quantize_linear_weights_nf4_double_quantized(
+                        config.nf4_block_size,
+                        config.nf4_scale_block_size
+                    );
+                } else {
+                    model->quantize_linear_weights_nf4(
+                        config.nf4_block_size
+                    );
+                }
+                model->attach_lora(config.lora);
+                optimizer_parameters = model->lora_parameters();
+                if (config.qlora_paged_optimizer) {
+                    optimizer_options.state_storage =
+                        AdamStateStorageKind::Paged;
+                    optimizer_options.page_size =
+                        config.qlora_optimizer_page_size;
+                }
+                break;
         }
         adam = std::make_unique<Adam>(
             std::move(optimizer_parameters),
-            config.optimizer
+            optimizer_options
         );
         optimizer = std::make_unique<training::AdamOptimizerAdapter>(*adam);
         trainer =
@@ -411,7 +432,9 @@ PostTrainingResult PostTrainingStack::run(
         }
     }
     if (implementation_->config.fine_tuning_method ==
-        FineTuningMethod::Lora) {
+            FineTuningMethod::Lora ||
+        implementation_->config.fine_tuning_method ==
+            FineTuningMethod::Qlora) {
         // Adam owns raw adapter Parameter pointers. Release every user of
         // those pointers before the one-way model merge.
         implementation_->trainer.reset();

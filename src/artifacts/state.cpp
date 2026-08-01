@@ -59,6 +59,13 @@ ModelState capture_model_state(DecoderOnlyTransformer& model) {
             "merge them first"
         );
     }
+    if (model.has_quantized_linear_weights()) {
+        throw std::logic_error(
+            "cannot capture model state with packed quantized weights; "
+            "packed artifacts are not supported, so export ordinary "
+            "FP32 weights first"
+        );
+    }
     ModelState result{
         model.dimensions(),
         model.layer_norm_epsilon(),

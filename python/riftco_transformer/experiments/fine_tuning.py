@@ -1,4 +1,4 @@
-"""Controlled generalization comparison for full fine-tuning and LoRA."""
+"""Controlled comparison for full fine-tuning, LoRA, and QLoRA."""
 
 from __future__ import annotations
 
@@ -19,7 +19,8 @@ from ..post_training import (
     post_train,
     validate_formatted_splits_disjoint,
 )
-from ..training import TrainingMetric, selected_backend
+from ..post_training.pipeline import _selected_post_training_backend
+from ..training import TrainingMetric
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +211,7 @@ def compare_fine_tuning(
     formatter: InstructionFormatter | None = None,
     metric_sink: Callable[[str, TrainingMetric], None] | None = None,
 ) -> FineTuningComparison:
-    """Compare full and/or LoRA recipes on disjoint held-out data.
+    """Compare full, LoRA, and/or QLoRA recipes on held-out data.
 
     Every candidate starts from the same immutable base and trains only on the
     train split. All candidates are exhaustively scored on train and
@@ -230,8 +231,15 @@ def compare_fine_tuning(
     if configured.reject_split_overlap:
         splits.validate_disjoint()
 
+    requires_qlora_backend = any(
+        candidate.config.fine_tuning_method == "qlora"
+        for candidate in configured.candidates
+    )
     resolved_backends = tuple(
-        selected_backend(candidate.config.backend)
+        _selected_post_training_backend(
+            candidate.config,
+            require_qlora_capability=requires_qlora_backend,
+        )
         for candidate in configured.candidates
     )
     if len(set(resolved_backends)) != 1:

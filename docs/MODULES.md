@@ -107,6 +107,14 @@ and optimizers have been destroyed. Copying a `ParameterList` copies the
 owning handles, so an optimizer remains safe if the original list, parameter
 wrapper, or originating module later leaves scope.
 
+A layer that replaces a trainable parameter with immutable packed storage must
+first prove that no external owning handle remains. `Linear` therefore rejects
+NF4 conversion while a previously returned `ParameterList` or
+`ParameterHandle` still retains its dense weight. After conversion, the
+inactive weight registration is skipped by `parameters()` and the FP32 value
+and gradient allocation can be released. Explicit QLoRA export reactivates the
+same registration name with a newly materialized FP32 `Parameter`.
+
 The raw pointer is a compatibility view of the canonical identity. Use
 `set_value`, `zero_gradient`, or the optimizer to mutate its state; attempting
 to move-assign a different `Parameter` wrapper into that canonical proxy is
@@ -145,8 +153,14 @@ A derived module may override the protected
 must not change the stable `parameters()` schema. `Linear` uses this for active
 or retained LoRA storage. The base `Module::to()` walks the entire child tree,
 invokes that hook polymorphically at each node, and commits base plus dynamic
-parameters in one transaction. Calling `to()` through `Module&` is therefore
-safe; no derived transfer override is required.
+parameters in one transaction.
+
+`Module::to()` itself is virtual for modules that own backend resources which
+are not Parameters. A quantized `Linear` overrides it to transfer its packed
+codes and scales together with ordinary parameters; the decoder overrides it
+to stage every packed projection before the shared parameter transaction.
+Calling `to()` through `Module&` therefore preserves both ordinary and packed
+state. New modules with non-Parameter device storage must follow this pattern.
 
 Move a module before constructing a forward graph or an optimizer. A
 successful cross-backend move changes leaf versions and resets moved gradients,

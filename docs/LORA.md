@@ -5,6 +5,9 @@ post-training alternative to full-parameter fine-tuning. The implementation
 uses only the framework's native tensor operations, autograd graph, Adam
 optimizer, and CPU, Metal, or optional source-built CUDA and TPU backends.
 
+For the memory-constrained variant that keeps eligible frozen base weights in
+packed NF4 form during training, see [QLoRA Fine-Tuning](QLORA.md).
+
 ## What LoRA changes
 
 For a linear weight with shape `[output, input]`, LoRA composes a small

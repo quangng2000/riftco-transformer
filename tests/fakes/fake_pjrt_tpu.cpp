@@ -1,6 +1,7 @@
 #include "xla/pjrt/c/pjrt_c_api.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
@@ -34,6 +35,8 @@ enum class FakeOperation : std::uint8_t {
     MaterializedContextBackward,
     MaterializedProbabilitiesBackward,
     PagedDecodeForward,
+    QuantizedLinearForward,
+    QuantizedLinearInputBackward,
 };
 
 struct FakeTensorSpec {
@@ -45,6 +48,8 @@ struct PJRT_LoadedExecutable {
     FakeOperation operation = FakeOperation::Matmul;
     std::vector<FakeTensorSpec> inputs;
     std::vector<FakeTensorSpec> outputs;
+    std::size_t nf4_block_size = 0;
+    std::size_t nf4_scale_block_size = 0;
 };
 
 struct PJRT_Buffer {
@@ -52,6 +57,7 @@ struct PJRT_Buffer {
     std::vector<std::int64_t> dimensions;
     std::vector<float> float_values;
     std::vector<std::int32_t> integer_values;
+    std::vector<std::uint8_t> byte_values;
 };
 
 namespace {
@@ -65,6 +71,25 @@ constexpr std::uint8_t expected_compile_options[]{
     0x62, 0x01, 0x00,
     0x92, 0x01, 0x01, 0x00,
     0xB8, 0x01, 0x01,
+};
+
+constexpr std::array<float, 16> nf4_codebook{
+    -1.0F,
+    -0.6961928009986877F,
+    -0.5250730514526367F,
+    -0.39491748809814453F,
+    -0.28444138169288635F,
+    -0.18477343022823334F,
+    -0.09105003625154495F,
+    0.0F,
+    0.07958029955625534F,
+    0.16093020141124725F,
+    0.24611230194568634F,
+    0.33791524171829224F,
+    0.44070982933044434F,
+    0.5626170039176941F,
+    0.7229568362236023F,
+    1.0F,
 };
 
 PJRT_Device& fake_device() {
@@ -172,6 +197,11 @@ std::optional<ParsedTensorSpec> parse_tensor_spec(
             parsed.next_offset = cursor + 5;
             return parsed;
         }
+        if (text.substr(cursor, 5) == "xui8>") {
+            parsed.spec.type = PJRT_Buffer_Type_U8;
+            parsed.next_offset = cursor + 5;
+            return parsed;
+        }
         if (cursor >= text.size() || text[cursor] != 'x') {
             return std::nullopt;
         }
@@ -213,6 +243,37 @@ std::optional<std::vector<FakeTensorSpec>> parse_main_signature(
         return std::nullopt;
     }
     return specs;
+}
+
+std::optional<std::size_t> parse_positive_i32_constant(
+    std::string_view program,
+    std::string_view result_name
+) {
+    const std::size_t result_start = program.find(result_name);
+    if (result_start == std::string_view::npos) {
+        return std::nullopt;
+    }
+    constexpr std::string_view dense_prefix = "dense<";
+    const std::size_t value_start = program.find(
+        dense_prefix,
+        result_start + result_name.size()
+    );
+    if (value_start == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const char* const first =
+        program.data() + value_start + dense_prefix.size();
+    const char* const last = program.data() + program.size();
+    std::uint64_t value = 0;
+    const auto parsed = std::from_chars(first, last, value);
+    if (parsed.ec != std::errc{} || parsed.ptr == first ||
+        parsed.ptr == last || *parsed.ptr != '>' || value == 0 ||
+        value > static_cast<std::uint64_t>(
+            std::numeric_limits<std::size_t>::max()
+        )) {
+        return std::nullopt;
+    }
+    return static_cast<std::size_t>(value);
 }
 
 std::optional<std::size_t> checked_element_count(
@@ -282,6 +343,68 @@ std::optional<ProgramDefinition> identify_program(
             return std::nullopt;
         }
         return ProgramDefinition{FakeOperation::Matmul, 2, 1};
+    }
+    const bool quantized_linear_forward = program.find(
+        "module @riftco_tpu_nf4_quantized_linear_forward"
+    ) != std::string_view::npos;
+    const bool quantized_linear_input_backward = program.find(
+        "module @riftco_tpu_nf4_quantized_linear_input_backward"
+    ) != std::string_view::npos;
+    if (quantized_linear_forward || quantized_linear_input_backward) {
+        if (!has_markers(
+                program,
+                {
+                    "mhlo.num_partitions = 1",
+                    "mhlo.num_replicas = 1",
+                    "%packed_codes:",
+                    "xui8>",
+                    "\"stablehlo.iota\"",
+                    "\"stablehlo.gather\"",
+                    "\"stablehlo.shift_right_logical\"",
+                    "\"stablehlo.convert\"",
+                    "\"stablehlo.select\"",
+                    "\"stablehlo.multiply\"",
+                    "\"stablehlo.reshape\"",
+                    "\"stablehlo.dot_general\"",
+                    "lhs_contracting_dimensions = [1]",
+                }
+            )) {
+            return std::nullopt;
+        }
+        const std::string_view expected_rhs_contract =
+            quantized_linear_input_backward
+                ? "rhs_contracting_dimensions = [0]"
+                : "rhs_contracting_dimensions = [1]";
+        if (program.find(expected_rhs_contract) == std::string_view::npos) {
+            return std::nullopt;
+        }
+
+        const bool legacy_scales =
+            program.find("%block_scales:") != std::string_view::npos;
+        const bool double_quantized_scales =
+            program.find("%quantized_scales:") != std::string_view::npos;
+        if (legacy_scales == double_quantized_scales) {
+            return std::nullopt;
+        }
+        if (double_quantized_scales && !has_markers(
+                program,
+                {
+                    "%second_level_scales:",
+                    "%scale_offset: tensor<1xf32>",
+                    "\"stablehlo.subtract\"",
+                    "\"stablehlo.maximum\"",
+                    "\"stablehlo.minimum\"",
+                }
+            )) {
+            return std::nullopt;
+        }
+        return ProgramDefinition{
+            quantized_linear_input_backward
+                ? FakeOperation::QuantizedLinearInputBackward
+                : FakeOperation::QuantizedLinearForward,
+            double_quantized_scales ? 5U : 3U,
+            1,
+        };
     }
     if (program.find(
             "module @riftco_tpu_materialized_causal_attention_forward"
@@ -407,6 +530,100 @@ std::optional<std::string> validate_program_shapes(
                 left[1] != output[1] || left[2] != right[1] ||
                 right[2] != output[2]) {
                 return "inconsistent StableHLO matmul shapes";
+            }
+            return std::nullopt;
+        }
+        case FakeOperation::QuantizedLinearForward:
+        case FakeOperation::QuantizedLinearInputBackward: {
+            const bool input_backward = executable.operation ==
+                FakeOperation::QuantizedLinearInputBackward;
+            if ((inputs.size() != 3 && inputs.size() != 5) ||
+                outputs.size() != 1 ||
+                inputs[0].type != PJRT_Buffer_Type_F32 ||
+                inputs[0].dimensions.size() != 2 ||
+                inputs[1].type != PJRT_Buffer_Type_U8 ||
+                inputs[1].dimensions.size() != 1 ||
+                outputs[0].type != PJRT_Buffer_Type_F32 ||
+                outputs[0].dimensions.size() != 2 ||
+                inputs[0].dimensions[0] != outputs[0].dimensions[0] ||
+                executable.nf4_block_size == 0) {
+                return "invalid quantized-linear activation or packed shape";
+            }
+
+            const auto input_width = static_cast<std::uint64_t>(
+                input_backward
+                    ? outputs[0].dimensions[1]
+                    : inputs[0].dimensions[1]
+            );
+            const auto output_width = static_cast<std::uint64_t>(
+                input_backward
+                    ? inputs[0].dimensions[1]
+                    : outputs[0].dimensions[1]
+            );
+            if (input_width == 0 || output_width == 0 ||
+                output_width >
+                    std::numeric_limits<std::uint64_t>::max() / input_width) {
+                return "quantized-linear weight shape overflows";
+            }
+            const std::uint64_t weight_elements =
+                input_width * output_width;
+            const std::uint64_t packed_count =
+                weight_elements / 2 + weight_elements % 2;
+            const std::uint64_t block_size =
+                executable.nf4_block_size;
+            const std::uint64_t block_count =
+                weight_elements / block_size +
+                static_cast<std::uint64_t>(weight_elements % block_size != 0);
+            if (packed_count > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()
+                ) || block_count > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()
+                ) || inputs[1].dimensions[0] !=
+                    static_cast<std::int64_t>(packed_count)) {
+                return "quantized-linear packed-code shape is inconsistent";
+            }
+
+            const auto expected_block_count =
+                static_cast<std::int64_t>(block_count);
+            if (inputs.size() == 3) {
+                if (executable.nf4_scale_block_size != 0 ||
+                    !tensor_is(
+                        inputs[2],
+                        PJRT_Buffer_Type_F32,
+                        {expected_block_count}
+                    )) {
+                    return "invalid quantized-linear FP32 scale shape";
+                }
+                return std::nullopt;
+            }
+
+            if (executable.nf4_scale_block_size == 0 ||
+                !tensor_is(
+                    inputs[2],
+                    PJRT_Buffer_Type_U8,
+                    {expected_block_count}
+                ) || !tensor_is(
+                    inputs[4],
+                    PJRT_Buffer_Type_F32,
+                    {1}
+                )) {
+                return "invalid double-quantized scale inputs";
+            }
+            const std::uint64_t scale_block_size =
+                executable.nf4_scale_block_size;
+            const std::uint64_t second_level_count =
+                block_count / scale_block_size +
+                static_cast<std::uint64_t>(
+                    block_count % scale_block_size != 0
+                );
+            if (second_level_count > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()
+                ) || !tensor_is(
+                    inputs[3],
+                    PJRT_Buffer_Type_F32,
+                    {static_cast<std::int64_t>(second_level_count)}
+                )) {
+                return "invalid second-level quantized scale shape";
             }
             return std::nullopt;
         }
@@ -587,6 +804,8 @@ std::unique_ptr<PJRT_Buffer> make_output_buffer(
         output->float_values.assign(*count, 0.0F);
     } else if (spec.type == PJRT_Buffer_Type_S32) {
         output->integer_values.assign(*count, 0);
+    } else if (spec.type == PJRT_Buffer_Type_U8) {
+        output->byte_values.assign(*count, std::uint8_t{0});
     } else {
         return nullptr;
     }
@@ -626,6 +845,105 @@ std::optional<std::string> execute_matmul(
                 }
                 output[output_base + row * columns + column] = total;
             }
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> execute_quantized_linear(
+    const PJRT_LoadedExecutable& executable,
+    const std::vector<const PJRT_Buffer*>& inputs,
+    OutputBuffers& outputs
+) {
+    outputs.push_back(make_output_buffer(executable.outputs[0]));
+    if (outputs.back() == nullptr) {
+        return "fake TPU quantized-linear output size overflow";
+    }
+
+    const bool input_backward = executable.operation ==
+        FakeOperation::QuantizedLinearInputBackward;
+    const auto& activation_shape = executable.inputs[0].dimensions;
+    const auto& output_shape = executable.outputs[0].dimensions;
+    const std::size_t rows = as_size(activation_shape[0]);
+    const std::size_t input_width = as_size(
+        input_backward ? output_shape[1] : activation_shape[1]
+    );
+    const std::size_t output_width = as_size(
+        input_backward ? activation_shape[1] : output_shape[1]
+    );
+    const auto& activation = inputs[0]->float_values;
+    const auto& packed_codes = inputs[1]->byte_values;
+    auto& output = outputs[0]->float_values;
+    const bool double_quantized_scales = inputs.size() == 5;
+
+    const auto block_scale = [&](std::size_t scale_index) {
+        if (!double_quantized_scales) {
+            return inputs[2]->float_values[scale_index];
+        }
+        const int centered_code =
+            static_cast<int>(inputs[2]->byte_values[scale_index]) - 128;
+        const float factor =
+            static_cast<float>(centered_code) / 127.0F;
+        const float second_level = inputs[3]->float_values[
+            scale_index / executable.nf4_scale_block_size
+        ];
+        const float offset = inputs[4]->float_values[0];
+        const float delta = second_level * factor;
+        if (delta > 0.0F &&
+            offset > std::numeric_limits<float>::max() - delta) {
+            return std::numeric_limits<float>::max();
+        }
+        return std::max(offset + delta, 0.0F);
+    };
+    const auto decoded_weight = [&](std::size_t flat_index) {
+        const std::uint8_t packed = packed_codes[flat_index / 2];
+        const unsigned shift = flat_index % 2 == 0 ? 0U : 4U;
+        const std::uint8_t code = static_cast<std::uint8_t>(
+            (packed >> shift) & 0x0FU
+        );
+        return nf4_codebook[code] * block_scale(
+            flat_index / executable.nf4_block_size
+        );
+    };
+
+    if (!input_backward) {
+        for (std::size_t row = 0; row < rows; ++row) {
+            const std::size_t input_offset = row * input_width;
+            const std::size_t output_offset = row * output_width;
+            for (std::size_t output_column = 0;
+                 output_column < output_width;
+                 ++output_column) {
+                const std::size_t weight_offset =
+                    output_column * input_width;
+                float total = 0.0F;
+                for (std::size_t input_column = 0;
+                     input_column < input_width;
+                     ++input_column) {
+                    total += activation[input_offset + input_column] *
+                        decoded_weight(weight_offset + input_column);
+                }
+                output[output_offset + output_column] = total;
+            }
+        }
+        return std::nullopt;
+    }
+
+    for (std::size_t row = 0; row < rows; ++row) {
+        const std::size_t upstream_offset = row * output_width;
+        const std::size_t gradient_offset = row * input_width;
+        for (std::size_t input_column = 0;
+             input_column < input_width;
+             ++input_column) {
+            float total = 0.0F;
+            for (std::size_t output_column = 0;
+                 output_column < output_width;
+                 ++output_column) {
+                total += activation[upstream_offset + output_column] *
+                    decoded_weight(
+                        output_column * input_width + input_column
+                    );
+            }
+            output[gradient_offset + input_column] = total;
         }
     }
     return std::nullopt;
@@ -1326,6 +1644,34 @@ PJRT_Error* fake_client_compile(PJRT_Client_Compile_Args* args) {
         ),
         specs->end()
     );
+    const bool quantized_linear = executable->operation ==
+            FakeOperation::QuantizedLinearForward ||
+        executable->operation ==
+            FakeOperation::QuantizedLinearInputBackward;
+    if (quantized_linear) {
+        const auto block_size = parse_positive_i32_constant(
+            program,
+            "%block_size_scalar"
+        );
+        if (!block_size.has_value()) {
+            return make_error(
+                "could not parse the TPU NF4 block-size constant"
+            );
+        }
+        executable->nf4_block_size = *block_size;
+        if (definition->input_count == 5) {
+            const auto scale_block_size = parse_positive_i32_constant(
+                program,
+                "%scale_block_size_scalar"
+            );
+            if (!scale_block_size.has_value()) {
+                return make_error(
+                    "could not parse the TPU scale block-size constant"
+                );
+            }
+            executable->nf4_scale_block_size = *scale_block_size;
+        }
+    }
     if (const auto error = validate_program_shapes(*executable);
         error.has_value()) {
         return make_error(*error);
@@ -1348,7 +1694,8 @@ PJRT_Error* fake_client_buffer_from_host(
     args->done_with_host_buffer = nullptr;
     if (args->client == nullptr || args->data == nullptr ||
         (args->type != PJRT_Buffer_Type_F32 &&
-         args->type != PJRT_Buffer_Type_S32) ||
+         args->type != PJRT_Buffer_Type_S32 &&
+         args->type != PJRT_Buffer_Type_U8) ||
         args->dims == nullptr || args->num_dims == 0 ||
         args->byte_strides != nullptr || args->num_byte_strides != 0 ||
         args->host_buffer_semantics !=
@@ -1372,10 +1719,14 @@ PJRT_Error* fake_client_buffer_from_host(
     if (args->type == PJRT_Buffer_Type_F32) {
         const auto* const source = static_cast<const float*>(args->data);
         buffer->float_values.assign(source, source + *element_count);
-    } else {
+    } else if (args->type == PJRT_Buffer_Type_S32) {
         const auto* const source =
             static_cast<const std::int32_t*>(args->data);
         buffer->integer_values.assign(source, source + *element_count);
+    } else {
+        const auto* const source =
+            static_cast<const std::uint8_t*>(args->data);
+        buffer->byte_values.assign(source, source + *element_count);
     }
     auto done = std::make_unique<PJRT_Event>();
     args->buffer = buffer.release();
@@ -1508,6 +1859,14 @@ PJRT_Error* fake_loaded_executable_execute(
                 outputs
             );
             break;
+        case FakeOperation::QuantizedLinearForward:
+        case FakeOperation::QuantizedLinearInputBackward:
+            execution_error = execute_quantized_linear(
+                executable,
+                inputs,
+                outputs
+            );
+            break;
     }
     if (execution_error.has_value()) {
         return make_error(*execution_error);
@@ -1561,6 +1920,10 @@ PJRT_Error* fake_buffer_to_host(PJRT_Buffer_ToHostBuffer_Args* args) {
         source = args->src->integer_values.data();
         element_count = args->src->integer_values.size();
         element_size = sizeof(std::int32_t);
+    } else if (args->src->type == PJRT_Buffer_Type_U8) {
+        source = args->src->byte_values.data();
+        element_count = args->src->byte_values.size();
+        element_size = sizeof(std::uint8_t);
     } else {
         return make_error("unsupported fake TPU output type");
     }

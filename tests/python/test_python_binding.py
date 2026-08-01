@@ -53,8 +53,10 @@ class PythonBindingTests(unittest.TestCase):
         self.assertFalse(_abi_version_is_compatible(0x00010009))
         self.assertFalse(_abi_version_is_compatible(0x00020000))
         self.assertFalse(_abi_version_is_compatible(0x00020001))
-        self.assertTrue(_abi_version_is_compatible(0x00020002))
-        self.assertTrue(_abi_version_is_compatible(0x00020003))
+        self.assertFalse(_abi_version_is_compatible(0x00020002))
+        self.assertFalse(_abi_version_is_compatible(0x00020003))
+        self.assertTrue(_abi_version_is_compatible(0x00020004))
+        self.assertTrue(_abi_version_is_compatible(0x00020005))
         self.assertFalse(_abi_version_is_compatible(0x00030000))
 
     def test_cuda_context_or_unavailable_error(self) -> None:
@@ -1200,6 +1202,89 @@ class PythonBindingTests(unittest.TestCase):
                     base_values,
                 )
 
+    def test_qlora_keeps_linear_base_weights_packed_during_training(
+        self,
+    ) -> None:
+        config = TransformerConfig(
+            vocabulary_size=5,
+            maximum_context=3,
+            model_width=4,
+            head_count=2,
+            block_count=1,
+            feed_forward_width=8,
+            random_seed=431,
+        )
+        tokens = [[0, 1]]
+        targets = [[1, 2]]
+
+        with DecoderOnlyTransformer(config).to("cpu") as model:
+            self.assertFalse(model.quantized_linear_weights)
+            with model.parameters() as dense_parameters:
+                dense_parameter_count = len(dense_parameters.names)
+                with self.assertRaisesRegex(
+                    RiftcoTransformerError,
+                    "parameter lists",
+                ):
+                    model.quantize_nf4()
+
+            self.assertIs(model.quantize_nf4(), model)
+            self.assertTrue(model.quantized_linear_weights)
+            packed = model.quantized_memory
+            self.assertEqual(packed.weight_count, 7)
+            self.assertEqual(packed.packed_code_bytes, 74)
+            self.assertEqual(packed.scale_bytes, 63)
+            self.assertEqual(packed.logical_payload_bytes, 137)
+            self.assertEqual(packed.resident_payload_bytes, 137)
+            self.assertEqual(packed.fp32_equivalent_bytes, 592)
+            self.assertEqual(packed.fp32_scale_bytes, 0)
+            self.assertEqual(packed.scale_code_bytes, 7)
+            self.assertEqual(packed.second_level_scale_bytes, 28)
+            self.assertEqual(packed.scale_offset_bytes, 28)
+            self.assertEqual(packed.double_quantized_weight_count, 7)
+            self.assertGreater(packed.compression_ratio, 4.0)
+
+            with model.parameters() as frozen_parameters:
+                self.assertEqual(
+                    len(frozen_parameters.names),
+                    dense_parameter_count - 7,
+                )
+
+            model.attach_lora(
+                LoraConfig(rank=2, alpha=4.0, random_seed=433)
+            )
+            with model.adapter_parameters() as adapters:
+                self.assertEqual(len(adapters.names), 4)
+                adapter_values_before = adapters.flat_values()
+                with Adam(
+                    adapters,
+                    learning_rate=1.0e-2,
+                    state_storage="paged",
+                    page_size=3,
+                ) as optimizer:
+                    self.assertEqual(optimizer.parameter_count, 4)
+                    self.assertEqual(optimizer.state_storage, "paged")
+                    self.assertEqual(optimizer.state_page_size, 3)
+                    self.assertEqual(optimizer.state_page_count, 12)
+                    self.assertEqual(optimizer.state_payload_bytes, 256)
+                    with model(tokens) as logits:
+                        with cross_entropy(logits, targets) as loss:
+                            loss.backward()
+                            optimizer.step()
+                self.assertNotEqual(
+                    adapters.flat_values(),
+                    adapter_values_before,
+                )
+            self.assertEqual(model.quantized_memory, packed)
+
+            model.merge_lora()
+            self.assertFalse(model.quantized_linear_weights)
+            self.assertEqual(model.quantized_memory.weight_count, 0)
+            with model.parameters() as exported_parameters:
+                self.assertEqual(
+                    len(exported_parameters.names),
+                    dense_parameter_count,
+                )
+
     def test_decode_sessions_match_full_forward_and_own_model(
         self,
     ) -> None:
@@ -1411,6 +1496,14 @@ class PythonBindingTests(unittest.TestCase):
                 Adam(parameters, learning_rate=-1.0)
             self.assertEqual(
                 adam_error.exception.status,
+                STATUS_INVALID_ARGUMENT,
+            )
+            with self.assertRaises(ValueError):
+                Adam(parameters, state_storage="unknown")
+            with self.assertRaises(RiftcoTransformerError) as page_error:
+                Adam(parameters, state_storage="paged", page_size=0)
+            self.assertEqual(
+                page_error.exception.status,
                 STATUS_INVALID_ARGUMENT,
             )
             # A failed optimizer construction must not leave a native

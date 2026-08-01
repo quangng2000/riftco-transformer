@@ -15,7 +15,7 @@ from typing import Iterable, Sequence
 
 
 ABI_VERSION_MAJOR = 2
-ABI_VERSION_MINOR = 2
+ABI_VERSION_MINOR = 4
 ABI_VERSION = (ABI_VERSION_MAJOR << 16) | ABI_VERSION_MINOR
 
 STATUS_OK = 0
@@ -43,6 +43,9 @@ TOKENIZER_METHOD_BPE = 1
 
 KV_CACHE_CONTIGUOUS = 0
 KV_CACHE_PAGED = 1
+
+ADAM_STATE_CONTIGUOUS = 0
+ADAM_STATE_PAGED = 1
 
 LORA_TARGET_ATTENTION_QUERY = 1 << 0
 LORA_TARGET_ATTENTION_KEY = 1 << 1
@@ -92,6 +95,13 @@ _KV_CACHE_CODES = {
 }
 _KV_CACHE_NAMES = {
     value: key for key, value in _KV_CACHE_CODES.items()
+}
+_ADAM_STATE_CODES = {
+    "contiguous": ADAM_STATE_CONTIGUOUS,
+    "paged": ADAM_STATE_PAGED,
+}
+_ADAM_STATE_NAMES = {
+    value: key for key, value in _ADAM_STATE_CODES.items()
 }
 _LORA_TARGET_CODES = {
     "attention.query": LORA_TARGET_ATTENTION_QUERY,
@@ -178,6 +188,23 @@ class _NativeLoraConfig(ctypes.Structure):
     ]
 
 
+class _NativeQuantizedMemoryStats(ctypes.Structure):
+    _fields_ = [
+        ("struct_size", ctypes.c_uint64),
+        ("weight_count", ctypes.c_uint64),
+        ("packed_code_bytes", ctypes.c_uint64),
+        ("scale_bytes", ctypes.c_uint64),
+        ("logical_payload_bytes", ctypes.c_uint64),
+        ("resident_payload_bytes", ctypes.c_uint64),
+        ("fp32_equivalent_bytes", ctypes.c_uint64),
+        ("fp32_scale_bytes", ctypes.c_uint64),
+        ("scale_code_bytes", ctypes.c_uint64),
+        ("second_level_scale_bytes", ctypes.c_uint64),
+        ("scale_offset_bytes", ctypes.c_uint64),
+        ("double_quantized_weight_count", ctypes.c_uint64),
+    ]
+
+
 class _NativeDecodeSessionOptions(ctypes.Structure):
     _fields_ = [
         ("struct_size", ctypes.c_uint64),
@@ -196,6 +223,9 @@ class _NativeAdamOptions(ctypes.Structure):
         ("epsilon", ctypes.c_float),
         ("maximum_gradient_norm", ctypes.c_float),
         ("reserved", ctypes.c_uint32),
+        ("state_storage", ctypes.c_int32),
+        ("reserved2", ctypes.c_uint32),
+        ("page_size", ctypes.c_uint64),
     ]
 
 
@@ -602,6 +632,29 @@ def _configure_library(library: ctypes.CDLL) -> None:
         ctypes.POINTER(_NativeLoraConfig),
     ]
     library.rt_model_lora_config.restype = ctypes.c_int32
+    library.rt_model_quantize_linear_weights_nf4.argtypes = [
+        _ModelHandle,
+        ctypes.c_uint64,
+    ]
+    library.rt_model_quantize_linear_weights_nf4.restype = ctypes.c_int32
+    library.rt_model_quantize_linear_weights_nf4_double_quantized.argtypes = [
+        _ModelHandle,
+        ctypes.c_uint64,
+        ctypes.c_uint64,
+    ]
+    library.rt_model_quantize_linear_weights_nf4_double_quantized.restype = (
+        ctypes.c_int32
+    )
+    library.rt_model_has_quantized_linear_weights.argtypes = [
+        _ModelHandle,
+        ctypes.POINTER(ctypes.c_int32),
+    ]
+    library.rt_model_has_quantized_linear_weights.restype = ctypes.c_int32
+    library.rt_model_quantized_memory_stats.argtypes = [
+        _ModelHandle,
+        ctypes.POINTER(_NativeQuantizedMemoryStats),
+    ]
+    library.rt_model_quantized_memory_stats.restype = ctypes.c_int32
     library.rt_model_forward.argtypes = [
         _ModelHandle,
         ctypes.POINTER(ctypes.c_uint32),
@@ -788,6 +841,26 @@ def _configure_library(library: ctypes.CDLL) -> None:
         ctypes.POINTER(ctypes.c_uint64),
     ]
     library.rt_adam_parameter_count.restype = ctypes.c_int32
+    library.rt_adam_state_storage.argtypes = [
+        _AdamHandle,
+        ctypes.POINTER(ctypes.c_int32),
+    ]
+    library.rt_adam_state_storage.restype = ctypes.c_int32
+    library.rt_adam_state_page_size.argtypes = [
+        _AdamHandle,
+        ctypes.POINTER(ctypes.c_uint64),
+    ]
+    library.rt_adam_state_page_size.restype = ctypes.c_int32
+    library.rt_adam_state_page_count.argtypes = [
+        _AdamHandle,
+        ctypes.POINTER(ctypes.c_uint64),
+    ]
+    library.rt_adam_state_page_count.restype = ctypes.c_int32
+    library.rt_adam_state_payload_bytes.argtypes = [
+        _AdamHandle,
+        ctypes.POINTER(ctypes.c_uint64),
+    ]
+    library.rt_adam_state_payload_bytes.restype = ctypes.c_int32
     library.rt_adam_step.argtypes = [
         _AdamHandle,
         ctypes.POINTER(_NativeAdamStepStats),
@@ -1004,6 +1077,42 @@ def _kv_cache_name(cache: int) -> str:
     except KeyError as error:
         raise RuntimeError(
             f"native library returned unknown KV cache kind {cache}"
+        ) from error
+
+
+def _adam_state_storage_code(storage: str | int) -> int:
+    if isinstance(storage, str):
+        try:
+            return _ADAM_STATE_CODES[storage.strip().lower()]
+        except KeyError as error:
+            raise ValueError(
+                f"unknown Adam state storage {storage!r}; expected "
+                "'contiguous' or 'paged'"
+            ) from error
+    if isinstance(storage, bool):
+        raise TypeError(
+            "state_storage must be 'contiguous', 'paged', 0, or 1"
+        )
+    try:
+        value = operator.index(storage)
+    except TypeError as error:
+        raise TypeError(
+            "state_storage must be 'contiguous', 'paged', 0, or 1"
+        ) from error
+    if value not in _ADAM_STATE_NAMES:
+        raise ValueError(
+            f"unknown Adam state storage {value!r}; expected 0 or 1"
+        )
+    return value
+
+
+def _adam_state_storage_name(storage: int) -> str:
+    try:
+        return _ADAM_STATE_NAMES[storage]
+    except KeyError as error:
+        raise RuntimeError(
+            "native library returned unknown Adam state storage "
+            f"{storage}"
         ) from error
 
 
@@ -1275,6 +1384,31 @@ class LoraConfig:
         object.__setattr__(self, "alpha", native_alpha)
         object.__setattr__(self, "targets", targets)
         object.__setattr__(self, "random_seed", random_seed)
+
+
+@dataclass(frozen=True, slots=True)
+class QuantizedMemoryStats:
+    """Persistent NF4 payload bytes for a quantized model."""
+
+    weight_count: int
+    packed_code_bytes: int
+    scale_bytes: int
+    logical_payload_bytes: int
+    resident_payload_bytes: int
+    fp32_equivalent_bytes: int
+    fp32_scale_bytes: int
+    scale_code_bytes: int
+    second_level_scale_bytes: int
+    scale_offset_bytes: int
+    double_quantized_weight_count: int
+
+    @property
+    def compression_ratio(self) -> float:
+        """Return FP32 bytes divided by the logical packed payload bytes."""
+
+        if self.logical_payload_bytes == 0:
+            return 0.0
+        return self.fp32_equivalent_bytes / self.logical_payload_bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -2302,6 +2436,95 @@ class DecoderOnlyTransformer:
                 random_seed=int(output.random_seed),
             )
 
+    def quantize_nf4(
+        self,
+        block_size: int = 64,
+        *,
+        double_quantization: bool = True,
+        scale_block_size: int = 256,
+    ) -> DecoderOnlyTransformer:
+        """Pack eligible Linear weights as immutable blockwise NF4."""
+
+        checked_block_size = _unsigned_integer(
+            block_size,
+            (1 << 64) - 1,
+            "block_size",
+        )
+        if checked_block_size == 0:
+            raise ValueError("block_size must be greater than zero")
+        if not isinstance(double_quantization, bool):
+            raise TypeError("double_quantization must be a bool")
+        checked_scale_block_size = _unsigned_integer(
+            scale_block_size,
+            (1 << 64) - 1,
+            "scale_block_size",
+        )
+        if checked_scale_block_size == 0:
+            raise ValueError("scale_block_size must be greater than zero")
+        with self._lock:
+            if double_quantization:
+                _check(
+                    _native()
+                    .rt_model_quantize_linear_weights_nf4_double_quantized(
+                        self._native_handle(),
+                        checked_block_size,
+                        checked_scale_block_size,
+                    )
+                )
+            else:
+                _check(
+                    _native().rt_model_quantize_linear_weights_nf4(
+                        self._native_handle(),
+                        checked_block_size,
+                    )
+                )
+        return self
+
+    @property
+    def quantized_linear_weights(self) -> bool:
+        """Return whether the model currently owns packed Linear weights."""
+
+        with self._lock:
+            output = ctypes.c_int32()
+            _check(
+                _native().rt_model_has_quantized_linear_weights(
+                    self._native_handle(),
+                    ctypes.byref(output),
+                )
+            )
+            return bool(output.value)
+
+    @property
+    def quantized_memory(self) -> QuantizedMemoryStats:
+        """Return exact persistent packed-weight memory accounting."""
+
+        with self._lock:
+            output = _NativeQuantizedMemoryStats()
+            output.struct_size = ctypes.sizeof(output)
+            _check(
+                _native().rt_model_quantized_memory_stats(
+                    self._native_handle(),
+                    ctypes.byref(output),
+                )
+            )
+            return QuantizedMemoryStats(
+                weight_count=int(output.weight_count),
+                packed_code_bytes=int(output.packed_code_bytes),
+                scale_bytes=int(output.scale_bytes),
+                logical_payload_bytes=int(output.logical_payload_bytes),
+                resident_payload_bytes=int(output.resident_payload_bytes),
+                fp32_equivalent_bytes=int(output.fp32_equivalent_bytes),
+                fp32_scale_bytes=int(output.fp32_scale_bytes),
+                scale_code_bytes=int(output.scale_code_bytes),
+                second_level_scale_bytes=int(
+                    output.second_level_scale_bytes
+                ),
+                scale_offset_bytes=int(output.scale_offset_bytes),
+                double_quantized_weight_count=int(
+                    output.double_quantized_weight_count
+                ),
+            )
+
     def parameters(self) -> ParameterList:
         """Return the stable base-model parameter collection."""
 
@@ -3066,6 +3289,8 @@ class Adam:
         beta2: float = 0.999,
         epsilon: float = 1.0e-8,
         maximum_gradient_norm: float = 1.0,
+        state_storage: str | int = "contiguous",
+        page_size: int = 4096,
     ) -> None:
         if not isinstance(parameters, ParameterList):
             raise TypeError(
@@ -3089,6 +3314,14 @@ class Adam:
         native_options.epsilon = float(epsilon)
         native_options.maximum_gradient_norm = float(
             maximum_gradient_norm
+        )
+        native_options.state_storage = _adam_state_storage_code(
+            state_storage
+        )
+        native_options.page_size = _unsigned_integer(
+            page_size,
+            (1 << 64) - 1,
+            "page_size",
         )
 
         with self._lock:
@@ -3141,6 +3374,54 @@ class Adam:
             output = ctypes.c_uint64()
             _check(
                 _native().rt_adam_parameter_count(
+                    self._native_handle(),
+                    ctypes.byref(output),
+                )
+            )
+            return int(output.value)
+
+    @property
+    def state_storage(self) -> str:
+        with self._lock:
+            output = ctypes.c_int32()
+            _check(
+                _native().rt_adam_state_storage(
+                    self._native_handle(),
+                    ctypes.byref(output),
+                )
+            )
+            return _adam_state_storage_name(int(output.value))
+
+    @property
+    def state_page_size(self) -> int:
+        with self._lock:
+            output = ctypes.c_uint64()
+            _check(
+                _native().rt_adam_state_page_size(
+                    self._native_handle(),
+                    ctypes.byref(output),
+                )
+            )
+            return int(output.value)
+
+    @property
+    def state_page_count(self) -> int:
+        with self._lock:
+            output = ctypes.c_uint64()
+            _check(
+                _native().rt_adam_state_page_count(
+                    self._native_handle(),
+                    ctypes.byref(output),
+                )
+            )
+            return int(output.value)
+
+    @property
+    def state_payload_bytes(self) -> int:
+        with self._lock:
+            output = ctypes.c_uint64()
+            _check(
+                _native().rt_adam_state_payload_bytes(
                     self._native_handle(),
                     ctypes.byref(output),
                 )
@@ -3214,6 +3495,8 @@ class Adam:
 
 
 __all__ = [
+    "ADAM_STATE_CONTIGUOUS",
+    "ADAM_STATE_PAGED",
     "ABI_VERSION",
     "ABI_VERSION_MAJOR",
     "ABI_VERSION_MINOR",
@@ -3246,6 +3529,7 @@ __all__ = [
     "DecoderOnlyTransformer",
     "LoraConfig",
     "ParameterList",
+    "QuantizedMemoryStats",
     "STATUS_BACKEND_UNAVAILABLE",
     "STATUS_INVALID_ARGUMENT",
     "STATUS_OK",

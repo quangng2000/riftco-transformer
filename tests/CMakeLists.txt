@@ -305,6 +305,12 @@ add_riftco_transformer_test(
 )
 
 add_riftco_transformer_test(
+    quantization_tests
+    quantization
+    core/test_quantization.cpp
+)
+
+add_riftco_transformer_test(
     backend_tests
     backend
     core/backend/test_backend.cpp
@@ -372,6 +378,40 @@ add_riftco_transformer_test(
     nn_backend
     core/backend/test_nn_backend.cpp
 )
+
+add_riftco_transformer_test(
+    quantized_linear_backend_tests
+    quantized_linear_backend
+    core/backend/test_quantized_linear_backend.cpp
+)
+target_include_directories(quantized_linear_backend_tests
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
+)
+target_compile_definitions(quantized_linear_backend_tests
+    PRIVATE
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_METAL}>
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA}>
+        RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=$<BOOL:${RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU}>
+)
+if(RIFTCO_TRANSFORMER_ENABLE_TPU)
+    add_dependencies(
+        quantized_linear_backend_tests
+        riftco_transformer_fake_pjrt_tpu
+    )
+    add_test(
+        NAME quantized_linear_backend_fake_pjrt_tpu
+        COMMAND
+            ${CMAKE_COMMAND} -E env
+            RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            $<TARGET_FILE:quantized_linear_backend_tests>
+            --require-tpu
+    )
+    set_tests_properties(quantized_linear_backend_fake_pjrt_tpu
+        PROPERTIES
+            LABELS "backend;quantization;tpu;fake-pjrt"
+    )
+endif()
 target_include_directories(nn_backend_tests
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src
@@ -446,6 +486,12 @@ add_riftco_transformer_test(
 )
 
 add_riftco_transformer_test(
+    quantized_linear_tests
+    quantized_linear
+    nn/test_quantized_linear.cpp
+)
+
+add_riftco_transformer_test(
     causal_self_attention_tests
     causal_self_attention
     model/test_causal_self_attention.cpp
@@ -467,6 +513,12 @@ add_riftco_transformer_test(
     lora_model_tests
     lora_model
     model/test_lora_model.cpp
+)
+
+add_riftco_transformer_test(
+    qlora_model_tests
+    qlora_model
+    model/test_qlora_model.cpp
 )
 
 add_riftco_transformer_test(

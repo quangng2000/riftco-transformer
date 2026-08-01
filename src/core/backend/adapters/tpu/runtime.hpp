@@ -17,11 +17,14 @@ enum class TpuProgramKind : std::uint8_t {
     MaterializedCausalAttentionContextBackward,
     MaterializedCausalAttentionProbabilitiesBackward,
     PagedDecodeAttentionForward,
+    QuantizedLinearForward,
+    QuantizedLinearInputBackward,
 };
 
 enum class TpuElementType : std::uint8_t {
     F32,
     S32,
+    U8,
 };
 
 struct TpuProgramKey {

@@ -287,6 +287,12 @@ class ModelBundle:
                 "cannot capture a model bundle with active LoRA adapters; "
                 "merge them first"
             )
+        if model.quantized_linear_weights:
+            raise RuntimeError(
+                "cannot capture a model bundle with packed quantized "
+                "weights; packed artifacts are not supported, so export "
+                "ordinary FP32 weights first"
+            )
         tokenizer_spec = TokenizerSpec.capture(tokenizer)
         with model.parameters() as parameters:
             names = parameters.names

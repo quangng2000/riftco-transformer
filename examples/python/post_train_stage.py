@@ -74,7 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("auto", "cpu", "metal", "cuda", "tpu"),
         default="auto",
         help=(
-            "Execution backend; auto prefers TPU, then CUDA, Metal, and CPU."
+            "Execution backend; auto prefers TPU, then CUDA, Metal, and CPU "
+            "for full, LoRA, and QLoRA training."
         ),
     )
     parser.add_argument(
@@ -118,10 +119,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fine-tuning-method",
-        choices=("full", "lora"),
+        choices=("full", "lora", "qlora"),
         default="full",
         help=(
-            "Optimize every base parameter or LoRA adapters only "
+            "Optimize every base parameter, LoRA adapters, or LoRA adapters "
+            "over an NF4-packed base; QLoRA defaults to double-quantized "
+            "scales and bounded-page Adam state "
             "(default: full)."
         ),
     )
@@ -138,13 +141,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--lora-rank",
         type=positive_integer,
         default=4,
-        help="LoRA rank when --fine-tuning-method=lora (default: 4).",
+        help="LoRA/QLoRA adapter rank (default: 4).",
     )
     parser.add_argument(
         "--lora-alpha",
         type=positive_float,
         default=8.0,
-        help="LoRA scaling alpha when LoRA is selected (default: 8).",
+        help="LoRA/QLoRA scaling alpha (default: 8).",
+    )
+    parser.add_argument(
+        "--nf4-block-size",
+        type=positive_integer,
+        default=64,
+        help="QLoRA NF4 block size (default: 64).",
     )
     parser.add_argument(
         "--eval-every",
@@ -192,6 +201,7 @@ def main() -> int:
                 ),
                 fine_tuning_method=arguments.fine_tuning_method,
                 sampling_strategy=arguments.sampling_strategy,
+                nf4_block_size=arguments.nf4_block_size,
                 lora=LoraConfig(
                     rank=arguments.lora_rank,
                     alpha=arguments.lora_alpha,

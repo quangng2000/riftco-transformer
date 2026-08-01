@@ -165,7 +165,7 @@ seeded run reproduces its batch sequence.
 - shared stage-neutral Python causal training engine — complete slice
 - self-supervised pretraining that emits an immutable base artifact —
   complete slice
-- full-sequence supervised full/LoRA post-training that emits a
+- full-sequence supervised full/LoRA/QLoRA post-training that emits a
   lineage-linked child artifact with merged base weights — complete slice
 - greedy and seeded temperature/top-k autoregressive generation — complete
   slice
@@ -216,6 +216,16 @@ Only after correctness:
   state transfer for `ModelBundle` — complete slice
 - LoRA configuration, attachment, adapter-parameter access, and
   merge lifecycle — complete slice
+- immutable blockwise NF4 weights, optional FP32 or default double-quantized
+  scales, backend-neutral quantized-linear forward and input backward, CPU
+  reference, Metal/CUDA kernels, TPU StableHLO execution, adapter-only QLoRA,
+  packed-memory diagnostics, and explicit FP32 export — complete slice;
+  packed artifacts remain future work, and real CUDA/TPU hardware acceptance
+  remains pending
+- contiguous or bounded-page Adam moment storage — complete slice; paged
+  storage caps each moment allocation and update request, but retains two FP32
+  moment values per trainable scalar and is not a general spill/page-fault
+  manager
 - contiguous/paged incremental decode-session lifecycle — complete
   slice
 - dependency-free exact memory-linear Flash causal-attention forward/backward,
@@ -227,11 +237,13 @@ Only after correctness:
   checkpointing across the registered backends, including LoRA dependencies,
   C ABI, Python, stage, and CLI selection — complete slice
 - additive ABI 2.1 CUDA identity, unavailable stub, optional CUDA Toolkit 12+
-  source build, managed tensor storage, and synchronous GPU matmul plus all
-  attention contracts — complete slice; real-GPU parity remains required
+  source build, managed tensor/packed-weight storage, synchronous GPU matmul,
+  quantized linear, and all attention contracts — complete slice; real-GPU
+  parity remains required
 - additive ABI 2.2 TPU identity, unavailable stub, optional Linux x86-64 PJRT
-  source adapter, host-mirrored storage, and one-device StableHLO matmul,
-  materialized attention/VJPs, and paged decode — implemented;
+  source adapter, host-mirrored tensor and packed-weight storage, and
+  one-device StableHLO quantized linear, matmul, materialized attention/VJPs,
+  and paged decode — implemented;
   real-Cloud-TPU acceptance remains pending
 - TPU device-resident storage, genuinely tiled StableHLO Flash attention,
   additional native operations, asynchronous execution, SPMD partitioning,

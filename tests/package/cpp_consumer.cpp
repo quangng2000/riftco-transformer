@@ -1,10 +1,12 @@
 #include "riftco_transformer/core/backend.hpp"
 #include "riftco_transformer/core/autograd.hpp"
+#include "riftco_transformer/core/quantized_weight.hpp"
 #include "riftco_transformer/core/tensor.hpp"
 #include "riftco_transformer/core/tensor_ops.hpp"
 #include "riftco_transformer/model/activation_checkpointing.hpp"
 #include "riftco_transformer/model/lora.hpp"
 #include "riftco_transformer/nn/module.hpp"
+#include "riftco_transformer/nn/quantized_linear.hpp"
 #include "riftco_transformer/stages/stages.hpp"
 
 #include <array>
@@ -123,6 +125,48 @@ int main() {
             right,
             ExecutionBackend::Cpu
         );
+    const riftco_transformer::QuantizedWeight packed =
+        riftco_transformer::QuantizedWeight::quantize_nf4(
+            Tensor::zeros({32}, ExecutionBackend::Cpu),
+            32
+        );
+    if (packed.packed_byte_count() != 16 ||
+        packed.memory_usage().logical_payload_bytes != 20 ||
+        packed.dequantize().numel() != 32) {
+        return EXIT_FAILURE;
+    }
+    const riftco_transformer::QuantizedWeight double_packed =
+        riftco_transformer::QuantizedWeight::
+            quantize_nf4_double_quantized(
+                Tensor::zeros({4096}, ExecutionBackend::Cpu),
+                32,
+                32
+            );
+    const auto double_memory = double_packed.memory_usage();
+    if (!double_packed.uses_double_quantized_scales() ||
+        double_memory.fp32_scale_bytes != 0 ||
+        double_memory.scale_code_bytes != 128 ||
+        double_memory.second_level_scale_bytes != 16 ||
+        double_memory.scale_offset_bytes != 4) {
+        return EXIT_FAILURE;
+    }
+    const riftco_transformer::QuantizedWeight packed_matrix =
+        riftco_transformer::QuantizedWeight::quantize_nf4(
+            Tensor::zeros({1, 32}, ExecutionBackend::Cpu),
+            32
+        );
+    const riftco_transformer::Variable packed_output =
+        riftco_transformer::quantized_linear(
+            riftco_transformer::Variable(
+                Tensor::zeros({1, 32}, ExecutionBackend::Cpu),
+                false
+            ),
+            packed_matrix
+        );
+    if (packed_output.value().shape() != Tensor::Shape({1, 1}) ||
+        packed_output.value().flat(0) != 0.0F) {
+        return EXIT_FAILURE;
+    }
 
     const riftco_transformer::ParameterList retained =
         retained_parameters();

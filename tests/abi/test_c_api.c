@@ -1,6 +1,7 @@
 #include "riftco_transformer/c_api.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,9 @@
 #ifndef RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA
 #define RIFTCO_TRANSFORMER_TEST_REQUIRE_CUDA 0
 #endif
+
+#define RT_LEGACY_ADAM_OPTIONS_SIZE UINT64_C(32)
+#define RT_LEGACY_QUANTIZED_MEMORY_STATS_SIZE UINT64_C(56)
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -108,6 +112,16 @@ _Static_assert(
 _Static_assert(
     sizeof(rt_decode_session_options) == 24,
     "rt_decode_session_options ABI layout"
+);
+_Static_assert(
+    offsetof(rt_adam_options, state_storage) ==
+        RT_LEGACY_ADAM_OPTIONS_SIZE,
+    "legacy rt_adam_options ABI prefix"
+);
+_Static_assert(
+    offsetof(rt_quantized_memory_stats, fp32_scale_bytes) ==
+        RT_LEGACY_QUANTIZED_MEMORY_STATS_SIZE,
+    "legacy rt_quantized_memory_stats ABI prefix"
 );
 _Static_assert(
     sizeof(rt_full_sequence_attention_kind) == 4,
@@ -1990,6 +2004,70 @@ static void test_versioned_structures(void) {
         "create parameters for versioned Adam structures"
     );
 
+    rt_adam_options legacy_options;
+    memset(&legacy_options, 0xa5, sizeof(legacy_options));
+    unsigned char legacy_extension[
+        sizeof(legacy_options) - RT_LEGACY_ADAM_OPTIONS_SIZE
+    ];
+    memcpy(
+        legacy_extension,
+        (const unsigned char*)&legacy_options +
+            RT_LEGACY_ADAM_OPTIONS_SIZE,
+        sizeof(legacy_extension)
+    );
+    require_status(
+        rt_adam_options_init(
+            &legacy_options,
+            RT_LEGACY_ADAM_OPTIONS_SIZE
+        ),
+        "initialize legacy 32-byte Adam options"
+    );
+    require_condition(
+        legacy_options.struct_size == RT_LEGACY_ADAM_OPTIONS_SIZE &&
+            legacy_options.reserved == 0,
+        "legacy Adam options initialize the supported prefix"
+    );
+    require_condition(
+        memcmp(
+            (const unsigned char*)&legacy_options +
+                RT_LEGACY_ADAM_OPTIONS_SIZE,
+            legacy_extension,
+            sizeof(legacy_extension)
+        ) == 0,
+        "legacy Adam options initializer preserves extension canaries"
+    );
+    rt_adam* legacy_adam = NULL;
+    require_status(
+        rt_adam_create(parameters, &legacy_options, &legacy_adam),
+        "consume legacy 32-byte Adam options"
+    );
+    rt_adam_state_storage_kind legacy_state_storage =
+        (rt_adam_state_storage_kind)-1;
+    uint64_t legacy_page_size = 0;
+    require_status(
+        rt_adam_state_storage(legacy_adam, &legacy_state_storage),
+        "query legacy Adam state storage"
+    );
+    require_status(
+        rt_adam_state_page_size(legacy_adam, &legacy_page_size),
+        "query legacy Adam page size"
+    );
+    require_condition(
+        legacy_state_storage == RT_ADAM_STATE_CONTIGUOUS &&
+            legacy_page_size == UINT64_C(4096),
+        "legacy Adam options select extension defaults"
+    );
+    require_condition(
+        memcmp(
+            (const unsigned char*)&legacy_options +
+                RT_LEGACY_ADAM_OPTIONS_SIZE,
+            legacy_extension,
+            sizeof(legacy_extension)
+        ) == 0,
+        "legacy Adam creation preserves extension canaries"
+    );
+    rt_adam_release(legacy_adam);
+
     extended_adam_options options;
     memset(&options, 0x5a, sizeof(options));
     options.tail[0] = second_canary;
@@ -2006,8 +2084,14 @@ static void test_versioned_structures(void) {
         "oversized Adam options report caller size"
     );
     require_condition(
-        options.value.reserved == 0,
-        "Adam options initializer clears reserved field"
+        options.value.reserved == 0 &&
+            options.value.reserved2 == 0,
+        "Adam options initializer clears reserved fields"
+    );
+    require_condition(
+        options.value.state_storage == RT_ADAM_STATE_CONTIGUOUS &&
+            options.value.page_size == UINT64_C(4096),
+        "Adam options initializer selects contiguous default state"
     );
     require_condition(
         options.tail[0] == second_canary &&
@@ -2040,6 +2124,36 @@ static void test_versioned_structures(void) {
     );
 
     options.value.reserved = 0;
+    options.value.reserved2 = 1;
+    rejected_adam = (rt_adam*)(uintptr_t)1;
+    require_condition(
+        rt_adam_create(parameters, &options.value, &rejected_adam) ==
+            RT_STATUS_INVALID_ARGUMENT &&
+            rejected_adam == NULL,
+        "Adam rejects a nonzero second reserved option"
+    );
+
+    options.value.reserved2 = 0;
+    options.value.state_storage = (rt_adam_state_storage_kind)99;
+    rejected_adam = (rt_adam*)(uintptr_t)1;
+    require_condition(
+        rt_adam_create(parameters, &options.value, &rejected_adam) ==
+            RT_STATUS_INVALID_ARGUMENT &&
+            rejected_adam == NULL,
+        "Adam rejects an unknown state storage kind"
+    );
+
+    options.value.state_storage = RT_ADAM_STATE_PAGED;
+    options.value.page_size = 0;
+    rejected_adam = (rt_adam*)(uintptr_t)1;
+    require_condition(
+        rt_adam_create(parameters, &options.value, &rejected_adam) ==
+            RT_STATUS_INVALID_ARGUMENT &&
+            rejected_adam == NULL,
+        "Adam rejects a zero state page size"
+    );
+
+    options.value.page_size = 2;
     rt_adam* adam = NULL;
     require_status(
         rt_adam_create(parameters, &options.value, &adam),
@@ -2049,6 +2163,34 @@ static void test_versioned_structures(void) {
         options.tail[0] == second_canary &&
             options.tail[1] == first_canary,
         "Adam creation preserves options extension tail"
+    );
+    rt_adam_state_storage_kind state_storage =
+        (rt_adam_state_storage_kind)-1;
+    uint64_t state_page_size = 0;
+    uint64_t state_page_count = 0;
+    uint64_t state_payload_bytes = 0;
+    require_status(
+        rt_adam_state_storage(adam, &state_storage),
+        "query paged Adam state storage"
+    );
+    require_status(
+        rt_adam_state_page_size(adam, &state_page_size),
+        "query paged Adam page size"
+    );
+    require_status(
+        rt_adam_state_page_count(adam, &state_page_count),
+        "query paged Adam page count"
+    );
+    require_status(
+        rt_adam_state_payload_bytes(adam, &state_payload_bytes),
+        "query paged Adam payload bytes"
+    );
+    require_condition(
+        state_storage == RT_ADAM_STATE_PAGED &&
+            state_page_size == 2 &&
+            state_page_count > 0 &&
+            state_payload_bytes > 0,
+        "paged Adam reports its state layout"
     );
 
     rt_adam_step_stats undersized = {
@@ -2801,6 +2943,404 @@ static void test_lora_api(void) {
         rt_model_has_lora(NULL, &attached) ==
             RT_STATUS_INVALID_ARGUMENT,
         "LoRA state query rejects a null model"
+    );
+}
+
+static void test_qlora_api(void) {
+    rt_transformer_config config;
+    require_status(
+        rt_transformer_config_init(
+            &config,
+            (uint64_t)sizeof(config)
+        ),
+        "initialize QLoRA model config"
+    );
+    config.vocabulary_size = 5;
+    config.maximum_context = 3;
+    config.model_width = 4;
+    config.head_count = 2;
+    config.block_count = 1;
+    config.feed_forward_width = 8;
+    config.random_seed = 443;
+
+    rt_model* model = NULL;
+    require_status(
+        rt_model_create(&config, &model),
+        "create QLoRA model"
+    );
+    int32_t quantized = -1;
+    require_status(
+        rt_model_has_quantized_linear_weights(model, &quantized),
+        "query initial quantized state"
+    );
+    require_condition(quantized == 0, "model initially is not quantized");
+
+    require_condition(
+        rt_model_quantize_linear_weights_nf4(model, 16) ==
+            RT_STATUS_INVALID_ARGUMENT,
+        "NF4 conversion rejects an unsupported block size"
+    );
+    require_status(
+        rt_model_has_quantized_linear_weights(model, &quantized),
+        "query quantized state after invalid block size"
+    );
+    require_condition(
+        quantized == 0,
+        "invalid NF4 block size leaves the model unquantized"
+    );
+
+    const uint32_t token_ids[] = {0, 1};
+    const uint32_t targets[] = {1, 2};
+    rt_variable* live_logits = NULL;
+    require_status(
+        rt_model_forward(model, token_ids, 2, 1, 2, &live_logits),
+        "forward before rejected live-variable NF4 conversion"
+    );
+    require_condition(
+        rt_model_quantize_linear_weights_nf4(model, 64) ==
+            RT_STATUS_INVALID_ARGUMENT,
+        "NF4 conversion rejects a live forward variable"
+    );
+    require_status(
+        rt_model_has_quantized_linear_weights(model, &quantized),
+        "query quantized state after live-variable rejection"
+    );
+    require_condition(
+        quantized == 0,
+        "live-variable rejection leaves the model unquantized"
+    );
+    float live_logits_values[10];
+    require_status(
+        rt_variable_copy_to_host_f32(
+            live_logits,
+            live_logits_values,
+            10
+        ),
+        "copy the live forward variable after rejected conversion"
+    );
+    for (size_t index = 0; index < 10; ++index) {
+        require_condition(
+            isfinite(live_logits_values[index]),
+            "rejected conversion preserves the live forward variable"
+        );
+    }
+    rt_variable_release(live_logits);
+
+    rt_parameter_list* optimizer_parameters = NULL;
+    require_status(
+        rt_model_parameters(model, &optimizer_parameters),
+        "query parameters for the live-Adam NF4 guard"
+    );
+    rt_adam* live_optimizer = NULL;
+    require_status(
+        rt_adam_create(optimizer_parameters, NULL, &live_optimizer),
+        "create live Adam before rejected NF4 conversion"
+    );
+    rt_parameter_list_release(optimizer_parameters);
+    require_condition(
+        rt_model_quantize_linear_weights_nf4(model, 64) ==
+            RT_STATUS_INVALID_ARGUMENT,
+        "NF4 conversion rejects a live Adam optimizer"
+    );
+    require_status(
+        rt_model_has_quantized_linear_weights(model, &quantized),
+        "query quantized state after live-Adam rejection"
+    );
+    require_condition(
+        quantized == 0,
+        "live-Adam rejection leaves the model unquantized"
+    );
+    uint64_t live_optimizer_step_count = UINT64_MAX;
+    require_status(
+        rt_adam_step_count(live_optimizer, &live_optimizer_step_count),
+        "query live Adam after rejected conversion"
+    );
+    require_condition(
+        live_optimizer_step_count == 0,
+        "rejected conversion preserves the live Adam optimizer"
+    );
+    rt_adam_release(live_optimizer);
+
+    rt_decode_session* live_session = NULL;
+    require_status(
+        rt_model_decode_session_create(model, NULL, &live_session),
+        "create live decode session before rejected NF4 conversion"
+    );
+    require_condition(
+        rt_model_quantize_linear_weights_nf4(model, 64) ==
+            RT_STATUS_INVALID_ARGUMENT,
+        "NF4 conversion rejects a live decode session"
+    );
+    require_status(
+        rt_model_has_quantized_linear_weights(model, &quantized),
+        "query quantized state after live-decode rejection"
+    );
+    require_condition(
+        quantized == 0,
+        "live-decode rejection leaves the model unquantized"
+    );
+    float decode_logits[5];
+    uint64_t decode_logits_count = UINT64_MAX;
+    require_status(
+        rt_decode_session_step(
+            live_session,
+            token_ids[0],
+            decode_logits,
+            5,
+            &decode_logits_count
+        ),
+        "use live decode session after rejected conversion"
+    );
+    require_condition(
+        decode_logits_count == 5,
+        "rejected conversion preserves the live decode session"
+    );
+    for (size_t index = 0; index < 5; ++index) {
+        require_condition(
+            isfinite(decode_logits[index]),
+            "live decode output remains finite after rejected conversion"
+        );
+    }
+    rt_decode_session_release(live_session);
+
+    rt_parameter_list* dense_parameters = NULL;
+    require_status(
+        rt_model_parameters(model, &dense_parameters),
+        "query dense parameters before QLoRA"
+    );
+    uint64_t dense_count = 0;
+    require_status(
+        rt_parameter_list_count(dense_parameters, &dense_count),
+        "count dense parameters before QLoRA"
+    );
+    require_condition(
+        rt_model_quantize_linear_weights_nf4(model, 64) ==
+            RT_STATUS_INVALID_ARGUMENT,
+        "NF4 conversion rejects a live parameter list"
+    );
+    rt_parameter_list_release(dense_parameters);
+
+    require_status(
+        rt_model_quantize_linear_weights_nf4_double_quantized(
+            model,
+            64,
+            256
+        ),
+        "double-quantize model linear weights as NF4"
+    );
+    require_status(
+        rt_model_has_quantized_linear_weights(model, &quantized),
+        "query quantized state"
+    );
+    require_condition(quantized == 1, "model reports packed linear weights");
+    require_condition(
+        rt_model_quantize_linear_weights_nf4(model, 64) ==
+            RT_STATUS_INVALID_ARGUMENT,
+        "model rejects a second NF4 conversion"
+    );
+
+    rt_quantized_memory_stats memory;
+    memset(&memory, 0, sizeof(memory));
+    memory.struct_size = (uint64_t)sizeof(memory);
+    require_status(
+        rt_model_quantized_memory_stats(model, &memory),
+        "query QLoRA packed-memory statistics"
+    );
+    require_condition(
+        memory.weight_count == 7 &&
+            memory.packed_code_bytes == 74 &&
+            memory.scale_bytes == 63 &&
+            memory.logical_payload_bytes == 137 &&
+            memory.resident_payload_bytes == 137 &&
+            memory.fp32_equivalent_bytes == 592 &&
+            memory.fp32_scale_bytes == 0 &&
+            memory.scale_code_bytes == 7 &&
+            memory.second_level_scale_bytes == 28 &&
+            memory.scale_offset_bytes == 28 &&
+            memory.double_quantized_weight_count == 7,
+        "QLoRA memory statistics describe double-quantized NF4 payloads"
+    );
+
+    rt_quantized_memory_stats legacy_memory;
+    memset(&legacy_memory, 0xa5, sizeof(legacy_memory));
+    legacy_memory.struct_size =
+        RT_LEGACY_QUANTIZED_MEMORY_STATS_SIZE;
+    unsigned char legacy_memory_extension[
+        sizeof(legacy_memory) - RT_LEGACY_QUANTIZED_MEMORY_STATS_SIZE
+    ];
+    memcpy(
+        legacy_memory_extension,
+        (const unsigned char*)&legacy_memory +
+            RT_LEGACY_QUANTIZED_MEMORY_STATS_SIZE,
+        sizeof(legacy_memory_extension)
+    );
+    require_status(
+        rt_model_quantized_memory_stats(model, &legacy_memory),
+        "query legacy 56-byte packed-memory statistics"
+    );
+    require_condition(
+        legacy_memory.struct_size ==
+                RT_LEGACY_QUANTIZED_MEMORY_STATS_SIZE &&
+            legacy_memory.weight_count == 7 &&
+            legacy_memory.packed_code_bytes == 74 &&
+            legacy_memory.scale_bytes == 63 &&
+            legacy_memory.logical_payload_bytes == 137 &&
+            legacy_memory.resident_payload_bytes == 137 &&
+            legacy_memory.fp32_equivalent_bytes == 592,
+        "legacy packed-memory statistics expose the stable prefix"
+    );
+    require_condition(
+        memcmp(
+            (const unsigned char*)&legacy_memory +
+                RT_LEGACY_QUANTIZED_MEMORY_STATS_SIZE,
+            legacy_memory_extension,
+            sizeof(legacy_memory_extension)
+        ) == 0,
+        "legacy packed-memory statistics preserve extension canaries"
+    );
+
+    rt_parameter_list* frozen_parameters = NULL;
+    require_status(
+        rt_model_parameters(model, &frozen_parameters),
+        "query parameters after NF4 conversion"
+    );
+    uint64_t frozen_count = 0;
+    require_status(
+        rt_parameter_list_count(frozen_parameters, &frozen_count),
+        "count parameters after NF4 conversion"
+    );
+    require_condition(
+        frozen_count + 7 == dense_count,
+        "packed weights are absent from the Parameter list"
+    );
+    rt_parameter_list_release(frozen_parameters);
+
+    rt_lora_config lora;
+    require_status(
+        rt_lora_config_init(&lora, (uint64_t)sizeof(lora)),
+        "initialize QLoRA adapter config"
+    );
+    lora.rank = 2;
+    lora.alpha = 4.0F;
+    lora.random_seed = 449;
+    require_status(
+        rt_model_attach_lora(model, &lora),
+        "attach adapters to packed model"
+    );
+    rt_parameter_list* adapters = NULL;
+    require_status(
+        rt_model_lora_parameters(model, &adapters),
+        "query QLoRA adapter parameters"
+    );
+    rt_adam_options qlora_adam_options;
+    require_status(
+        rt_adam_options_init(
+            &qlora_adam_options,
+            (uint64_t)sizeof(qlora_adam_options)
+        ),
+        "initialize paged QLoRA Adam options"
+    );
+    qlora_adam_options.state_storage = RT_ADAM_STATE_PAGED;
+    qlora_adam_options.page_size = 2;
+    rt_adam* optimizer = NULL;
+    require_status(
+        rt_adam_create(adapters, &qlora_adam_options, &optimizer),
+        "create paged adapter-only QLoRA Adam"
+    );
+    rt_adam_state_storage_kind qlora_state_storage =
+        (rt_adam_state_storage_kind)-1;
+    uint64_t qlora_state_page_size = 0;
+    uint64_t qlora_state_page_count = 0;
+    uint64_t qlora_state_payload_bytes = 0;
+    require_status(
+        rt_adam_state_storage(optimizer, &qlora_state_storage),
+        "query QLoRA Adam state storage"
+    );
+    require_status(
+        rt_adam_state_page_size(optimizer, &qlora_state_page_size),
+        "query QLoRA Adam page size"
+    );
+    require_status(
+        rt_adam_state_page_count(optimizer, &qlora_state_page_count),
+        "query QLoRA Adam page count"
+    );
+    require_status(
+        rt_adam_state_payload_bytes(
+            optimizer,
+            &qlora_state_payload_bytes
+        ),
+        "query QLoRA Adam state payload"
+    );
+    require_condition(
+        qlora_state_storage == RT_ADAM_STATE_PAGED &&
+            qlora_state_page_size == 2 &&
+            qlora_state_page_count > 0 &&
+            qlora_state_payload_bytes > 0,
+        "QLoRA Adam reports paged adapter-only state"
+    );
+    rt_variable* logits = NULL;
+    require_status(
+        rt_model_forward(model, token_ids, 2, 1, 2, &logits),
+        "QLoRA model forward"
+    );
+    rt_variable* loss = NULL;
+    require_status(
+        rt_cross_entropy(logits, targets, 2, &loss),
+        "QLoRA loss"
+    );
+    rt_variable_release(logits);
+    require_status(rt_variable_backward(loss), "QLoRA backward");
+    rt_variable_release(loss);
+    rt_adam_step_stats step = {
+        (uint64_t)sizeof(step),
+        0,
+        0.0,
+        0.0,
+    };
+    require_status(rt_adam_step(optimizer, &step), "QLoRA Adam step");
+    require_condition(step.step == 1, "QLoRA optimizer advances once");
+    rt_adam_release(optimizer);
+    rt_parameter_list_release(adapters);
+
+    rt_quantized_memory_stats after_step;
+    memset(&after_step, 0, sizeof(after_step));
+    after_step.struct_size = (uint64_t)sizeof(after_step);
+    require_status(
+        rt_model_quantized_memory_stats(model, &after_step),
+        "query packed memory after QLoRA step"
+    );
+    require_condition(
+        memcmp(&memory, &after_step, sizeof(memory)) == 0,
+        "QLoRA training preserves packed base storage accounting"
+    );
+
+    require_status(rt_model_merge_lora(model), "export QLoRA model to FP32");
+    require_status(
+        rt_model_has_quantized_linear_weights(model, &quantized),
+        "query quantized state after export merge"
+    );
+    require_condition(quantized == 0, "QLoRA export removes packed runtime state");
+    rt_parameter_list* exported_parameters = NULL;
+    require_status(
+        rt_model_parameters(model, &exported_parameters),
+        "query exported FP32 parameters"
+    );
+    uint64_t exported_count = 0;
+    require_status(
+        rt_parameter_list_count(exported_parameters, &exported_count),
+        "count exported FP32 parameters"
+    );
+    require_condition(
+        exported_count == dense_count,
+        "QLoRA export restores the ordinary parameter schema"
+    );
+    rt_parameter_list_release(exported_parameters);
+    rt_model_release(model);
+
+    require_condition(
+        rt_model_quantize_linear_weights_nf4(NULL, 64) ==
+            RT_STATUS_INVALID_ARGUMENT,
+        "NF4 conversion rejects a null model"
     );
 }
 
@@ -4382,8 +4922,8 @@ int main(void) {
     );
     require_condition(
         RT_ABI_VERSION_MAJOR == UINT32_C(2) &&
-            RT_ABI_VERSION_MINOR == UINT32_C(2),
-        "TPU additive ABI version"
+            RT_ABI_VERSION_MINOR == UINT32_C(4),
+        "current additive ABI version"
     );
 
     test_thread_local_errors();
@@ -4393,6 +4933,7 @@ int main(void) {
     test_full_sequence_attention_api();
     test_activation_checkpointing_api();
     test_lora_api();
+    test_qlora_api();
     test_decode_session_api();
     test_parameter_state_api();
 
@@ -4854,12 +5395,22 @@ int main(void) {
         "config init rejects undersized caller storage"
     );
     rt_adam_options invalid_options;
+    memset(&invalid_options, 0x5a, sizeof(invalid_options));
+    const rt_adam_options original_invalid_options = invalid_options;
     require_condition(
         rt_adam_options_init(
             &invalid_options,
-            (uint64_t)sizeof(invalid_options) - 1
+            RT_LEGACY_ADAM_OPTIONS_SIZE - UINT64_C(1)
         ) == RT_STATUS_INVALID_ARGUMENT,
         "Adam init rejects undersized caller storage"
+    );
+    require_condition(
+        memcmp(
+            &invalid_options,
+            &original_invalid_options,
+            sizeof(invalid_options)
+        ) == 0,
+        "undersized Adam initialization is atomic"
     );
 
     rt_model_release(NULL);

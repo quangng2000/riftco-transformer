@@ -40,6 +40,8 @@ include/riftco_transformer/optim/adam.hpp
 | `beta2` | `0.999` | finite and strictly between zero and one |
 | `epsilon` | `0.00000001` | finite and greater than zero |
 | `maximum_gradient_norm` | `1.0` | finite and greater than zero |
+| `state_storage` | `AdamStateStorageKind::Contiguous` | `Contiguous` or `Paged` |
+| `page_size` | `4096` | greater than zero; maximum scalar count per state page in paged mode |
 
 A typical caller constructs the optimizer from the model's named parameters:
 
@@ -50,6 +52,10 @@ options.beta1 = config.adam_beta1;
 options.beta2 = config.adam_beta2;
 options.epsilon = config.adam_epsilon;
 options.maximum_gradient_norm = config.gradient_clip;
+// Optional bounded-page layout; ordinary Adam defaults to Contiguous.
+options.state_storage =
+    riftco_transformer::AdamStateStorageKind::Paged;
+options.page_size = 4096;
 
 riftco_transformer::Adam optimizer(model.parameters(), options);
 ```
@@ -67,6 +73,10 @@ options()                 configured hyperparameters
 backend()                 intrinsic backend of parameters and moment state
 step_count()              number of successful updates
 parameter_tensor_count()  number of registered parameter tensors
+state_storage_kind()      contiguous or bounded-page moment layout
+state_page_size()         configured maximum elements per state page
+state_page_count()        total paired state pages; zero in contiguous mode
+state_payload_bytes()     logical bytes in both FP32 moment vectors
 step()                    clip gradients and apply one update
 zero_gradients()          explicitly clear every registered gradient
 global_gradient_norm()    measure any ParameterList without updating it
@@ -79,13 +89,15 @@ an explicit LoRA-only list, or a custom parameter collection.
 
 ## Per-parameter state
 
-For every registered parameter tensor, Adam owns two same-shaped tensors:
+For every registered parameter scalar, Adam owns two FP32 state values:
 
 - the first moment, $m$, is an exponential average of gradients;
 - the second moment, $v$, is an exponential average of squared gradients.
 
-Both start at zero on the same backend as the registered parameters. The
-optimizer also stores:
+Both start at zero on the same backend as the registered parameters. Contiguous
+mode stores each moment as one tensor with the parameter's shape; paged mode
+partitions both flattened moment vectors into paired 1D tensors. The optimizer
+also stores:
 
 - the number of successful steps, $t$;
 - the current power $\beta_1^t$;
@@ -93,6 +105,84 @@ optimizer also stores:
 
 The parameter list is fixed when the optimizer is constructed. Moment tensors
 remain aligned with that list for the optimizer's lifetime.
+
+## Contiguous and bounded-page state
+
+`AdamStateStorageKind::Contiguous` is the general API default. It allocates one
+first-moment tensor and one second-moment tensor for each parameter. The
+`page_size` option remains validated and observable but does not partition
+state in this mode; `state_page_count()` returns zero.
+
+`AdamStateStorageKind::Paged` flattens each parameter logically and stores
+paired first/second-moment pages of at most `page_size` elements:
+
+```text
+parameter values:  [──────────────────────────────]
+first moment:      [ page 0 ][ page 1 ][ page 2 ]
+second moment:     [ page 0 ][ page 1 ][ page 2 ]
+                         each page ≤ page_size
+```
+
+An update still computes one global gradient norm and one pair of bias-
+correction factors for the complete parameter list. It prepares complete next-
+parameter values, dispatches one page at a time, retains every successful page
+only as candidate state, and commits values, moments, beta powers, and the step
+counter only after every page succeeds. A later-page failure therefore leaves
+all live optimizer and parameter state unchanged.
+
+Paging changes allocation and dispatch granularity, not the Adam equations or
+logical memory size. Both layouts retain exactly
+
+```math
+2N\,\mathrm{sizeof(float)}
+```
+
+bytes for $N$ trainable scalars. `state_payload_bytes()` reports that logical
+payload, so it is identical between layouts for the same parameter list.
+`state_page_count()` counts paired page records, not the two moment tensors
+inside each record.
+
+For transactionality, `step()` still prepares one complete next-value tensor
+for each parameter before committing. The page-size bound applies to moment
+state and each paged backend update request, not to every temporary allocation
+in the optimizer.
+
+CUDA page tensors are ordinary managed allocations and may migrate between
+host and device under the CUDA runtime. This implementation has no explicit
+eviction, host/disk spill budget, prefetch policy, out-of-core scheduler, or
+general OS page-fault manager. “Paged” means bounded state allocations and
+bounded update requests here.
+
+The native and Python post-training policies keep ordinary Full and LoRA runs
+contiguous by default. QLoRA defaults to paged state because its frozen NF4 base
+has no Adam moments and only the floating-point adapter state is updated. In
+Python, `PostTrainingConfig.optimizer_state="auto"` makes that selection;
+`"contiguous"` and `"paged"` are explicit overrides. The native stack uses
+`PostTrainingConfig::qlora_paged_optimizer` and
+`qlora_optimizer_page_size`.
+
+### State diagnostics
+
+The C++ optimizer exposes `state_storage_kind()`, `state_page_size()`,
+`state_page_count()`, and `state_payload_bytes()`. The stable C ABI provides the
+matching `rt_adam_state_*` queries, and Python exposes these properties:
+
+```python
+with Adam(
+    parameters,
+    state_storage="paged",
+    page_size=4096,
+) as optimizer:
+    print(optimizer.state_storage)       # "paged"
+    print(optimizer.state_page_size)     # 4096
+    print(optimizer.state_page_count)    # paired pages across parameters
+    print(optimizer.state_payload_bytes) # two FP32 moments per scalar
+```
+
+The Python post-training artifact records the same values under metadata key
+`optimizer_state`. These diagnostics describe the temporary optimizer used for
+that run; model bundles still exclude moment contents and are not resumable
+training checkpoints.
 
 ## Global gradient clipping
 
@@ -241,10 +331,10 @@ temporary buffer. On the fused fast path, a clipping scale below the scalar
 resulting Adam intermediate leaves the normal `float` range or suffers severe
 cancellation, the reference retry described above handles the entire batch.
 
-The safe, well-conditioned Metal path uses one fused kernel per parameter
-tensor. Each thread computes the clipped gradient, both new moments, both bias
-corrections, and the new parameter value. All parameter dispatches are encoded
-into one command buffer and synchronized once:
+In contiguous mode, the safe, well-conditioned Metal path uses one fused kernel
+per parameter tensor. Each thread computes the clipped gradient, both new
+moments, both bias corrections, and the new parameter value. All parameter
+dispatches are encoded into one command buffer and synchronized once:
 
 ```text
 validate and measure all gradients
@@ -260,17 +350,25 @@ check command status + shared reference-request flag
 move every candidate into live state
 ```
 
-CUDA tensors use managed allocations. The CUDA Adam module preflights every
-parameter, gradient, moment, and candidate native handle, launches one
-grid-stride update kernel per parameter tensor, then synchronizes once for the
-batch. Each thread uses `double` intermediates before checked conversion to the
-stored `float`. A shared device status flag turns any non-finite candidate into
-an exception before the public optimizer commits live values or moments.
+Paged mode sends one page-sized update through the same Metal capability at a
+time. Each page is synchronous, but the outer optimizer keeps its result as
+candidate state; it does not publish an earlier page if a later page fails.
 
-TPU currently calls the same portable reference implementation over its host
-mirror. Neither the native Metal nor CUDA candidate update changes the separate
-global-norm boundary: gradient-norm clipping remains host control flow on all
-backends.
+CUDA tensors use managed allocations. In contiguous mode, the CUDA Adam module
+preflights every parameter, gradient, moment, and candidate native handle,
+launches one grid-stride update kernel per parameter tensor, then synchronizes
+once for the batch. In paged mode, each page is one bounded synchronous update
+request over managed page tensors; the outer optimizer preserves the same
+whole-step commit boundary. Each thread uses `double` intermediates before
+checked conversion to the stored `float`. A shared device status flag turns any
+non-finite candidate into an exception before the public optimizer commits live
+values or moments. Managed allocation permits CUDA runtime migration but does
+not add explicit spilling or an application-level page-fault manager.
+
+TPU calls the same portable reference implementation over its host mirror,
+contiguously or one state page at a time. Neither the native Metal nor CUDA
+candidate update changes the separate global-norm boundary: gradient-norm
+clipping remains host control flow on all backends.
 
 This is per-tensor fusion in one submission, not a flattened multi-tensor
 kernel. Flattened parameter arenas can be considered later if profiling shows
@@ -324,7 +422,9 @@ Construction rejects:
 - a gradient whose shape differs from its parameter value;
 - parameter values or gradients split across different backends;
 - a non-finite initial gradient;
-- an invalid or non-finite optimizer option.
+- an invalid or non-finite optimizer option;
+- an unrecognized state-storage kind; or
+- a zero `page_size`, even when contiguous state is selected.
 
 Each step rechecks gradient shapes, backend identity, finite gradients, and
 finite parameter values. Moving a parameter after optimizer construction is
@@ -332,8 +432,10 @@ therefore rejected before an update. A step also rejects counter overflow and
 any moment or parameter result that cannot be represented as a finite `float`.
 
 The update is transactional. Norm validation, candidate allocation, and alias
-validation happen before device work; backend command failures or Metal
-wide-reference retry failures leave parameter values, gradients, moments, beta
+validation happen before device work. In paged mode, every page dispatch must
+succeed before the prepared parameter tensors and candidate moment pages are
+committed. A backend command failure, a later-page failure, or a Metal wide-
+reference retry failure leaves parameter values, gradients, moments, beta
 powers, and the successful-step counter unchanged.
 
 ## Lifetime and computation-graph rules

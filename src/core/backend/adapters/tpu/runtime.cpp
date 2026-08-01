@@ -175,6 +175,8 @@ std::size_t element_byte_size(TpuElementType type) {
         return sizeof(float);
     case TpuElementType::S32:
         return sizeof(std::int32_t);
+    case TpuElementType::U8:
+        return sizeof(std::uint8_t);
     }
     throw std::invalid_argument("unknown TPU host element type");
 }
@@ -185,6 +187,8 @@ PJRT_Buffer_Type pjrt_element_type(TpuElementType type) {
         return PJRT_Buffer_Type_F32;
     case TpuElementType::S32:
         return PJRT_Buffer_Type_S32;
+    case TpuElementType::U8:
+        return PJRT_Buffer_Type_U8;
     }
     throw std::invalid_argument("unknown TPU host element type");
 }

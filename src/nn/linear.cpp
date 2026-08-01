@@ -2,6 +2,7 @@
 
 #include "riftco_transformer/core/tensor_ops.hpp"
 #include "riftco_transformer/nn/initialization.hpp"
+#include "riftco_transformer/nn/quantized_linear.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -59,12 +60,15 @@ Tensor initialized_linear_weight(
 }  // namespace
 
 Linear::Linear(Tensor weight, Tensor bias)
-    : weight_(checked_linear_weight(std::move(weight))),
+    : weight_(
+          std::in_place,
+          checked_linear_weight(std::move(weight))
+      ),
       bias_(checked_linear_bias(
           std::move(bias),
-          weight_.value()
+          weight_->value()
       )) {
-    register_parameter("weight", weight_);
+    register_parameter("weight", *weight_);
     register_parameter("bias", bias_);
 }
 
@@ -73,22 +77,29 @@ Linear::Linear(
     std::size_t output_width,
     std::mt19937& random
 )
-    : weight_(initialized_linear_weight(
-          input_width,
-          output_width,
-          random
-      )),
+    : weight_(
+          std::in_place,
+          initialized_linear_weight(
+              input_width,
+              output_width,
+              random
+          )
+      ),
       bias_(Tensor::zeros({output_width})) {
-    register_parameter("weight", weight_);
+    register_parameter("weight", *weight_);
     register_parameter("bias", bias_);
 }
 
 std::size_t Linear::input_width() const noexcept {
-    return weight_.value().shape()[1];
+    return has_quantized_weight()
+               ? quantized_weight_->shape()[1]
+               : weight_->value().shape()[1];
 }
 
 std::size_t Linear::output_width() const noexcept {
-    return weight_.value().shape()[0];
+    return has_quantized_weight()
+               ? quantized_weight_->shape()[0]
+               : weight_->value().shape()[0];
 }
 
 Variable Linear::forward(const Variable& input) const {
@@ -99,20 +110,26 @@ Variable Linear::forward(const Variable& input) const {
         );
     }
 
-    const auto rows = input.value().numel() / input_width();
-    const Variable flattened = reshape(
-        input,
-        {rows, input_width()}
-    );
-    const Variable projected = matmul(
-        flattened,
-        transpose_2d(weight_.variable())
-    );
-
     Tensor::Shape output_shape = input.value().shape();
     output_shape.back() = output_width();
-    const Variable restored = reshape(projected, output_shape);
-    const Variable base_output = restored + broadcast_to(
+    Variable projected = [&] {
+        if (has_quantized_weight()) {
+            return quantized_linear(input, *quantized_weight_);
+        }
+        const auto rows = input.value().numel() / input_width();
+        const Variable flattened = reshape(
+            input,
+            {rows, input_width()}
+        );
+        return reshape(
+            matmul(
+                flattened,
+                transpose_2d(weight_->variable())
+            ),
+            output_shape
+        );
+    }();
+    const Variable base_output = projected + broadcast_to(
         bias_.variable(),
         std::move(output_shape)
     );
@@ -123,7 +140,53 @@ Variable Linear::forward(const Variable& input) const {
 }
 
 void Linear::to(ExecutionBackend backend) {
+    std::optional<QuantizedWeight> transferred_weight;
+    if (has_quantized_weight() &&
+        quantized_weight_->backend() != backend) {
+        transferred_weight.emplace(
+            quantized_weight_->to(backend)
+        );
+    }
     Module::to(backend);
+    if (transferred_weight.has_value()) {
+        quantized_weight_ = std::move(*transferred_weight);
+    }
+}
+
+void Linear::quantize_weight_nf4(std::size_t block_size) {
+    QuantizedWeight candidate =
+        prepare_weight_quantization_nf4(block_size);
+    commit_prepared_weight_quantization(std::move(candidate));
+}
+
+void Linear::quantize_weight_nf4_double_quantized(
+    std::size_t block_size,
+    std::size_t scale_block_size
+) {
+    QuantizedWeight candidate = prepare_weight_quantization_nf4(
+        block_size,
+        scale_block_size
+    );
+    commit_prepared_weight_quantization(std::move(candidate));
+}
+
+bool Linear::has_quantized_weight() const noexcept {
+    return quantized_weight_.has_value();
+}
+
+const QuantizedWeight& Linear::quantized_weight() const {
+    if (!has_quantized_weight()) {
+        throw std::logic_error(
+            "linear module does not have a quantized weight"
+        );
+    }
+    return *quantized_weight_;
+}
+
+QuantizedMemoryUsage Linear::quantized_memory_usage() const noexcept {
+    return has_quantized_weight()
+               ? quantized_weight_->memory_usage()
+               : QuantizedMemoryUsage{};
 }
 
 void Linear::attach_lora(
@@ -143,7 +206,9 @@ void Linear::attach_lora(
         rank,
         alpha,
         random,
-        weight_.value().backend()
+        has_quantized_weight()
+            ? quantized_weight_->backend()
+            : weight_->value().backend()
     );
     lora_ = std::move(candidate);
 }
@@ -160,12 +225,18 @@ ParameterList Linear::lora_parameters() {
 }
 
 void Linear::merge_lora() {
-    Tensor merged_weight = prepare_lora_merge();
+    PreparedMaterializedWeight merged_weight = prepare_lora_merge();
+    validate_prepared_materialized_weight(merged_weight);
     commit_prepared_lora_merge(std::move(merged_weight));
 }
 
-const Parameter& Linear::weight() const noexcept {
-    return weight_;
+const Parameter& Linear::weight() const {
+    if (!weight_.has_value()) {
+        throw std::logic_error(
+            "quantized Linear has no dense weight Parameter"
+        );
+    }
+    return *weight_;
 }
 
 const Parameter& Linear::bias() const noexcept {
@@ -183,7 +254,8 @@ ParameterList Linear::extra_parameters_for_transfer() {
     return lora_->parameters();
 }
 
-Tensor Linear::prepare_lora_merge() const {
+Linear::PreparedMaterializedWeight
+Linear::prepare_lora_merge() const {
     if (!has_lora()) {
         if (lora_was_merged_) {
             throw std::logic_error(
@@ -195,10 +267,98 @@ Tensor Linear::prepare_lora_merge() const {
         );
     }
 
-    Tensor candidate = tensor_ops::add(
-        weight_.value(),
-        lora_->weight_delta()
+    return prepare_materialized_weight(true);
+}
+
+void Linear::commit_prepared_lora_merge(
+    PreparedMaterializedWeight merged_weight
+) {
+    commit_prepared_materialized_weight(
+        std::move(merged_weight),
+        true
     );
+}
+
+void Linear::discard_unmerged_lora() noexcept {
+    if (!lora_was_merged_) {
+        lora_.reset();
+    }
+}
+
+QuantizedWeight Linear::prepare_weight_quantization_nf4(
+    std::size_t block_size,
+    std::optional<std::size_t> scale_block_size
+) {
+    if (has_quantized_weight()) {
+        throw std::logic_error(
+            "Linear weight has already been quantized"
+        );
+    }
+    if (lora_ != nullptr || lora_was_merged_) {
+        throw std::logic_error(
+            "Linear weight must be quantized before attaching LoRA"
+        );
+    }
+    if (!weight_.has_value()) {
+        throw std::logic_error(
+            "Linear has neither a dense nor quantized weight"
+        );
+    }
+    preflight_parameter_deactivation("weight", *weight_);
+    return scale_block_size.has_value()
+               ? QuantizedWeight::quantize_nf4_double_quantized(
+                     weight_->value(),
+                     block_size,
+                     *scale_block_size
+                 )
+               : QuantizedWeight::quantize_nf4(
+                     weight_->value(),
+                     block_size
+                 );
+}
+
+void Linear::commit_prepared_weight_quantization(
+    QuantizedWeight quantized_weight
+) {
+    if (has_quantized_weight() || !weight_.has_value()) {
+        throw std::logic_error(
+            "Linear dense weight is unavailable for quantization"
+        );
+    }
+    if (quantized_weight.shape() != weight_->value().shape() ||
+        quantized_weight.backend() != weight_->value().backend()) {
+        throw std::invalid_argument(
+            "prepared quantized weight does not match the dense weight"
+        );
+    }
+
+    // Moving QuantizedWeight into optional storage is non-throwing. Drop the
+    // registration handle first, install the packed state, then release the
+    // owning dense wrapper so no FP32 base allocation remains.
+    preflight_parameter_deactivation("weight", *weight_);
+    deactivate_parameter("weight", *weight_);
+    quantized_weight_.emplace(std::move(quantized_weight));
+    weight_.reset();
+}
+
+Linear::PreparedMaterializedWeight
+Linear::prepare_materialized_weight(
+    bool include_lora_delta
+) const {
+    Tensor candidate = has_quantized_weight()
+                           ? quantized_weight_->dequantize()
+                           : Tensor(weight_->value());
+    if (include_lora_delta) {
+        if (!has_lora()) {
+            throw std::logic_error(
+                "cannot materialize a LoRA delta without an active adapter"
+            );
+        }
+        candidate = tensor_ops::add(
+            candidate,
+            lora_->weight_delta()
+        );
+    }
     if (!std::all_of(
             candidate.data().begin(),
             candidate.data().end(),
@@ -207,22 +367,77 @@ Tensor Linear::prepare_lora_merge() const {
             }
         )) {
         throw std::domain_error(
-            "merged LoRA weight must contain only finite values"
+            "materialized Linear weight must contain only finite values"
         );
     }
-    return candidate;
+    PreparedMaterializedWeight prepared;
+    if (!has_quantized_weight()) {
+        prepared.dense_value.emplace(std::move(candidate));
+        return prepared;
+    }
+
+    // Parameter construction allocates the restored FP32 gradient and the
+    // first handle allocates its canonical proxy. Finish both allocations in
+    // the prepare phase so a model-wide commit cannot fail midway for OOM.
+    prepared.replacement_parameter.emplace(std::move(candidate));
+    {
+        const ParameterHandle prepared_handle =
+            prepared.replacement_parameter->handle();
+        static_cast<void>(prepared_handle);
+    }
+    return prepared;
 }
 
-void Linear::commit_prepared_lora_merge(
-    Tensor merged_weight
-) noexcept {
-    weight_.set_value(std::move(merged_weight));
-    lora_was_merged_ = true;
+void Linear::validate_prepared_materialized_weight(
+    const PreparedMaterializedWeight& materialized_weight
+) const {
+    const bool has_dense_candidate =
+        materialized_weight.dense_value.has_value();
+    const bool has_replacement =
+        materialized_weight.replacement_parameter.has_value();
+    if (has_dense_candidate == has_replacement ||
+        has_replacement != has_quantized_weight()) {
+        throw std::logic_error(
+            "prepared Linear materialization does not match its base state"
+        );
+    }
+    const Tensor& value = has_replacement
+                              ? materialized_weight
+                                    .replacement_parameter->value()
+                              : *materialized_weight.dense_value;
+    if (value.shape() !=
+        Tensor::Shape({output_width(), input_width()})) {
+        throw std::invalid_argument(
+            "materialized Linear weight has the wrong shape"
+        );
+    }
+    const ExecutionBackend expected_backend = has_quantized_weight()
+                                                  ? quantized_weight_->backend()
+                                                  : weight_->value().backend();
+    if (value.backend() != expected_backend) {
+        throw std::invalid_argument(
+            "materialized Linear weight has the wrong backend"
+        );
+    }
 }
 
-void Linear::discard_unmerged_lora() noexcept {
-    if (!lora_was_merged_) {
-        lora_.reset();
+void Linear::commit_prepared_materialized_weight(
+    PreparedMaterializedWeight materialized_weight,
+    bool mark_lora_merged
+) {
+    if (!has_quantized_weight()) {
+        weight_->set_value(
+            std::move(*materialized_weight.dense_value)
+        );
+    } else {
+        weight_.emplace(std::move(
+            *materialized_weight.replacement_parameter
+        ));
+        reactivate_parameter("weight", *weight_);
+        quantized_weight_.reset();
+    }
+    if (mark_lora_merged) {
+        lora_was_merged_ = true;
     }
 }
 

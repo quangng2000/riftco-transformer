@@ -5,9 +5,10 @@
 
 int main(void) {
     if (rt_abi_version() != RT_ABI_VERSION ||
-        RT_ABI_VERSION_MINOR != UINT32_C(2) ||
+        RT_ABI_VERSION_MINOR != UINT32_C(4) ||
         RT_BACKEND_CUDA != (rt_backend)2 ||
-        RT_BACKEND_TPU != (rt_backend)3) {
+        RT_BACKEND_TPU != (rt_backend)3 ||
+        RT_ADAM_STATE_PAGED != (rt_adam_state_storage_kind)1) {
         return EXIT_FAILURE;
     }
 
@@ -19,6 +20,30 @@ int main(void) {
         lora.rank != 4 ||
         lora.alpha != 8.0F ||
         lora.targets != RT_LORA_TARGET_DEFAULT) {
+        return EXIT_FAILURE;
+    }
+
+    rt_quantized_memory_stats quantized = {
+        (uint64_t)sizeof(rt_quantized_memory_stats),
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    };
+    if (quantized.struct_size !=
+        (uint64_t)sizeof(rt_quantized_memory_stats)) {
+        return EXIT_FAILURE;
+    }
+
+    rt_adam_options adam_options;
+    if (rt_adam_options_init(
+            &adam_options,
+            (uint64_t)sizeof(adam_options)
+        ) != RT_STATUS_OK ||
+        adam_options.state_storage != RT_ADAM_STATE_CONTIGUOUS ||
+        adam_options.page_size != UINT64_C(4096)) {
         return EXIT_FAILURE;
     }
 

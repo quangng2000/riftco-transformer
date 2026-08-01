@@ -109,6 +109,8 @@ compatibility view, while copied lists and optimizers keep the state alive.
 Recursive backend transfer prepares every changed value and gradient before
 committing the tree. A polymorphic extra-parameter hook includes dynamically
 attached LoRA storage without changing the stable base-parameter schema.
+`Module::to()` is virtual so `Linear` and the decoder can include immutable NF4
+buffers that deliberately live outside the Parameter tree.
 
 There is no generic module `forward()` or module-level `backward()`. Concrete
 components keep type-specific forward APIs, and central autograd owns reverse
@@ -129,13 +131,15 @@ parameters → forward pass → loss → gradients → Adam → updated paramete
 
 It is not a transformer layer. Keeping the optimizer and global gradient norm
 generic over `ParameterList` lets their equations remain independently
-testable with known values and usable with a full model, LoRA-only list, or
-custom module. The training executable now repeats this transaction across
-deterministically sampled batches and records one CSV metrics row after every
-successful update. Each iteration performs a new forward pass and therefore
-builds a fresh autograd graph from the parameters updated by the previous
-iteration. See [TRAINING.md](TRAINING.md) for the loop boundary and metrics
-schema.
+testable with known values and usable with a full model, LoRA/QLoRA adapter
+list, or custom module. Adam can hold each parameter's two FP32 moment vectors
+contiguously or as bounded tensor pages; the latter changes allocation/update
+granularity, not the total moment payload. The training executable repeats this
+transaction across deterministically sampled batches and records one CSV
+metrics row after every successful update. Each iteration performs a new
+forward pass and therefore builds a fresh autograd graph from the parameters
+updated by the previous iteration. See [TRAINING.md](TRAINING.md) for the loop
+boundary and metrics schema.
 
 ## Serving boundary
 
@@ -187,6 +191,7 @@ fixed backend registry
 BackendAdapter capabilities
     ├── StorageCapability
     ├── MatmulCapability
+    ├── QuantizedLinearCapability
     ├── Elementwise / Reduction / Layout
     ├── Softmax / Indexing / Normalization / Loss
     ├── Materialized-causal, Flash-causal, and paged-decode attention
@@ -206,15 +211,21 @@ PJRT.
 Selecting CPU, Metal, CUDA, or TPU is the Strategy choice; adapting each
 implementation to the common capabilities is the Adapter role.
 Capability-specific base interfaces keep storage, generic tensor math, neural
-operations, attention, and optimizer growth independent. CPU delegates the
-capabilities to readable reference functions. Metal implements the same
-requests with compute pipelines over persistent shared buffers. CUDA
-implements the NN, matmul, attention, and Adam candidate-state capabilities as
-native kernels over managed storage. TPU
-compiles StableHLO matmul, materialized attention/VJPs, and paged decode through
-the dynamically loaded PJRT C API; Flash and other capabilities use reference
-functions over its host mirror. The registry is immutable after compilation, so lookup is
-deterministic and thread-safe without runtime registration races.
+operations, quantized linear, attention, and optimizer growth independent. CPU
+delegates the capabilities to readable reference functions. Metal implements
+the same requests with compute pipelines over persistent shared buffers,
+including packed NF4 linear kernels. CUDA implements NN, matmul, packed NF4
+linear, attention, and Adam candidate-state capabilities as native kernels over
+managed storage. TPU compiles StableHLO packed NF4 linear, matmul, materialized
+attention/VJPs, and paged decode through the dynamically loaded PJRT C API;
+Flash and other capabilities use reference functions over its host mirror. The
+registry is immutable after compilation, so lookup is deterministic and
+thread-safe without runtime registration races.
+
+The CUDA and TPU quantized-linear paths are implemented and compile-checked,
+but actual NVIDIA GPU and Cloud TPU execution was not available on this macOS
+host. Their remaining acceptance work is hardware validation, not missing
+backend source.
 
 Autograd graph traversal remains host control flow, but its values, saved
 tensors, seeds, and accumulated gradients retain one backend. Local backward
@@ -232,6 +243,12 @@ a native kernel using double intermediates and a device status flag; TPU uses
 the reference Adam path directly. Live parameter and moment state is committed
 only after the whole batch succeeds. The global clipping norm remains a
 separate overflow-safe host reduction for every backend.
+
+With paged Adam, those same backend update requests receive one fixed-size
+moment page at a time. CUDA pages are managed allocations. The framework does
+not implement eviction, disk spill, prefetch, an external memory budget, or a
+general OS page-fault manager; paging bounds each allocation and update request
+while preserving two FP32 moments per trainable scalar.
 
 Metal matmul, neural, attention, and Adam shader sources build focused pipeline
 states lazily. Failure to build one operation therefore does not invalidate
@@ -261,7 +278,9 @@ policy. It drops internal block graph nodes after forward and rebuilds them in
 an isolated nested VJP during backward. The numerical work automatically uses
 the model's CPU, Metal, CUDA, or TPU backend. Checkpointing reduces retained
 activations, not parameters or Adam state, and adds one block replay per
-backward pass.
+backward pass. QLoRA separately reduces frozen base-weight storage with packed
+NF4 and double-quantized scales; its default bounded-page Adam changes moment
+allocation granularity but not total optimizer-state bytes.
 
 Incremental serving has paged KV caching but no batched prefill,
 continuous-batching scheduler, or shared-prefix cache. Its prefill remains

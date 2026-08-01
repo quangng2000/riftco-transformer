@@ -4,7 +4,7 @@
 
 int main() {
     return rt_abi_version() == RT_ABI_VERSION &&
-                   RT_ABI_VERSION_MINOR == UINT32_C(2) &&
+                   RT_ABI_VERSION_MINOR == UINT32_C(4) &&
                    RT_BACKEND_CUDA == static_cast<rt_backend>(2) &&
                    RT_BACKEND_TPU == static_cast<rt_backend>(3) &&
                    RT_ACTIVATION_CHECKPOINTING_DISABLED !=

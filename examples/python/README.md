@@ -42,11 +42,13 @@ CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON" \
   python3 -m pip install .
 ```
 
-CUDA tensors use managed memory. Matmul, materialized/Flash attention and its
-gradients, and paged decode run as native GPU kernels; other operations use
-synchronous reference implementations over that storage. The examples are
-functionally supported, but selecting CUDA alone is not evidence that the
-complete run is GPU-accelerated or faster.
+CUDA tensors and packed NF4 weights use managed memory. NN operations, matmul,
+packed quantized-linear forward/input backward, materialized/Flash attention
+and its gradients, paged decode, and Adam's candidate update run as native GPU
+kernels. Full, LoRA, and QLoRA examples are functionally supported, but
+selecting CUDA alone is not evidence that the complete run is device-resident
+or faster. The source path is implemented; actual NVIDIA-hardware validation
+was not available on this macOS host.
 
 The experimental TPU path requires Linux x86-64, a Google Cloud TPU, and
 Google's separately installed `libtpu.so`:
@@ -57,10 +59,11 @@ CMAKE_ARGS="-DRIFTCO_TRANSFORMER_ENABLE_TPU=ON" \
   python3 -m pip install .
 ```
 
-TPU matmul, materialized attention and its gradients, and paged decode run
-through PJRT/StableHLO; Flash attention and other operations use host reference
-paths. The examples are functionally wired, but real-hardware validation is
-pending and this phase does not claim end-to-end TPU acceleration.
+TPU packed quantized-linear forward/input backward, matmul, materialized
+attention and its gradients, and paged decode run through PJRT/StableHLO; Flash
+attention, Adam, and other operations use host reference paths. Full, LoRA, and
+QLoRA examples are functionally wired, but real-hardware validation is pending
+and this phase does not claim end-to-end TPU acceleration.
 
 For the artifact-based workflow, run the three explicit stage commands:
 
@@ -203,6 +206,26 @@ The stage optimizes only query/value LoRA factors, merges them into the base
 weights, and then saves the ordinary child `.rift` bundle. See
 [the LoRA guide](../../docs/LORA.md) for target selection, direct APIs, and
 the current adapter-checkpoint limitation.
+
+For a packed frozen base, select QLoRA:
+
+```bash
+python3 examples/python/post_train_stage.py \
+    --backend auto \
+    --fine-tuning-method qlora \
+    --nf4-block-size 64 \
+    --lora-rank 4 \
+    --lora-alpha 8
+```
+
+QLoRA defaults to double-quantized scales and bounded-page Adam state. Eligible
+base matrices remain packed during training on CPU, Metal, CUDA, or TPU; only
+the floating-point LoRA factors receive gradients and moments. Paged state
+still contains two FP32 moments per trainable adapter scalar. CUDA pages are
+managed allocations, not an OS spill or page-fault manager. The final `.rift`
+bundle is deliberately materialized as ordinary merged FP32 weights. See
+[the QLoRA guide](../../docs/QLORA.md) for storage accounting and hardware
+validation status.
 
 The scripts' `auto` setting selects TPU when available, then CUDA, Metal, and
 CPU. A backend can also be selected explicitly; an unavailable explicit

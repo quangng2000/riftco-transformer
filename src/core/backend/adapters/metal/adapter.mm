@@ -1,6 +1,7 @@
 #include "core/backend/adapter.hpp"
 #include "core/backend/attention/metal/launch.hpp"
 #include "core/backend/nn/metal/launch.hpp"
+#include "core/backend/nn/quantized_linear/metal/launch.hpp"
 #include "core/backend/optim/adam/metal/diagnostics.hpp"
 #include "core/backend/optim/adam/metal/kernels.hpp"
 #include "core/backend/optim/adam/metal/launch.hpp"
@@ -862,6 +863,19 @@ public:
         );
     }
 
+    [[nodiscard]] std::unique_ptr<QuantizedWeightStorage>
+    make_nf4_weight_storage(
+        std::vector<std::uint8_t> packed_codes,
+        Nf4ScaleStorageData scales
+    ) const override {
+        @autoreleasepool {
+            return metal_make_nf4_weight_storage(
+                std::move(packed_codes),
+                std::move(scales)
+            );
+        }
+    }
+
     [[nodiscard]] std::unique_ptr<TensorStorage> make_storage(
         std::vector<float> values
     ) const override {
@@ -873,6 +887,22 @@ public:
     void matmul(const MatmulRequest& request) const override {
         @autoreleasepool {
             metal_runtime_instance().matmul(request);
+        }
+    }
+
+    void quantized_linear_forward(
+        const QuantizedLinearForwardRequest& request
+    ) const override {
+        @autoreleasepool {
+            metal_quantized_linear_forward(request);
+        }
+    }
+
+    void quantized_linear_input_backward(
+        const QuantizedLinearInputBackwardRequest& request
+    ) const override {
+        @autoreleasepool {
+            metal_quantized_linear_input_backward(request);
         }
     }
 

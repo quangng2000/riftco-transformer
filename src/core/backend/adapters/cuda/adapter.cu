@@ -1,12 +1,14 @@
 #include "core/backend/adapter.hpp"
 #include "core/backend/attention/cuda/launch.hpp"
 #include "core/backend/nn/cuda/launch.hpp"
+#include "core/backend/nn/quantized_linear/cuda/launch.hpp"
 #include "core/backend/optim/adam/cuda/launch.hpp"
 
 #include <cuda_runtime_api.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <new>
@@ -245,8 +247,31 @@ public:
         return std::make_unique<CudaManagedTensorStorage>(std::move(values));
     }
 
+    [[nodiscard]] std::unique_ptr<QuantizedWeightStorage>
+    make_nf4_weight_storage(
+        std::vector<std::uint8_t> packed_codes,
+        Nf4ScaleStorageData scales
+    ) const override {
+        return cuda_make_nf4_weight_storage(
+            std::move(packed_codes),
+            std::move(scales)
+        );
+    }
+
     void matmul(const MatmulRequest& request) const override {
         launch_batched_matmul(request);
+    }
+
+    void quantized_linear_forward(
+        const QuantizedLinearForwardRequest& request
+    ) const override {
+        cuda_quantized_linear_forward(request);
+    }
+
+    void quantized_linear_input_backward(
+        const QuantizedLinearInputBackwardRequest& request
+    ) const override {
+        cuda_quantized_linear_input_backward(request);
     }
 
     // Managed allocations preserve the public host-visible tensor contract;

@@ -2,11 +2,15 @@
 #include "core/backend/attention/reference/flash_causal.hpp"
 #include "core/backend/attention/reference/materialized_causal.hpp"
 #include "core/backend/attention/reference/paged_decode.hpp"
+#include "core/backend/nn/quantized_linear/reference/operations.hpp"
 #include "core/backend/nn/reference/operations.hpp"
 #include "core/backend/optim/adam/reference/update.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <memory>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -57,6 +61,61 @@ private:
     std::vector<float> values_;
 };
 
+class CpuNf4WeightStorage final : public QuantizedWeightStorage {
+public:
+    CpuNf4WeightStorage(
+        std::vector<std::uint8_t> packed_codes,
+        Nf4ScaleStorageData scales
+    )
+        : packed_codes_(std::move(packed_codes)),
+          scales_(std::move(scales)) {}
+
+    [[nodiscard]] ExecutionBackend backend() const noexcept override {
+        return ExecutionBackend::Cpu;
+    }
+
+    [[nodiscard]] std::span<const std::uint8_t>
+    packed_codes() const noexcept override {
+        return packed_codes_;
+    }
+
+    [[nodiscard]] Nf4ScaleStorageView
+    scale_storage() const noexcept override {
+        return {
+            scales_.encoding,
+            scales_.fp32_scales,
+            scales_.quantized_scales,
+            scales_.second_level_scales,
+            scales_.second_level_block_size,
+            scales_.offset,
+        };
+    }
+
+    [[nodiscard]] const void*
+    packed_codes_native_handle() const noexcept override {
+        return nullptr;
+    }
+
+    [[nodiscard]] const void*
+    primary_scales_native_handle() const noexcept override {
+        return nullptr;
+    }
+
+    [[nodiscard]] const void*
+    secondary_scales_native_handle() const noexcept override {
+        return nullptr;
+    }
+
+    [[nodiscard]] std::size_t
+    resident_payload_bytes() const noexcept override {
+        return packed_codes_.size() + nf4_scale_payload_bytes(scale_storage());
+    }
+
+private:
+    std::vector<std::uint8_t> packed_codes_;
+    Nf4ScaleStorageData scales_;
+};
+
 class CpuBackendAdapter final : public BackendAdapter {
 public:
     [[nodiscard]] std::string_view name() const noexcept override {
@@ -82,6 +141,17 @@ public:
     ) const override {
         return std::make_unique<CpuTensorStorage>(
             std::move(values)
+        );
+    }
+
+    [[nodiscard]] std::unique_ptr<QuantizedWeightStorage>
+    make_nf4_weight_storage(
+        std::vector<std::uint8_t> packed_codes,
+        Nf4ScaleStorageData scales
+    ) const override {
+        return std::make_unique<CpuNf4WeightStorage>(
+            std::move(packed_codes),
+            std::move(scales)
         );
     }
 
@@ -130,6 +200,18 @@ public:
                 }
             }
         }
+    }
+
+    void quantized_linear_forward(
+        const QuantizedLinearForwardRequest& request
+    ) const override {
+        reference_quantized_linear_forward(request);
+    }
+
+    void quantized_linear_input_backward(
+        const QuantizedLinearInputBackwardRequest& request
+    ) const override {
+        reference_quantized_linear_input_backward(request);
     }
 
     void unary_elementwise(

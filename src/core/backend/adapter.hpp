@@ -2,6 +2,7 @@
 
 #include "core/backend/attention/capability.hpp"
 #include "core/backend/nn/capability.hpp"
+#include "core/backend/nn/quantized_linear/capability.hpp"
 #include "core/backend/optim/adam/capability.hpp"
 #include "storage.hpp"
 #include "riftco_transformer/core/backend.hpp"
@@ -55,6 +56,7 @@ public:
 // linear algebra, and optimizer growth independent.
 class BackendAdapter
     : public StorageCapability,
+      public QuantizedStorageCapability,
       public MatmulCapability,
       public ElementwiseCapability,
       public ReductionCapability,
@@ -63,6 +65,7 @@ class BackendAdapter
       public IndexingCapability,
       public NormalizationCapability,
       public LossCapability,
+      public QuantizedLinearCapability,
       public AttentionCapability,
       public AdamCapability {
 public:

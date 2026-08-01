@@ -48,7 +48,9 @@ void Module::register_parameter(
                 "module registration names must be unique"
             );
         }
-        if (registration.parameter.get() == handle.get()) {
+        if (registration.kind == RegistrationKind::Parameter &&
+            registration.active &&
+            registration.parameter.get() == handle.get()) {
             throw std::invalid_argument(
                 "module parameter is already registered"
             );
@@ -64,12 +66,15 @@ void Module::register_parameter(
             continue;
         }
         for (const auto& registration : current->registrations_) {
-            if (registration.parameter.get() == handle.get()) {
+            if (registration.kind == RegistrationKind::Parameter &&
+                registration.active &&
+                registration.parameter.get() == handle.get()) {
                 throw std::invalid_argument(
                     "module parameter is already registered"
                 );
             }
-            if (registration.module != nullptr) {
+            if (registration.kind == RegistrationKind::Module &&
+                registration.module != nullptr) {
                 pending.push_back(registration.module);
             }
         }
@@ -77,8 +82,10 @@ void Module::register_parameter(
 
     registrations_.push_back({
         std::string(name),
+        RegistrationKind::Parameter,
         handle,
         nullptr,
+        true,
     });
     parameter.mark_registered();
 }
@@ -129,7 +136,15 @@ void Module::register_module(
                 continue;
             }
             for (const auto& registration : current->registrations_) {
-                if (registration.parameter != nullptr) {
+                if (registration.kind == RegistrationKind::Parameter) {
+                    if (!registration.active) {
+                        continue;
+                    }
+                    if (registration.parameter == nullptr) {
+                        throw std::logic_error(
+                            "active parameter registration is empty"
+                        );
+                    }
                     result.parameters.insert(registration.parameter.get());
                 } else if (registration.module != nullptr) {
                     pending.push_back(registration.module);
@@ -163,13 +178,94 @@ void Module::register_module(
 
     registrations_.push_back({
         std::string(name),
+        RegistrationKind::Module,
         nullptr,
         &module,
+        true,
     });
     module.registered_as_child_ = true;
     for (Module* registered : candidate.modules) {
         registered->registration_closed_ = true;
     }
+}
+
+void Module::preflight_parameter_deactivation(
+    std::string_view name,
+    Parameter& parameter
+) const {
+    require_valid_registration_name(name);
+    const Registration* found = nullptr;
+    for (const auto& registration : registrations_) {
+        if (registration.name == name) {
+            found = &registration;
+            break;
+        }
+    }
+    if (found == nullptr ||
+        found->kind != RegistrationKind::Parameter ||
+        !found->active ||
+        found->parameter == nullptr) {
+        throw std::logic_error(
+            "parameter registration is not active"
+        );
+    }
+    {
+        const ParameterHandle expected = parameter.handle();
+        if (found->parameter.get() != expected.get()) {
+            throw std::logic_error(
+                "parameter registration does not match its owner"
+            );
+        }
+    }
+
+    // The owning Parameter wrapper and this registration are the two normal
+    // owners. shared_state() contributes the third temporary reference used
+    // for this check. Any larger count is a retained external handle/list.
+    const auto state = parameter.shared_state();
+    if (state.use_count() != 3) {
+        throw std::logic_error(
+            "cannot deactivate a parameter while external handles are alive"
+        );
+    }
+}
+
+void Module::deactivate_parameter(
+    std::string_view name,
+    Parameter& parameter
+) {
+    preflight_parameter_deactivation(name, parameter);
+    for (auto& registration : registrations_) {
+        if (registration.name == name) {
+            registration.parameter = ParameterHandle{};
+            registration.active = false;
+            return;
+        }
+    }
+    throw std::logic_error("parameter registration disappeared");
+}
+
+void Module::reactivate_parameter(
+    std::string_view name,
+    Parameter& parameter
+) {
+    require_valid_registration_name(name);
+    for (auto& registration : registrations_) {
+        if (registration.name != name) {
+            continue;
+        }
+        if (registration.kind != RegistrationKind::Parameter ||
+            registration.active ||
+            registration.parameter != nullptr) {
+            throw std::logic_error(
+                "parameter registration is not inactive"
+            );
+        }
+        registration.parameter = parameter.handle();
+        registration.active = true;
+        parameter.mark_registered();
+        return;
+    }
+    throw std::logic_error("parameter registration does not exist");
 }
 
 ParameterList Module::parameters() {
@@ -218,7 +314,22 @@ ParameterList Module::parameters() {
                 ? registration.name
                 : pending.prefix + "." + registration.name;
 
-        if (registration.parameter != nullptr) {
+        if (registration.kind == RegistrationKind::Parameter) {
+            if (!registration.active) {
+                if (registration.parameter != nullptr ||
+                    registration.module != nullptr) {
+                    throw std::logic_error(
+                        "inactive parameter registration is invalid"
+                    );
+                }
+                continue;
+            }
+            if (registration.parameter == nullptr ||
+                registration.module != nullptr) {
+                throw std::logic_error(
+                    "active parameter registration is invalid"
+                );
+            }
             if (!visited_parameters.insert(
                     registration.parameter.get()
                 ).second) {
@@ -237,7 +348,9 @@ ParameterList Module::parameters() {
             });
             continue;
         }
-        if (registration.module == nullptr) {
+        if (!registration.active ||
+            registration.parameter != nullptr ||
+            registration.module == nullptr) {
             throw std::logic_error(
                 "registered module hierarchy contains an invalid entry"
             );
@@ -297,8 +410,15 @@ void Module::to(ExecutionBackend backend) {
              registration !=
                  current.module->registrations_.rend();
              ++registration) {
-            if (registration->module == nullptr) {
+            if (registration->kind != RegistrationKind::Module) {
                 continue;
+            }
+            if (!registration->active ||
+                registration->parameter != nullptr ||
+                registration->module == nullptr) {
+                throw std::logic_error(
+                    "registered module hierarchy contains an invalid entry"
+                );
             }
             const std::string child_prefix =
                 current.prefix.empty()

@@ -1,10 +1,12 @@
 #pragma once
 
+#include "riftco_transformer/core/quantized_weight.hpp"
 #include "riftco_transformer/nn/low_rank_adapter.hpp"
 #include "riftco_transformer/nn/module.hpp"
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <random>
 
 namespace riftco_transformer {
@@ -24,7 +26,24 @@ public:
     [[nodiscard]] std::size_t output_width() const noexcept;
     [[nodiscard]] Variable forward(const Variable& input) const;
     // Transfers parameters in place. Call before building a forward graph.
-    void to(ExecutionBackend backend);
+    void to(ExecutionBackend backend) override;
+
+    // One-way dense-to-packed conversion. It is rejected while an external
+    // ParameterHandle retains the dense weight, and while LoRA is active or
+    // has previously been merged. Model-level QLoRA converts before attach.
+    void quantize_weight_nf4(
+        std::size_t block_size =
+            QuantizedWeight::kDefaultNf4BlockSize
+    );
+    void quantize_weight_nf4_double_quantized(
+        std::size_t block_size =
+            QuantizedWeight::kDefaultNf4BlockSize,
+        std::size_t scale_block_size = 256
+    );
+    [[nodiscard]] bool has_quantized_weight() const noexcept;
+    [[nodiscard]] const QuantizedWeight& quantized_weight() const;
+    [[nodiscard]] QuantizedMemoryUsage
+    quantized_memory_usage() const noexcept;
 
     // Attaches one adapter exactly once for this Linear object's lifetime.
     void attach_lora(
@@ -38,19 +57,49 @@ public:
     // obtained native Parameter pointers do not dangle.
     void merge_lora();
 
-    [[nodiscard]] const Parameter& weight() const noexcept;
+    // Throws when the base weight is packed; packed weights are immutable
+    // buffers rather than trainable Parameters.
+    [[nodiscard]] const Parameter& weight() const;
     [[nodiscard]] const Parameter& bias() const noexcept;
     // Base parameters only, independent of LoRA state.
     [[nodiscard]] ParameterList parameters();
 
 private:
+    struct PreparedMaterializedWeight {
+        std::optional<Tensor> dense_value;
+        std::optional<Parameter> replacement_parameter;
+    };
+
     [[nodiscard]] ParameterList
     extra_parameters_for_transfer() override;
-    [[nodiscard]] Tensor prepare_lora_merge() const;
-    void commit_prepared_lora_merge(Tensor merged_weight) noexcept;
+    [[nodiscard]] PreparedMaterializedWeight
+    prepare_lora_merge() const;
+    void commit_prepared_lora_merge(
+        PreparedMaterializedWeight merged_weight
+    );
     void discard_unmerged_lora() noexcept;
 
-    Parameter weight_;
+    [[nodiscard]] QuantizedWeight prepare_weight_quantization_nf4(
+        std::size_t block_size,
+        std::optional<std::size_t> scale_block_size = std::nullopt
+    );
+    void commit_prepared_weight_quantization(
+        QuantizedWeight quantized_weight
+    );
+    [[nodiscard]] PreparedMaterializedWeight
+    prepare_materialized_weight(
+        bool include_lora_delta
+    ) const;
+    void validate_prepared_materialized_weight(
+        const PreparedMaterializedWeight& materialized_weight
+    ) const;
+    void commit_prepared_materialized_weight(
+        PreparedMaterializedWeight materialized_weight,
+        bool mark_lora_merged
+    );
+
+    std::optional<Parameter> weight_;
+    std::optional<QuantizedWeight> quantized_weight_;
     Parameter bias_;
     std::unique_ptr<LowRankAdapter> lora_;
     bool lora_was_merged_ = false;

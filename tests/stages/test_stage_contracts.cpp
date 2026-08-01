@@ -16,6 +16,7 @@ namespace {
 using riftco_transformer::ExecutionBackend;
 using riftco_transformer::FullSequenceAttentionKind;
 using riftco_transformer::ActivationCheckpointingKind;
+using riftco_transformer::AdamStateStorageKind;
 using riftco_transformer::TokenId;
 using riftco_transformer::TokenizerMethod;
 using riftco_transformer::execution_backend_available;
@@ -175,6 +176,21 @@ void test_pretraining_config() {
     );
 
     config = valid;
+    config.optimizer.state_storage =
+        static_cast<AdamStateStorageKind>(99);
+    require_throws<std::invalid_argument>(
+        [&] { config.validate(); },
+        "pretraining should reject an unknown Adam state layout"
+    );
+
+    config = valid;
+    config.optimizer.page_size = 0;
+    require_throws<std::invalid_argument>(
+        [&] { config.validate(); },
+        "pretraining should reject a zero Adam page size"
+    );
+
+    config = valid;
     config.attention =
         static_cast<FullSequenceAttentionKind>(99);
     require_throws<std::invalid_argument>(
@@ -285,6 +301,44 @@ void test_post_training_config() {
     require_throws<std::invalid_argument>(
         [&] { config.validate(); },
         "post-training should reject non-finite Adam options"
+    );
+
+    config = valid;
+    config.optimizer.state_storage =
+        static_cast<AdamStateStorageKind>(99);
+    require_throws<std::invalid_argument>(
+        [&] { config.validate(); },
+        "post-training should reject an unknown Adam state layout"
+    );
+
+    config = valid;
+    config.optimizer.page_size = 0;
+    require_throws<std::invalid_argument>(
+        [&] { config.validate(); },
+        "post-training should reject a zero Adam page size"
+    );
+
+    config = valid;
+    config.fine_tuning_method = FineTuningMethod::Qlora;
+    config.validate();
+    require(
+        config.nf4_double_quantization &&
+            config.qlora_paged_optimizer,
+        "QLoRA should default to double quantization and paged Adam"
+    );
+
+    config.nf4_scale_block_size = 16;
+    require_throws<std::invalid_argument>(
+        [&] { config.validate(); },
+        "QLoRA should reject an unsupported scale block size"
+    );
+
+    config = valid;
+    config.fine_tuning_method = FineTuningMethod::Qlora;
+    config.qlora_optimizer_page_size = 0;
+    require_throws<std::invalid_argument>(
+        [&] { config.validate(); },
+        "QLoRA should reject a zero paged-optimizer page size"
     );
 
     config = valid;

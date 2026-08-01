@@ -297,6 +297,35 @@ class FineTuningExperimentTests(unittest.TestCase):
                         trial.test.loss - comparison.baseline_test.loss,
                     )
 
+    def test_qlora_candidate_runs_and_exports_an_fp32_bundle(self) -> None:
+        comparison = compare_fine_tuning(
+            make_tiny_bundle(),
+            make_splits(),
+            FineTuningExperimentConfig(
+                candidates=(
+                    FineTuningCandidate(
+                        "qlora-rank-1",
+                        training_config("qlora", rank=1),
+                    ),
+                ),
+                evaluation_context_size=3,
+                evaluation_batch_size=2,
+            ),
+            formatter=CompactFormatter(),
+        )
+
+        self.assertEqual(comparison.resolved_backend, "cpu")
+        self.assertEqual(len(comparison.trials), 1)
+        trial = comparison.trials[0]
+        self.assertEqual(trial.fine_tuning_method, "qlora")
+        self.assertTrue(trial.selected_for_test)
+        self.assertIsNotNone(trial.test)
+        quantization = trial.bundle.metadata["quantization"]
+        self.assertIsInstance(quantization, dict)
+        assert isinstance(quantization, dict)
+        self.assertEqual(quantization["format"], "nf4")
+        self.assertTrue(quantization["export_materialized_to_fp32"])
+
     def test_batched_evaluation_preserves_token_weighted_loss(self) -> None:
         bundle = make_tiny_bundle()
         examples = make_splits().validation

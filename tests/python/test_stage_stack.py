@@ -54,6 +54,7 @@ from riftco_transformer.training import (
     selected_backend,
 )
 import riftco_transformer.serving.service as service_module
+import riftco_transformer.post_training.pipeline as post_training_pipeline
 import riftco_transformer.training.engine as training_engine
 
 
@@ -167,6 +168,30 @@ class ArtifactTests(unittest.TestCase):
                 )
 
         self.assertEqual(bundle.stage, "post_training")
+
+    def test_capture_rejects_packed_quantized_model(self) -> None:
+        with Tokenizer(CORPUS, method="byte") as tokenizer:
+            config = TransformerConfig(
+                vocabulary_size=tokenizer.vocab_size,
+                maximum_context=4,
+                model_width=4,
+                head_count=2,
+                block_count=1,
+                feed_forward_width=8,
+                random_seed=107,
+            )
+            with DecoderOnlyTransformer(config).to("cpu") as model:
+                model.quantize_nf4()
+                self.assertTrue(model.quantized_linear_weights)
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "packed quantized weights",
+                ):
+                    ModelBundle.capture(
+                        model,
+                        tokenizer,
+                        stage="post_training",
+                    )
 
     def test_artifact_handoff_to_fresh_process_generates_json(self) -> None:
         bundle = make_tiny_bundle()
@@ -543,6 +568,68 @@ class PipelineStageTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "TPU"):
                 selected_backend("tpu")
 
+    def test_qlora_backend_selection_uses_all_accelerator_backends(self) -> None:
+        config = PostTrainingConfig(fine_tuning_method="qlora")
+        expected_auto_selections = (
+            ("tpu", [mock.call("tpu")]),
+            ("cuda", [mock.call("tpu"), mock.call("cuda")]),
+            (
+                "metal",
+                [mock.call("tpu"), mock.call("cuda"), mock.call("metal")],
+            ),
+        )
+        for expected, calls in expected_auto_selections:
+            with self.subTest(auto_backend=expected), mock.patch.object(
+                training_engine,
+                "backend_available",
+                side_effect=lambda backend, selected=expected: (
+                    backend == selected
+                ),
+            ) as available:
+                self.assertEqual(
+                    post_training_pipeline._selected_post_training_backend(
+                        config,
+                        require_qlora_capability=True,
+                    ),
+                    expected,
+                )
+                self.assertEqual(available.call_args_list, calls)
+
+        with mock.patch.object(
+            training_engine,
+            "backend_available",
+            return_value=False,
+        ) as available:
+            self.assertEqual(
+                post_training_pipeline._selected_post_training_backend(config),
+                "cpu",
+            )
+            self.assertEqual(
+                available.call_args_list,
+                [
+                    mock.call("tpu"),
+                    mock.call("cuda"),
+                    mock.call("metal"),
+                ],
+            )
+
+        for backend in ("tpu", "cuda", "metal"):
+            with self.subTest(explicit_backend=backend), mock.patch.object(
+                training_engine,
+                "backend_available",
+                return_value=True,
+            ) as available:
+                self.assertEqual(
+                    post_training_pipeline._selected_post_training_backend(
+                        PostTrainingConfig(
+                            backend=backend,
+                            fine_tuning_method="qlora",
+                        )
+                    ),
+                    backend,
+                )
+                available.assert_called_once_with(backend)
+
     def test_serving_auto_backend_uses_the_same_priority(self) -> None:
         with mock.patch.object(
             service_module,
@@ -685,6 +772,35 @@ class PipelineStageTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "fine_tuning_method"):
             PostTrainingConfig(fine_tuning_method="unknown")
+        self.assertEqual(
+            PostTrainingConfig(
+                fine_tuning_method="qlora"
+            ).fine_tuning_method,
+            "qlora",
+        )
+        qlora_defaults = PostTrainingConfig(fine_tuning_method="qlora")
+        self.assertTrue(qlora_defaults.double_quantization)
+        self.assertEqual(qlora_defaults.nf4_scale_block_size, 256)
+        self.assertEqual(qlora_defaults.optimizer_state, "auto")
+        self.assertEqual(qlora_defaults.optimizer_page_size, 4096)
+        for invalid_block_size in (False, 0, -1, 1.5):
+            with self.subTest(nf4_block_size=invalid_block_size):
+                with self.assertRaises((TypeError, ValueError)):
+                    PostTrainingConfig(
+                        nf4_block_size=invalid_block_size  # type: ignore[arg-type]
+                    )
+        with self.assertRaises((TypeError, ValueError)):
+            PostTrainingConfig(nf4_scale_block_size=16)
+        with self.assertRaises(TypeError):
+            PostTrainingConfig(double_quantization=1)  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            PostTrainingConfig(optimizer_state="unknown")
+        with self.assertRaises((TypeError, ValueError)):
+            PostTrainingConfig(optimizer_page_size=0)
+        with self.assertRaises(ValueError):
+            PretrainingConfig(optimizer_state="auto")
+        with self.assertRaises((TypeError, ValueError)):
+            PretrainingConfig(optimizer_page_size=0)
         with self.assertRaisesRegex(TypeError, "LoraConfig"):
             PostTrainingConfig(lora=object())  # type: ignore[arg-type]
         with self.assertRaisesRegex(ValueError, "sampling_strategy"):
@@ -950,6 +1066,81 @@ class PipelineStageTests(unittest.TestCase):
 
         with result.bundle.instantiate("cpu") as runtime:
             self.assertFalse(runtime.model.lora_attached)
+            with runtime.model([[0, 1]]) as logits:
+                self.assertEqual(
+                    logits.shape,
+                    (1, 2, result.bundle.config.vocabulary_size),
+                )
+
+    def test_qlora_post_training_exports_a_regular_fp32_child_bundle(
+        self,
+    ) -> None:
+        base = make_tiny_bundle()
+        result = post_train(
+            base,
+            (InstructionExample(prompt="ab", response="cd"),),
+            PostTrainingConfig(
+                steps=1,
+                context_size=2,
+                batch_size=1,
+                evaluation_interval=1,
+                loss_average_window=1,
+                learning_rate=1.0e-2,
+                random_seed=41,
+                backend="cpu",
+                fine_tuning_method="qlora",
+                nf4_block_size=64,
+                lora=LoraConfig(
+                    rank=2,
+                    alpha=4.0,
+                    random_seed=43,
+                ),
+            ),
+            formatter=CompactInstructionFormatter(),
+        )
+
+        self.assertEqual(result.fine_tuning_method, "qlora")
+        self.assertEqual(result.bundle.parameters, base.parameters)
+        metadata = result.bundle.metadata
+        self.assertEqual(metadata["fine_tuning_method"], "qlora")
+        self.assertEqual(
+            metadata["optimizer_parameter_scope"],
+            "lora_adapters",
+        )
+        self.assertTrue(metadata["lora_merged"])
+        quantization = metadata["quantization"]
+        self.assertEqual(quantization["format"], "nf4")
+        self.assertEqual(quantization["block_size"], 64)
+        self.assertTrue(quantization["double_quantization"])
+        self.assertEqual(quantization["scale_block_size"], 256)
+        self.assertTrue(quantization["export_materialized_to_fp32"])
+        self.assertEqual(
+            quantization["training_memory"]["weight_count"],
+            7,
+        )
+        self.assertEqual(
+            quantization["training_memory"][
+                "double_quantized_weight_count"
+            ],
+            7,
+        )
+        self.assertEqual(
+            quantization["training_memory"]["fp32_scale_bytes"],
+            0,
+        )
+        self.assertLess(
+            quantization["training_memory"]["logical_payload_bytes"],
+            quantization["training_memory"]["fp32_equivalent_bytes"],
+        )
+        optimizer_state = metadata["optimizer_state"]
+        self.assertEqual(optimizer_state["state_storage"], "paged")
+        self.assertEqual(optimizer_state["page_size"], 4096)
+        self.assertEqual(optimizer_state["page_count"], 4)
+        self.assertEqual(optimizer_state["state_payload_bytes"], 256)
+
+        with result.bundle.instantiate("cpu") as runtime:
+            self.assertFalse(runtime.model.lora_attached)
+            self.assertFalse(runtime.model.quantized_linear_weights)
             with runtime.model([[0, 1]]) as logits:
                 self.assertEqual(
                     logits.shape,

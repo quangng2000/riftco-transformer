@@ -611,7 +611,7 @@ void test_lora_post_training_merges_serving_ready_snapshot() {
     );
 }
 
-void test_split_evaluation_for_full_and_lora_post_training() {
+void test_split_evaluation_for_full_lora_and_qlora_post_training() {
     const std::string corpus =
         "small models learn tokens. small models learn tokens. "
         "held out data checks transfer. held out data checks transfer.";
@@ -643,6 +643,7 @@ void test_split_evaluation_for_full_and_lora_post_training() {
     for (const auto method : {
              post_training::FineTuningMethod::Full,
              post_training::FineTuningMethod::Lora,
+             post_training::FineTuningMethod::Qlora,
          }) {
         post_training::PostTrainingConfig config;
         config.steps = 1;
@@ -703,6 +704,32 @@ void test_split_evaluation_for_full_and_lora_post_training() {
             first_test_targets != second_test_targets,
             "test fixtures should exercise different held-out targets"
         );
+        if (method == post_training::FineTuningMethod::Qlora) {
+            require(
+                first.model().has_quantized_linear_weights() &&
+                    changed_test.model().has_quantized_linear_weights(),
+                "QLoRA stage preparation should pack eligible base weights"
+            );
+            const auto memory = first.model().quantized_memory_usage();
+            require(
+                memory.logical_payload_bytes > 0 &&
+                    memory.logical_payload_bytes <
+                        memory.fp32_equivalent_bytes,
+                "QLoRA stage should expose a smaller packed base payload"
+            );
+            require(
+                config.nf4_double_quantization &&
+                    config.qlora_paged_optimizer &&
+                    first.model()
+                            .double_quantized_linear_weight_count() ==
+                        first.model().quantized_linear_weight_count() &&
+                    memory.fp32_scale_bytes == 0 &&
+                    memory.scale_code_bytes > 0 &&
+                    memory.second_level_scale_bytes > 0,
+                "QLoRA stage defaults should double-quantize scales and "
+                "select paged optimizer state"
+            );
+        }
 
         if (method == post_training::FineTuningMethod::Full) {
             const std::vector<std::vector<riftco_transformer::TokenId>>
@@ -806,7 +833,17 @@ void test_split_evaluation_for_full_and_lora_post_training() {
         const std::string method_name =
             method == post_training::FineTuningMethod::Full
                 ? "full"
-                : "LoRA";
+                : method == post_training::FineTuningMethod::Lora
+                    ? "LoRA"
+                    : "QLoRA";
+
+        if (method == post_training::FineTuningMethod::Qlora) {
+            require(
+                !first.model().has_quantized_linear_weights() &&
+                    !changed_test.model().has_quantized_linear_weights(),
+                "QLoRA stage export should materialize serving-ready weights"
+            );
+        }
 
         require(
             first_result.fine_tuning_method == method &&
@@ -903,6 +940,24 @@ void test_split_evaluation_for_full_and_lora_post_training() {
 }
 
 void test_stage_rejects_incompatible_handoffs() {
+    for (const auto backend : {
+             riftco_transformer::ExecutionBackend::Cuda,
+             riftco_transformer::ExecutionBackend::Tpu,
+         }) {
+        post_training::PostTrainingConfig qlora_config;
+        qlora_config.fine_tuning_method =
+            post_training::FineTuningMethod::Qlora;
+        qlora_config.backend = backend;
+        if (riftco_transformer::execution_backend_available(backend)) {
+            qlora_config.validate();
+        } else {
+            require_throws<std::invalid_argument>(
+                [&] { qlora_config.validate(); },
+                "QLoRA config should reject an unavailable accelerator"
+            );
+        }
+    }
+
     const std::string corpus =
         "one two three four five six seven eight";
     auto config = tiny_pretraining_config();
@@ -979,7 +1034,7 @@ int main() {
     try {
         test_pretraining_post_training_and_serving_handoff();
         test_lora_post_training_merges_serving_ready_snapshot();
-        test_split_evaluation_for_full_and_lora_post_training();
+        test_split_evaluation_for_full_lora_and_qlora_post_training();
         test_stage_rejects_incompatible_handoffs();
         std::cout << "native stage stack tests passed\n";
         return 0;

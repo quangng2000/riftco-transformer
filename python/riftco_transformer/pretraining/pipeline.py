@@ -44,6 +44,8 @@ class PretrainingConfig:
     backend: str = "auto"
     attention: str = "materialized"
     activation_checkpointing: str = "disabled"
+    optimizer_state: str = "contiguous"
+    optimizer_page_size: int = 4096
 
     def __post_init__(self) -> None:
         for name in (
@@ -107,6 +109,14 @@ class PretrainingConfig:
             raise ValueError(
                 "activation_checkpointing must be 'disabled' or 'block'"
             )
+        if self.optimizer_state not in {"contiguous", "paged"}:
+            raise ValueError(
+                "optimizer_state must be 'contiguous' or 'paged'"
+            )
+        _positive_integer(
+            self.optimizer_page_size,
+            "optimizer_page_size",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +297,8 @@ def _pretrain_splits(
                 with Adam(
                     parameters,
                     learning_rate=config.learning_rate,
+                    state_storage=config.optimizer_state,
+                    page_size=config.optimizer_page_size,
                 ) as optimizer:
                     trainer = CausalLanguageModelTrainer(model, optimizer)
                     metrics = trainer.run(

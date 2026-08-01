@@ -24,6 +24,15 @@ FULL_SEQUENCE_OBJECTIVE = "full_sequence_causal_sft"
 _ASCII_WHITESPACE = " \t\n\r\f\v"
 
 
+def _selected_post_training_backend(
+    config: PostTrainingConfig,
+    *,
+    require_qlora_capability: bool = False,
+) -> str:
+    del require_qlora_capability
+    return selected_backend(config.backend)
+
+
 def _trim_ascii(value: str) -> str:
     """Match the native UTF-8 formatter's locale-independent trimming."""
 
@@ -99,6 +108,11 @@ class PostTrainingConfig:
     lora: LoraConfig = field(default_factory=LoraConfig)
     attention: str = "materialized"
     activation_checkpointing: str = "disabled"
+    nf4_block_size: int = 64
+    nf4_scale_block_size: int = 256
+    double_quantization: bool = True
+    optimizer_state: str = "auto"
+    optimizer_page_size: int = 4096
 
     def __post_init__(self) -> None:
         for name in (
@@ -128,9 +142,9 @@ class PostTrainingConfig:
             raise ValueError(
                 "activation_checkpointing must be 'disabled' or 'block'"
             )
-        if self.fine_tuning_method not in {"full", "lora"}:
+        if self.fine_tuning_method not in {"full", "lora", "qlora"}:
             raise ValueError(
-                "fine_tuning_method must be 'full' or 'lora'"
+                "fine_tuning_method must be 'full', 'lora', or 'qlora'"
             )
         if self.sampling_strategy not in {
             "example_uniform",
@@ -142,6 +156,43 @@ class PostTrainingConfig:
             )
         if not isinstance(self.lora, LoraConfig):
             raise TypeError("lora must be a LoraConfig")
+        block_size = _positive_integer(
+            self.nf4_block_size,
+            "nf4_block_size",
+        )
+        if block_size not in {32, 64, 128, 256, 512, 1024, 2048, 4096}:
+            raise ValueError(
+                "nf4_block_size must be one of 32, 64, 128, 256, "
+                "512, 1024, 2048, or 4096"
+            )
+        scale_block_size = _positive_integer(
+            self.nf4_scale_block_size,
+            "nf4_scale_block_size",
+        )
+        if scale_block_size not in {
+            32,
+            64,
+            128,
+            256,
+            512,
+            1024,
+            2048,
+            4096,
+        }:
+            raise ValueError(
+                "nf4_scale_block_size must be one of 32, 64, 128, 256, "
+                "512, 1024, 2048, or 4096"
+            )
+        if not isinstance(self.double_quantization, bool):
+            raise TypeError("double_quantization must be a bool")
+        if self.optimizer_state not in {"auto", "contiguous", "paged"}:
+            raise ValueError(
+                "optimizer_state must be 'auto', 'contiguous', or 'paged'"
+            )
+        _positive_integer(
+            self.optimizer_page_size,
+            "optimizer_page_size",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,7 +305,7 @@ def post_train(
     ):
         raise TypeError("examples must contain InstructionExample values")
 
-    backend = selected_backend(config.backend)
+    backend = _selected_post_training_backend(config)
     with base_bundle.instantiate(backend) as runtime:
         runtime.model.set_full_sequence_attention(config.attention)
         runtime.model.set_activation_checkpointing(
@@ -297,17 +348,64 @@ def post_train(
             evaluation_interval=config.evaluation_interval,
             loss_average_window=config.loss_average_window,
         )
-        if config.fine_tuning_method == "lora":
+        qlora_memory: dict[str, int | float] | None = None
+        if config.fine_tuning_method == "qlora":
+            runtime.model.quantize_nf4(
+                config.nf4_block_size,
+                double_quantization=config.double_quantization,
+                scale_block_size=config.nf4_scale_block_size,
+            )
+            packed = runtime.model.quantized_memory
+            qlora_memory = {
+                "weight_count": packed.weight_count,
+                "packed_code_bytes": packed.packed_code_bytes,
+                "scale_bytes": packed.scale_bytes,
+                "logical_payload_bytes": packed.logical_payload_bytes,
+                "resident_payload_bytes": packed.resident_payload_bytes,
+                "fp32_equivalent_bytes": packed.fp32_equivalent_bytes,
+                "fp32_scale_bytes": packed.fp32_scale_bytes,
+                "scale_code_bytes": packed.scale_code_bytes,
+                "second_level_scale_bytes": (
+                    packed.second_level_scale_bytes
+                ),
+                "scale_offset_bytes": packed.scale_offset_bytes,
+                "double_quantized_weight_count": (
+                    packed.double_quantized_weight_count
+                ),
+                "compression_ratio": packed.compression_ratio,
+            }
+            runtime.model.attach_lora(config.lora)
+            parameter_source = runtime.model.adapter_parameters
+        elif config.fine_tuning_method == "lora":
             runtime.model.attach_lora(config.lora)
             parameter_source = runtime.model.adapter_parameters
         else:
             parameter_source = runtime.model.parameters
 
+        optimizer_state = (
+            "paged"
+            if config.optimizer_state == "auto"
+            and config.fine_tuning_method == "qlora"
+            else (
+                "contiguous"
+                if config.optimizer_state == "auto"
+                else config.optimizer_state
+            )
+        )
+        optimizer_diagnostics: dict[str, int | str] | None = None
         with parameter_source() as parameters:
             with Adam(
                 parameters,
                 learning_rate=config.learning_rate,
+                state_storage=optimizer_state,
+                page_size=config.optimizer_page_size,
             ) as optimizer:
+                optimizer_diagnostics = {
+                    "state_storage": optimizer.state_storage,
+                    "page_size": optimizer.state_page_size,
+                    "page_count": optimizer.state_page_count,
+                    "state_payload_bytes": optimizer.state_payload_bytes,
+                }
                 trainer = CausalLanguageModelTrainer(
                     runtime.model,
                     optimizer,
@@ -317,7 +415,7 @@ def post_train(
                     loop_config,
                     metric_sink=metric_sink,
                 )
-        if config.fine_tuning_method == "lora":
+        if config.fine_tuning_method in {"lora", "qlora"}:
             runtime.model.merge_lora()
         tuned_bundle = ModelBundle.capture(
             runtime.model,
@@ -331,13 +429,32 @@ def post_train(
                 "training_config": asdict(config),
                 "resolved_backend": backend,
                 "optimizer": "adam",
+                "optimizer_state": optimizer_diagnostics,
                 "optimizer_parameter_scope": (
                     "lora_adapters"
-                    if config.fine_tuning_method == "lora"
+                    if config.fine_tuning_method in {"lora", "qlora"}
                     else "all_model_parameters"
                 ),
                 "fine_tuning_method": config.fine_tuning_method,
-                "lora_merged": config.fine_tuning_method == "lora",
+                "lora_merged": config.fine_tuning_method in {"lora", "qlora"},
+                "quantization": (
+                    {
+                        "format": "nf4",
+                        "block_size": config.nf4_block_size,
+                        "double_quantization": (
+                            config.double_quantization
+                        ),
+                        "scale_block_size": (
+                            config.nf4_scale_block_size
+                            if config.double_quantization
+                            else None
+                        ),
+                        "training_memory": qlora_memory,
+                        "export_materialized_to_fp32": True,
+                    }
+                    if config.fine_tuning_method == "qlora"
+                    else None
+                ),
                 "adapter_state_included": False,
                 "optimizer_state_included": False,
                 "response_only_loss": False,

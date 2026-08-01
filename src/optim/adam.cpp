@@ -3,6 +3,8 @@
 #include "core/backend/adapter.hpp"
 #include "core/backend/optim/adam/dispatch.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -46,7 +48,36 @@ AdamOptions checked_options(AdamOptions options) {
             "Adam maximum gradient norm must be finite and positive"
         );
     }
+    switch (options.state_storage) {
+        case AdamStateStorageKind::Contiguous:
+        case AdamStateStorageKind::Paged:
+            break;
+        default:
+            throw std::invalid_argument(
+                "Adam state storage kind is not recognized"
+            );
+    }
+    if (options.page_size == 0) {
+        throw std::invalid_argument(
+            "Adam state page size must be greater than zero"
+        );
+    }
     return options;
+}
+
+void add_state_payload_bytes(
+    std::size_t element_count,
+    std::size_t& total
+) {
+    constexpr std::size_t bytes_per_element = 2 * sizeof(float);
+    if (element_count >
+        (std::numeric_limits<std::size_t>::max() - total) /
+            bytes_per_element) {
+        throw std::overflow_error(
+            "Adam state payload size overflow"
+        );
+    }
+    total += element_count * bytes_per_element;
 }
 
 ParameterList checked_parameters(ParameterList parameters) {
@@ -194,23 +225,45 @@ Adam::Adam(
       backend_(
           parameters_.front().parameter->value().backend()
       ) {
-    first_moments_.reserve(parameters_.size());
-    second_moments_.reserve(parameters_.size());
+    if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+        first_moments_.reserve(parameters_.size());
+        second_moments_.reserve(parameters_.size());
+    } else {
+        state_pages_.resize(parameters_.size());
+    }
+    std::size_t parameter_index = 0;
     for (const auto& named_parameter : parameters_) {
         require_parameter_backend(named_parameter, backend_);
         require_finite_parameter_values(named_parameter);
-        first_moments_.push_back(
-            Tensor::zeros(
-                named_parameter.parameter->value().shape(),
-                backend_
-            )
-        );
-        second_moments_.push_back(
-            Tensor::zeros(
-                named_parameter.parameter->value().shape(),
-                backend_
-            )
-        );
+        const Tensor& value = named_parameter.parameter->value();
+        add_state_payload_bytes(value.numel(), state_payload_bytes_);
+        if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+            first_moments_.push_back(
+                Tensor::zeros(value.shape(), backend_)
+            );
+            second_moments_.push_back(
+                Tensor::zeros(value.shape(), backend_)
+            );
+        } else {
+            auto& pages = state_pages_[parameter_index];
+            const std::size_t page_count =
+                1 + (value.numel() - 1) / options_.page_size;
+            pages.reserve(page_count);
+            for (std::size_t offset = 0;
+                 offset < value.numel();) {
+                const std::size_t length = std::min(
+                    options_.page_size,
+                    value.numel() - offset
+                );
+                pages.push_back({
+                    offset,
+                    Tensor::zeros({length}, backend_),
+                    Tensor::zeros({length}, backend_),
+                });
+                offset += length;
+            }
+        }
+        ++parameter_index;
     }
     static_cast<void>(global_gradient_norm(parameters_));
 }
@@ -229,6 +282,26 @@ std::size_t Adam::step_count() const noexcept {
 
 std::size_t Adam::parameter_tensor_count() const noexcept {
     return parameters_.size();
+}
+
+AdamStateStorageKind Adam::state_storage_kind() const noexcept {
+    return options_.state_storage;
+}
+
+std::size_t Adam::state_page_size() const noexcept {
+    return options_.page_size;
+}
+
+std::size_t Adam::state_page_count() const noexcept {
+    std::size_t result = 0;
+    for (const auto& pages : state_pages_) {
+        result += pages.size();
+    }
+    return result;
+}
+
+std::size_t Adam::state_payload_bytes() const noexcept {
+    return state_payload_bytes_;
 }
 
 AdamStepStats Adam::step() {
@@ -255,8 +328,10 @@ AdamStepStats Adam::step() {
     std::vector<Tensor> next_first_moments;
     std::vector<Tensor> next_second_moments;
     next_values.reserve(parameters_.size());
-    next_first_moments.reserve(parameters_.size());
-    next_second_moments.reserve(parameters_.size());
+    if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+        next_first_moments.reserve(parameters_.size());
+        next_second_moments.reserve(parameters_.size());
+    }
 
     for (std::size_t parameter_index = 0;
          parameter_index < parameters_.size();
@@ -268,56 +343,136 @@ AdamStepStats Adam::step() {
         next_values.push_back(
             Tensor::zeros(value.shape(), backend_)
         );
-        next_first_moments.push_back(
-            Tensor::zeros(value.shape(), backend_)
-        );
-        next_second_moments.push_back(
-            Tensor::zeros(value.shape(), backend_)
-        );
+        if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+            next_first_moments.push_back(
+                Tensor::zeros(value.shape(), backend_)
+            );
+            next_second_moments.push_back(
+                Tensor::zeros(value.shape(), backend_)
+            );
+        }
     }
 
-    std::vector<backend_detail::AdamTensorUpdate> updates;
-    updates.reserve(parameters_.size());
-    for (std::size_t parameter_index = 0;
-         parameter_index < parameters_.size();
-         ++parameter_index) {
-        const Parameter& parameter =
-            *parameters_[parameter_index].parameter;
-        updates.push_back({
-            backend_detail::tensor_storage(parameter.value()),
-            backend_detail::tensor_storage(parameter.gradient()),
-            backend_detail::tensor_storage(
-                first_moments_[parameter_index]
-            ),
-            backend_detail::tensor_storage(
-                second_moments_[parameter_index]
-            ),
-            backend_detail::tensor_storage(
-                next_values[parameter_index]
-            ),
-            backend_detail::tensor_storage(
-                next_first_moments[parameter_index]
-            ),
-            backend_detail::tensor_storage(
-                next_second_moments[parameter_index]
-            ),
-        });
-    }
-    backend_detail::dispatch_adam_update(
-        backend_,
-        {
-            std::span<const backend_detail::AdamTensorUpdate>(
-                updates
-            ),
-            options_.learning_rate,
-            options_.beta1,
-            options_.beta2,
-            options_.epsilon,
-            clip_scale,
-            first_correction,
-            second_correction,
+    const auto dispatch_updates =
+        [&](std::span<const backend_detail::AdamTensorUpdate> updates) {
+            backend_detail::dispatch_adam_update(
+                backend_,
+                {
+                    updates,
+                    options_.learning_rate,
+                    options_.beta1,
+                    options_.beta2,
+                    options_.epsilon,
+                    clip_scale,
+                    first_correction,
+                    second_correction,
+                }
+            );
+        };
+
+    std::vector<std::vector<StatePage>> next_state_pages;
+    if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+        std::vector<backend_detail::AdamTensorUpdate> updates;
+        updates.reserve(parameters_.size());
+        for (std::size_t parameter_index = 0;
+             parameter_index < parameters_.size();
+             ++parameter_index) {
+            const Parameter& parameter =
+                *parameters_[parameter_index].parameter;
+            updates.push_back({
+                backend_detail::tensor_storage(parameter.value()),
+                backend_detail::tensor_storage(parameter.gradient()),
+                backend_detail::tensor_storage(
+                    first_moments_[parameter_index]
+                ),
+                backend_detail::tensor_storage(
+                    second_moments_[parameter_index]
+                ),
+                backend_detail::tensor_storage(
+                    next_values[parameter_index]
+                ),
+                backend_detail::tensor_storage(
+                    next_first_moments[parameter_index]
+                ),
+                backend_detail::tensor_storage(
+                    next_second_moments[parameter_index]
+                ),
+            });
         }
-    );
+        dispatch_updates(updates);
+    } else {
+        next_state_pages.resize(parameters_.size());
+        for (std::size_t parameter_index = 0;
+             parameter_index < parameters_.size();
+             ++parameter_index) {
+            const Parameter& parameter =
+                *parameters_[parameter_index].parameter;
+            const auto value = parameter.value().data();
+            const auto gradient = parameter.gradient().data();
+            auto next_value = next_values[parameter_index].data();
+            auto& candidate_pages = next_state_pages[parameter_index];
+            candidate_pages.reserve(state_pages_[parameter_index].size());
+
+            for (const auto& page : state_pages_[parameter_index]) {
+                const std::size_t length = page.first_moment.numel();
+                if (page.second_moment.numel() != length ||
+                    page.offset > value.size() ||
+                    length > value.size() - page.offset) {
+                    throw std::logic_error(
+                        "Adam paged state does not match its parameter"
+                    );
+                }
+                const auto value_page =
+                    value.subspan(page.offset, length);
+                const auto gradient_page =
+                    gradient.subspan(page.offset, length);
+                Tensor page_value(
+                    {length},
+                    std::vector<float>(
+                        value_page.begin(),
+                        value_page.end()
+                    ),
+                    backend_
+                );
+                Tensor page_gradient(
+                    {length},
+                    std::vector<float>(
+                        gradient_page.begin(),
+                        gradient_page.end()
+                    ),
+                    backend_
+                );
+                Tensor next_page_value =
+                    Tensor::zeros({length}, backend_);
+                Tensor next_first =
+                    Tensor::zeros({length}, backend_);
+                Tensor next_second =
+                    Tensor::zeros({length}, backend_);
+
+                const std::array<backend_detail::AdamTensorUpdate, 1>
+                    update{{{
+                        backend_detail::tensor_storage(page_value),
+                        backend_detail::tensor_storage(page_gradient),
+                        backend_detail::tensor_storage(page.first_moment),
+                        backend_detail::tensor_storage(page.second_moment),
+                        backend_detail::tensor_storage(next_page_value),
+                        backend_detail::tensor_storage(next_first),
+                        backend_detail::tensor_storage(next_second),
+                    }}};
+                dispatch_updates(update);
+                std::copy(
+                    next_page_value.data().begin(),
+                    next_page_value.data().end(),
+                    next_value.subspan(page.offset, length).begin()
+                );
+                candidate_pages.push_back({
+                    page.offset,
+                    std::move(next_first),
+                    std::move(next_second),
+                });
+            }
+        }
+    }
 
     for (std::size_t parameter_index = 0;
          parameter_index < parameters_.size();
@@ -325,10 +480,15 @@ AdamStepStats Adam::step() {
         parameters_[parameter_index].parameter->set_value(
             std::move(next_values[parameter_index])
         );
-        first_moments_[parameter_index] =
-            std::move(next_first_moments[parameter_index]);
-        second_moments_[parameter_index] =
-            std::move(next_second_moments[parameter_index]);
+        if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+            first_moments_[parameter_index] =
+                std::move(next_first_moments[parameter_index]);
+            second_moments_[parameter_index] =
+                std::move(next_second_moments[parameter_index]);
+        }
+    }
+    if (options_.state_storage == AdamStateStorageKind::Paged) {
+        state_pages_ = std::move(next_state_pages);
     }
 
     ++step_count_;

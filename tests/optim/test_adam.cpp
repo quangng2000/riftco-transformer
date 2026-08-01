@@ -23,6 +23,7 @@ namespace {
 
 using riftco_transformer::Adam;
 using riftco_transformer::AdamOptions;
+using riftco_transformer::AdamStateStorageKind;
 using riftco_transformer::AdamStepStats;
 using riftco_transformer::DecoderOnlyTransformer;
 using riftco_transformer::ExecutionBackend;
@@ -160,6 +161,94 @@ AdamOptions hand_reference_options() {
     options.epsilon = 1.0F;
     options.maximum_gradient_norm = 100.0F;
     return options;
+}
+
+void test_paged_state_matches_contiguous(
+    ExecutionBackend backend
+) {
+    const std::vector<float> initial{
+        2.0F,
+        -1.0F,
+        0.5F,
+        4.0F,
+        -3.0F,
+        1.25F,
+        -0.75F,
+    };
+    Parameter contiguous_parameter(
+        Tensor({initial.size()}, initial, backend)
+    );
+    Parameter paged_parameter(
+        Tensor({initial.size()}, initial, backend)
+    );
+
+    AdamOptions contiguous_options = hand_reference_options();
+    contiguous_options.page_size = 3;
+    Adam contiguous(
+        {{"weights", &contiguous_parameter}},
+        contiguous_options
+    );
+    AdamOptions paged_options = contiguous_options;
+    paged_options.state_storage = AdamStateStorageKind::Paged;
+    Adam paged(
+        {{"weights", &paged_parameter}},
+        paged_options
+    );
+
+    require(
+        contiguous.state_storage_kind() ==
+            AdamStateStorageKind::Contiguous &&
+            contiguous.state_page_count() == 0,
+        "ordinary Adam should retain contiguous state"
+    );
+    require(
+        paged.state_storage_kind() == AdamStateStorageKind::Paged &&
+            paged.state_page_size() == 3 &&
+            paged.state_page_count() == 3,
+        "paged Adam should split a seven-value tensor into three pages"
+    );
+    require(
+        paged.state_payload_bytes() ==
+            2 * initial.size() * sizeof(float) &&
+            contiguous.state_payload_bytes() ==
+                paged.state_payload_bytes(),
+        "paging should preserve the logical two-moment payload"
+    );
+
+    const std::array<std::vector<float>, 3> gradients{{
+        {3.0F, 4.0F, 0.0F, -2.0F, 1.0F, 0.5F, -0.25F},
+        {-1.0F, 2.0F, 0.5F, 3.0F, -4.0F, 1.0F, 2.0F},
+        {0.25F, -0.5F, 1.0F, -1.5F, 0.75F, 2.5F, -3.0F},
+    }};
+    for (std::size_t index = 0; index < gradients.size(); ++index) {
+        seed_gradient(
+            contiguous_parameter,
+            Tensor({initial.size()}, gradients[index], backend)
+        );
+        seed_gradient(
+            paged_parameter,
+            Tensor({initial.size()}, gradients[index], backend)
+        );
+        const AdamStepStats contiguous_stats = contiguous.step();
+        const AdamStepStats paged_stats = paged.step();
+        require(contiguous_stats.step == paged_stats.step,
+                "paged Adam step count parity");
+        require_close(
+            paged_stats.gradient_norm,
+            contiguous_stats.gradient_norm,
+            "paged Adam gradient norm parity"
+        );
+        require_close(
+            paged_stats.clip_scale,
+            contiguous_stats.clip_scale,
+            "paged Adam clip-scale parity"
+        );
+        require_tensor_close(
+            paged_parameter.value().to(ExecutionBackend::Cpu),
+            contiguous_parameter.value().to(ExecutionBackend::Cpu),
+            "paged Adam value parity"
+        );
+    }
 }
 
 void test_adam_dispatch_rejects_candidate_aliases() {
@@ -1106,6 +1195,135 @@ void test_update_overflow_failure_is_atomic(
     require_tensor_finite(second.value(), "finite second retry value");
 }
 
+void test_paged_late_page_failure_is_atomic(
+    ExecutionBackend backend
+) {
+    const float maximum = std::numeric_limits<float>::max();
+    const std::vector<float> initial_values{
+        1.0F,
+        -1.0F,
+        2.0F,
+        maximum,
+    };
+    const std::vector<float> failing_gradient{
+        1.0F,
+        -1.0F,
+        1.0F,
+        -1.0F,
+    };
+    const std::vector<float> retry_gradient{
+        1.0F,
+        -1.0F,
+        1.0F,
+        1.0F,
+    };
+
+    Parameter parameter(
+        Tensor({initial_values.size()}, initial_values, backend)
+    );
+    AdamOptions options = hand_reference_options();
+    options.learning_rate = maximum;
+    options.state_storage = AdamStateStorageKind::Paged;
+    options.page_size = 2;
+    Adam optimizer({{"weights", &parameter}}, options);
+
+    require(
+        optimizer.state_storage_kind() == AdamStateStorageKind::Paged &&
+            optimizer.state_page_size() == 2 &&
+            optimizer.state_page_count() == 2 &&
+            optimizer.state_payload_bytes() ==
+                2 * initial_values.size() * sizeof(float),
+        "late-page failure probe requires two stable Adam state pages"
+    );
+
+    seed_gradient(
+        parameter,
+        Tensor({failing_gradient.size()}, failing_gradient, backend)
+    );
+    require_throws(
+        [&] {
+            static_cast<void>(optimizer.step());
+        },
+        "an overflow on the second Adam page should fail the whole step"
+    );
+
+    require(
+        optimizer.step_count() == 0,
+        "late-page failure must not advance paged Adam"
+    );
+    require(
+        optimizer.state_storage_kind() == AdamStateStorageKind::Paged &&
+            optimizer.state_page_size() == 2 &&
+            optimizer.state_page_count() == 2 &&
+            optimizer.state_payload_bytes() ==
+                2 * initial_values.size() * sizeof(float),
+        "late-page failure must preserve paged Adam diagnostics"
+    );
+    require_tensor_close(
+        parameter.value(),
+        Tensor({initial_values.size()}, initial_values, backend),
+        "late-page failure must not commit the successful first page",
+        0.0
+    );
+    require_tensor_close(
+        parameter.gradient(),
+        Tensor({failing_gradient.size()}, failing_gradient, backend),
+        "late-page failure must retain the complete gradient",
+        0.0
+    );
+
+    Parameter reference_parameter(
+        Tensor({initial_values.size()}, initial_values, backend)
+    );
+    Adam reference_optimizer(
+        {{"weights", &reference_parameter}},
+        options
+    );
+    seed_gradient(
+        parameter,
+        Tensor({retry_gradient.size()}, retry_gradient, backend)
+    );
+    seed_gradient(
+        reference_parameter,
+        Tensor({retry_gradient.size()}, retry_gradient, backend)
+    );
+
+    const AdamStepStats retry = optimizer.step();
+    const AdamStepStats reference = reference_optimizer.step();
+    require(
+        retry.step == 1 && reference.step == 1 &&
+            optimizer.step_count() == reference_optimizer.step_count(),
+        "late-page retry must remain the first successful Adam step"
+    );
+    require_close(
+        retry.gradient_norm,
+        reference.gradient_norm,
+        "late-page retry gradient norm parity",
+        0.0,
+        0.0
+    );
+    require_close(
+        retry.clip_scale,
+        reference.clip_scale,
+        "late-page retry clip-scale parity",
+        0.0,
+        0.0
+    );
+    require_tensor_close(
+        parameter.value(),
+        reference_parameter.value(),
+        "late-page retry must match fresh paged Adam"
+    );
+    require_zero_gradient(
+        parameter,
+        "late-page retry clears the original parameter gradient"
+    );
+    require_zero_gradient(
+        reference_parameter,
+        "fresh paged Adam clears its reference gradient"
+    );
+}
+
 void test_constant_gradient_bias_correction() {
     Parameter parameter(Tensor({2}, {1.0F, -1.0F}));
     AdamOptions options;
@@ -1579,6 +1797,13 @@ void test_constructor_and_option_validation() {
     options = AdamOptions{};
     options.maximum_gradient_norm = infinity;
     require_invalid_options(options, "infinite clipping norm");
+    options = AdamOptions{};
+    options.page_size = 0;
+    require_invalid_options(options, "zero Adam state page size");
+    options = AdamOptions{};
+    options.state_storage =
+        static_cast<AdamStateStorageKind>(255);
+    require_invalid_options(options, "unknown Adam state storage kind");
 
 }
 
@@ -1865,6 +2090,12 @@ int main(int argc, char* argv[]) {
         test_parameter_transfer_and_gradient_backend();
         test_adam_backend_validation_if_metal_available();
         test_accelerator_adam_parity_if_available();
+        test_paged_state_matches_contiguous(ExecutionBackend::Cpu);
+        for_each_available_accelerator(
+            [](ExecutionBackend backend, const std::string&) {
+                test_paged_state_matches_contiguous(backend);
+            }
+        );
         test_metal_fused_path_if_available();
         test_metal_extreme_clipping_if_available();
         test_metal_cancellation_retry_if_available();
@@ -1875,6 +2106,12 @@ int main(int argc, char* argv[]) {
         for_each_available_accelerator(
             [](ExecutionBackend backend, const std::string&) {
                 test_update_overflow_failure_is_atomic(backend);
+            }
+        );
+        test_paged_late_page_failure_is_atomic(ExecutionBackend::Cpu);
+        for_each_available_accelerator(
+            [](ExecutionBackend backend, const std::string&) {
+                test_paged_late_page_failure_is_atomic(backend);
             }
         );
         test_constant_gradient_bias_correction();

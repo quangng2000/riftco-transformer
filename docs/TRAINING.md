@@ -137,29 +137,34 @@ options make short experiments convenient:
   storage. Metal routes the training graph's layout, elementwise, reduction,
   GELU, LayerNorm, softmax/causal-mask, embedding gather/scatter,
   cross-entropy, materialized or Flash attention/VJP, matmul, and fused Adam
-  work to compute kernels on supported Apple systems. The overflow-safe global
-  gradient norm and an unsafe Adam retry use the CPU reference over the same
-  host-visible shared buffers.
+  work to compute kernels on supported Apple systems. Its QLoRA path also keeps
+  packed NF4 codes/scales in Metal buffers and decodes them inside forward/input-
+  backward kernels. The overflow-safe global gradient norm and an unsafe Adam
+  retry use the CPU reference over the same host-visible shared buffers.
 - CUDA requires a source build configured with
   `-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON`, CUDA Toolkit 12+, a compatible NVIDIA
   driver, and an NVIDIA GPU. CUDA storage uses managed allocations; matmul,
-  materialized/Flash attention and their gradients, and paged decode run as
-  CUDA kernels. Layout, elementwise, reduction, indexing, normalization, loss,
-  and Adam's out-of-place candidate-state update also use native CUDA kernels.
+  packed NF4 linear forward/input backward, materialized/Flash attention and
+  their gradients, and paged decode run as CUDA kernels. Layout, elementwise,
+  reduction, indexing, normalization, loss, and Adam's out-of-place candidate-
+  state update also use native CUDA kernels.
   Adam's overflow-safe global gradient norm and autograd graph traversal remain
   host control flow over managed storage. The backend supports complete
-  pretraining, Full fine-tuning, LoRA, and evaluation, but does not imply a
-  fully device-resident execution graph or an end-to-end speedup. Standard
-  wheels contain the recognized unavailable CUDA stub.
+  pretraining, Full fine-tuning, LoRA, QLoRA, and evaluation, but does not imply
+  a fully device-resident execution graph or an end-to-end speedup. The packed
+  source path is implemented; actual NVIDIA-hardware validation was not
+  available on this macOS host. Standard wheels contain the recognized
+  unavailable CUDA stub.
 - TPU requires a Linux x86-64 source build configured with
   `-DRIFTCO_TRANSFORMER_ENABLE_TPU=ON`, a compatible `libtpu.so`, and an
-  addressable Google Cloud TPU device. It compiles and executes batched matmul,
-  materialized attention and its gradients, and paged decode through
-  PJRT/StableHLO; Adam, Flash attention, loss, and other operations use
-  synchronous reference paths over host-mirrored storage. Complete
-  pretraining, Full fine-tuning, LoRA, and evaluation are wired, but real
-  hardware validation is pending and this phase is not an end-to-end TPU
-  speedup claim. Standard wheels contain the recognized unavailable TPU stub.
+  addressable Google Cloud TPU device. It compiles and executes packed NF4
+  linear forward/input backward, batched matmul, materialized attention and its
+  gradients, and paged decode through PJRT/StableHLO; Adam, Flash attention,
+  loss, and other operations use synchronous reference paths over host-mirrored
+  storage. Complete pretraining, Full fine-tuning, LoRA, QLoRA, and evaluation
+  are wired, but real hardware validation is pending and this phase is not an
+  end-to-end TPU speedup claim. Standard wheels contain the recognized
+  unavailable TPU stub.
 - `--attention materialized|flash` selects the full-sequence attention
   implementation. Materialized remains the default. Flash uses an exact
   memory-linear algorithm and saves `[B,H,T]` row statistics rather than
@@ -178,9 +183,35 @@ selecting an accelerator or Flash.
 
 Block checkpointing lowers retained activation state but executes every
 selected block forward a second time during backward. It composes with both
-attention algorithms and with full or LoRA post-training; it changes neither
-the optimizer equations nor persisted model state. See
+attention algorithms and with full, LoRA, or QLoRA post-training; it changes
+neither the optimizer equations nor persisted model state. See
 [ACTIVATION_CHECKPOINTING.md](ACTIVATION_CHECKPOINTING.md).
+
+## Adam state storage
+
+The general Adam API defaults to contiguous moment tensors. Callers can instead
+split each parameter's first and second moment vectors into bounded pages:
+
+```cpp
+AdamOptions options;
+options.state_storage = AdamStateStorageKind::Paged;
+options.page_size = 4096;
+Adam optimizer(parameters, options);
+```
+
+Paged and contiguous modes use identical Adam equations and transactional
+whole-step commit semantics. Paged mode bounds each moment-state allocation and
+backend update request to at most `page_size` scalar elements, but it still
+stores two FP32 moment values per trainable scalar and prepares full next-value
+parameter candidates for transactionality. CUDA page tensors use managed
+allocations; there is no explicit eviction, host/disk spill, prefetch policy,
+memory budget, or general OS page-fault manager.
+
+Post-training chooses paged state automatically for QLoRA and contiguous state
+for Full or LoRA. Python can override that policy with
+`optimizer_state="contiguous"|"paged"`; C++ uses
+`PostTrainingConfig::qlora_paged_optimizer`. See [ADAM.md](ADAM.md) for
+diagnostics and failure atomicity.
 
 ## Tiny-batch overfitting acceptance
 

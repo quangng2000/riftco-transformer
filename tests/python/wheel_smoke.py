@@ -8,7 +8,15 @@ import os
 import sys
 from pathlib import Path
 
-from riftco_transformer import Context, Tensor
+from riftco_transformer import (
+    Adam,
+    Context,
+    DecoderOnlyTransformer,
+    LoraConfig,
+    Tensor,
+    TransformerConfig,
+    cross_entropy,
+)
 from riftco_transformer.native import bindings
 
 
@@ -18,6 +26,106 @@ def native_filename() -> str:
     if os.name == "nt":
         return "riftco_transformer_c.dll"
     return "libriftco_transformer_c.so"
+
+
+def exercise_qlora() -> None:
+    """Exercise the public packed-base, adapter-only training lifecycle."""
+
+    config = TransformerConfig(
+        vocabulary_size=5,
+        maximum_context=3,
+        model_width=4,
+        head_count=2,
+        block_count=1,
+        feed_forward_width=8,
+        random_seed=431,
+    )
+    tokens = [[0, 1]]
+    targets = [[1, 2]]
+
+    with DecoderOnlyTransformer(config).to("cpu") as model:
+        model.quantize_nf4()
+        if not model.quantized_linear_weights:
+            raise RuntimeError("NF4 quantization did not remain active")
+
+        packed = model.quantized_memory
+        if packed.weight_count <= 0:
+            raise RuntimeError("NF4 quantization packed no weights")
+        if packed.logical_payload_bytes != (
+            packed.packed_code_bytes + packed.scale_bytes
+        ):
+            raise RuntimeError(f"inconsistent NF4 memory stats: {packed}")
+        if packed.resident_payload_bytes < packed.logical_payload_bytes:
+            raise RuntimeError(f"incomplete resident NF4 payload: {packed}")
+        if packed.fp32_equivalent_bytes <= packed.logical_payload_bytes:
+            raise RuntimeError(f"NF4 payload did not reduce memory: {packed}")
+        if (
+            packed.double_quantized_weight_count != packed.weight_count
+            or packed.fp32_scale_bytes != 0
+            or packed.scale_code_bytes <= 0
+            or packed.second_level_scale_bytes <= 0
+        ):
+            raise RuntimeError(
+                f"default QLoRA scales are not double-quantized: {packed}"
+            )
+
+        model.attach_lora(
+            LoraConfig(rank=2, alpha=4.0, random_seed=433)
+        )
+        with model.adapter_parameters() as adapters:
+            adapter_values_before = adapters.flat_values()
+            with Adam(
+                adapters,
+                learning_rate=1.0e-2,
+                state_storage="paged",
+                page_size=3,
+            ) as optimizer:
+                if (
+                    optimizer.state_storage != "paged"
+                    or optimizer.state_page_size != 3
+                    or optimizer.state_page_count <= 0
+                    or optimizer.state_payload_bytes <= 0
+                ):
+                    raise RuntimeError(
+                        "wheel Adam did not retain bounded-page state"
+                    )
+                with model(tokens) as logits:
+                    with cross_entropy(logits, targets) as loss:
+                        loss.backward()
+                        step = optimizer.step()
+                if step.step != 1:
+                    raise RuntimeError(f"unexpected Adam step: {step}")
+
+            if adapters.flat_values() == adapter_values_before:
+                raise RuntimeError("Adam did not update the LoRA adapters")
+
+        if not model.quantized_linear_weights:
+            raise RuntimeError("NF4 base weights expanded during training")
+        if model.quantized_memory != packed:
+            raise RuntimeError("packed NF4 memory changed during training")
+
+        model.merge_lora()
+        if model.lora_attached:
+            raise RuntimeError("LoRA merge left the adapter attached")
+        if model.quantized_linear_weights:
+            raise RuntimeError("LoRA merge left quantization active")
+        cleared = model.quantized_memory
+        if any(
+            (
+                cleared.weight_count,
+                cleared.packed_code_bytes,
+                cleared.scale_bytes,
+                cleared.logical_payload_bytes,
+                cleared.resident_payload_bytes,
+                cleared.fp32_equivalent_bytes,
+                cleared.fp32_scale_bytes,
+                cleared.scale_code_bytes,
+                cleared.second_level_scale_bytes,
+                cleared.scale_offset_bytes,
+                cleared.double_quantized_weight_count,
+            )
+        ):
+            raise RuntimeError(f"LoRA merge left quantization state: {cleared}")
 
 
 def main() -> int:
@@ -51,6 +159,8 @@ def main() -> int:
                     values = product.tolist()
                     if len(values) != 1 or not math.isclose(values[0], 11.0):
                         raise RuntimeError(f"unexpected matmul result: {values}")
+
+    exercise_qlora()
 
     library = bindings._native()
     loaded_path = Path(str(library._name)).resolve()

@@ -4,8 +4,8 @@ Generalization asks whether a tuned model improves on examples that never
 updated its weights. A falling optimizer loss answers a different question:
 whether the model fits the sampled training batches.
 
-Riftco Transformer now applies one generalization contract to full
-fine-tuning and LoRA. The same native model and evaluation contracts run on
+Riftco Transformer applies one generalization contract to full fine-tuning,
+LoRA, and QLoRA. The same native model and evaluation contracts run on
 CPU, Metal, or optional source-built CUDA and TPU backends; Python is an
 orchestration surface over that C++ runtime, not a separate PyTorch, JAX, or
 TensorFlow implementation.
@@ -61,10 +61,12 @@ flowchart LR
     F --> G["Publish artifacts and comparison.json"]
 ```
 
-Full fine-tuning is one fixed candidate. LoRA ranks form a selection group, so
-only the lowest-validation-loss rank receives a final test score. Candidate
-declaration order breaks exact ties; the CLI declares ranks in ascending order.
-No test forward pass occurs until every group winner is fixed.
+Full fine-tuning is one fixed candidate. LoRA or QLoRA ranks can form a
+selection group, so only the lowest-validation-loss rank receives a final test
+score. Candidate declaration order breaks exact ties; the supplied Full-versus-
+LoRA CLI declares ranks in ascending order, while the Python API accepts QLoRA
+candidates directly. No test forward pass occurs until every group winner is
+fixed.
 
 Reporting test results for both the fixed full recipe and the selected LoRA
 recipe consumes the test split for a final method comparison. Retire that test
@@ -103,20 +105,23 @@ A CUDA-enabled source build can run the same comparison with
 with CUDA Toolkit 12+ and
 `-DRIFTCO_TRANSFORMER_ENABLE_CUDA=ON`. Standard wheels recognize the `cuda`
 name but contain its unavailable stub. CUDA tensors use managed memory; NN
-operations, loss, matmul, materialized/Flash attention and their VJPs, paged
-decode, and Adam's candidate-state update use native CUDA kernels. Adam's
-global gradient norm and graph traversal remain host control flow. CUDA is
-therefore a functional backend for both Full and LoRA generalization
-experiments, not evidence of a fully device-resident graph or an end-to-end
-speedup. Keep backend fixed across candidates in one comparison.
+operations, loss, matmul, packed NF4 linear forward/input backward,
+materialized/Flash attention and their VJPs, paged decode, and Adam's
+candidate-state update use native CUDA kernels. Adam's global gradient norm and
+graph traversal remain host control flow. CUDA is therefore a functional
+backend for Full, LoRA, and QLoRA generalization experiments, not evidence of a
+fully device-resident graph or an end-to-end speedup. Its packed path is
+implemented, but actual NVIDIA-hardware validation was not available on this
+macOS host. Keep one backend fixed across candidates in a comparison.
 
 A TPU-enabled Linux x86-64 source build can likewise use `--backend tpu` with
 a compatible `libtpu.so` and an addressable Google Cloud TPU device. Its
-PJRT/StableHLO path runs matmul, materialized attention and its VJPs, and paged
-decode; evaluation, loss, Flash attention, Adam, and other capabilities run
-through audited reference paths over host-mirrored storage. Full and LoRA comparisons are functionally wired,
-but real-hardware validation is pending and selecting TPU is not yet a
-performance claim. Standard wheels expose the stable name through ABI 2.2 but
+PJRT/StableHLO path runs packed NF4 linear forward/input backward, matmul,
+materialized attention and its VJPs, and paged decode; evaluation, loss, Flash
+attention, Adam, and other capabilities run through audited reference paths
+over host-mirrored storage. Full, LoRA, and QLoRA comparisons are functionally
+wired, but real-hardware validation is pending and selecting TPU is not yet a
+performance claim. Standard wheels expose the stable name through ABI 2.4 but
 contain its unavailable stub. Keep one resolved backend for every candidate in
 a comparison.
 
@@ -128,7 +133,7 @@ The output directory is published atomically and contains:
 - parameter counts, trainable fractions, deltas, and generalization gaps; and
 - the selection policy and selected candidate names.
 
-Unselected LoRA trials deliberately have `null` test fields. The report marks
+Unselected rank trials deliberately have `null` test fields. The report marks
 the test split as consumed. The CLI refuses to replace an existing output
 directory, preserving prior evidence.
 
@@ -160,6 +165,15 @@ candidates = (
             lora=LoraConfig(rank=4, alpha=8.0),
         ),
     ),
+    FineTuningCandidate(
+        "qlora-rank-4",
+        PostTrainingConfig(
+            fine_tuning_method="qlora",
+            double_quantization=True,
+            optimizer_state="auto",
+            lora=LoraConfig(rank=4, alpha=8.0),
+        ),
+    ),
 )
 
 comparison = compare_fine_tuning(
@@ -169,13 +183,23 @@ comparison = compare_fine_tuning(
 )
 ```
 
+QLoRA's automatic optimizer state resolves to bounded pages, and its base
+weights stay packed during optimizer training. Post-training then merges the
+adapter and exports the ordinary FP32 bundle; exhaustive train/validation/test
+evaluation scores that serving-ready artifact. Paging does not reduce the two-
+FP32-moment payload; CUDA pages use managed memory but there is no OS spill or
+page-fault manager.
+
 The shared types and evaluator live in `riftco_transformer.post_training`,
 because split integrity and held-out scoring are not LoRA-specific. The older
-`compare_lora_ranks()` API remains available for a rank-only experiment.
+`compare_lora_ranks()` API remains available for a rank-only experiment. The
+supplied `compare_fine_tuning.py` command remains the focused Full-versus-LoRA
+workflow; construct QLoRA candidates through this API when comparing all three
+methods.
 
 ## Native C++ stage
 
-The native stage has a split-aware overload for either method:
+The native stage has a split-aware overload for any fine-tuning method:
 
 ```cpp
 using namespace riftco_transformer::stages::post_training;
@@ -186,7 +210,7 @@ InstructionSplits splits{
     test_examples,
 };
 PostTrainingConfig config;
-config.fine_tuning_method = FineTuningMethod::Lora;  // or Full
+config.fine_tuning_method = FineTuningMethod::Qlora;  // or Full/Lora
 
 PostTrainingStack stack(
     base_snapshot,

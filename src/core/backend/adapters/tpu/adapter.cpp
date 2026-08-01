@@ -3,10 +3,12 @@
 #include "core/backend/attention/reference/flash_causal.hpp"
 #include "core/backend/attention/tpu/materialized_causal.hpp"
 #include "core/backend/attention/tpu/paged_decode.hpp"
+#include "core/backend/nn/quantized_linear/tpu/launch.hpp"
 #include "core/backend/nn/reference/operations.hpp"
 #include "core/backend/optim/adam/reference/update.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -82,8 +84,31 @@ public:
         return std::make_unique<TpuHostTensorStorage>(std::move(values));
     }
 
+    [[nodiscard]] std::unique_ptr<QuantizedWeightStorage>
+    make_nf4_weight_storage(
+        std::vector<std::uint8_t> packed_codes,
+        Nf4ScaleStorageData scales
+    ) const override {
+        return tpu_make_nf4_weight_storage(
+            std::move(packed_codes),
+            std::move(scales)
+        );
+    }
+
     void matmul(const MatmulRequest& request) const override {
         tpu_runtime_matmul(request);
+    }
+
+    void quantized_linear_forward(
+        const QuantizedLinearForwardRequest& request
+    ) const override {
+        tpu_quantized_linear_forward(request);
+    }
+
+    void quantized_linear_input_backward(
+        const QuantizedLinearInputBackwardRequest& request
+    ) const override {
+        tpu_quantized_linear_input_backward(request);
     }
 
     // Dense matmul, materialized training attention, and paged decode use

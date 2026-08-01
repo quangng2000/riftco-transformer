@@ -76,7 +76,28 @@ public:
         DecoderKeyValueCache& cache
     ) const;
     // Transfers parameters in place. Call before building a forward graph.
-    void to(ExecutionBackend backend);
+    void to(ExecutionBackend backend) override;
+
+    // Transactionally packs every Linear base weight (all six projection
+    // kinds per block plus the language-model head) before LoRA attachment.
+    // The LoRA target mask remains an independent adapter-only selection.
+    void quantize_linear_weights_nf4(
+        std::size_t block_size =
+            QuantizedWeight::kDefaultNf4BlockSize
+    );
+    void quantize_linear_weights_nf4_double_quantized(
+        std::size_t block_size =
+            QuantizedWeight::kDefaultNf4BlockSize,
+        std::size_t scale_block_size = 256
+    );
+    [[nodiscard]] bool
+    has_quantized_linear_weights() const noexcept;
+    [[nodiscard]] std::size_t
+    quantized_linear_weight_count() const noexcept;
+    [[nodiscard]] std::size_t
+    double_quantized_linear_weight_count() const noexcept;
+    [[nodiscard]] QuantizedMemoryUsage
+    quantized_memory_usage() const noexcept;
 
     // Attaches adapters to the configured projection kinds in every block.
     // This is a one-time operation for the lifetime of the model.
@@ -91,6 +112,13 @@ public:
     [[nodiscard]] ParameterList parameters();
 
 private:
+    void quantize_linear_weights_nf4_impl(
+        std::size_t block_size,
+        std::optional<std::size_t> scale_block_size
+    );
+    [[nodiscard]] std::vector<Linear*> all_linear_projections();
+    [[nodiscard]] std::vector<const Linear*>
+    all_linear_projections() const;
     [[nodiscard]] std::vector<Linear*> selected_lora_projections(
         LoraTargetMask targets
     );

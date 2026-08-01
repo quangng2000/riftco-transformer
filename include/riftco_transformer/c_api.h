@@ -20,7 +20,7 @@ extern "C" {
 #endif
 
 #define RT_ABI_VERSION_MAJOR UINT32_C(2)
-#define RT_ABI_VERSION_MINOR UINT32_C(2)
+#define RT_ABI_VERSION_MINOR UINT32_C(4)
 #define RT_ABI_VERSION \
     ((RT_ABI_VERSION_MAJOR << 16) | RT_ABI_VERSION_MINOR)
 
@@ -69,6 +69,10 @@ typedef int32_t rt_tokenizer_method;
 typedef int32_t rt_kv_cache_kind;
 #define RT_KV_CACHE_CONTIGUOUS ((rt_kv_cache_kind)0)
 #define RT_KV_CACHE_PAGED ((rt_kv_cache_kind)1)
+
+typedef int32_t rt_adam_state_storage_kind;
+#define RT_ADAM_STATE_CONTIGUOUS ((rt_adam_state_storage_kind)0)
+#define RT_ADAM_STATE_PAGED ((rt_adam_state_storage_kind)1)
 
 typedef uint64_t rt_lora_target_mask;
 #define RT_LORA_TARGET_ATTENTION_QUERY \
@@ -129,6 +133,23 @@ typedef struct rt_lora_config {
     uint64_t reserved;
 } rt_lora_config;
 
+// Packed-memory accounting for the model's NF4 linear weights. The payload
+// fields exclude C/C++ object metadata and all ordinary FP32 parameters.
+typedef struct rt_quantized_memory_stats {
+    uint64_t struct_size;
+    uint64_t weight_count;
+    uint64_t packed_code_bytes;
+    uint64_t scale_bytes;
+    uint64_t logical_payload_bytes;
+    uint64_t resident_payload_bytes;
+    uint64_t fp32_equivalent_bytes;
+    uint64_t fp32_scale_bytes;
+    uint64_t scale_code_bytes;
+    uint64_t second_level_scale_bytes;
+    uint64_t scale_offset_bytes;
+    uint64_t double_quantized_weight_count;
+} rt_quantized_memory_stats;
+
 typedef struct rt_decode_session_options {
     uint64_t struct_size;
     rt_kv_cache_kind kind;
@@ -144,7 +165,14 @@ typedef struct rt_adam_options {
     float epsilon;
     float maximum_gradient_norm;
     uint32_t reserved;
+    rt_adam_state_storage_kind state_storage;
+    uint32_t reserved2;
+    uint64_t page_size;
 } rt_adam_options;
+
+// ABI 2.3 callers may continue to pass the original 32-byte prefix ending at
+// reserved; the runtime supplies contiguous state and a page size of 4096.
+// ABI 2.4 callers can select bounded-page moment storage with state_storage.
 
 typedef struct rt_adam_step_stats {
     uint64_t struct_size;
@@ -165,8 +193,9 @@ typedef struct rt_adam_step_stats {
 // exactly once.
 //
 // A live decode session pins the model backend and parameter values. Model
-// transfer, LoRA attachment/merge, parameter loading, and Adam steps are
-// rejected until every decode session derived from that model is released.
+// transfer, NF4 conversion, LoRA attachment/merge, parameter loading, and Adam
+// steps are rejected until every decode session derived from that model is
+// released.
 
 RT_API uint32_t RT_CALL rt_abi_version(void);
 RT_API const char* RT_CALL rt_status_string(rt_status status);
@@ -429,6 +458,35 @@ RT_API rt_status RT_CALL rt_model_lora_config(
     rt_lora_config* output
 );
 
+// Replaces every eligible FP32 Linear base weight with immutable blockwise
+// NF4 storage. The common block size is 64. This operation must happen before
+// LoRA attachment and is rejected while model-derived handles are alive.
+RT_API rt_status RT_CALL rt_model_quantize_linear_weights_nf4(
+    rt_model* model,
+    uint64_t block_size
+);
+
+// Also stores first-level NF4 block scales as centered uint8 values with
+// FP32 second-level scales. No persistent FP32 first-level scale vector is
+// retained.
+RT_API rt_status RT_CALL
+rt_model_quantize_linear_weights_nf4_double_quantized(
+    rt_model* model,
+    uint64_t block_size,
+    uint64_t scale_block_size
+);
+
+RT_API rt_status RT_CALL rt_model_has_quantized_linear_weights(
+    const rt_model* model,
+    int32_t* output
+);
+
+// output must have struct_size initialized to sizeof(*output).
+RT_API rt_status RT_CALL rt_model_quantized_memory_stats(
+    const rt_model* model,
+    rt_quantized_memory_stats* output
+);
+
 // Token shape is [batch_size, sequence_length]. token_count must equal their
 // product. The returned variable has shape
 // [batch_size, sequence_length, vocabulary_size].
@@ -659,6 +717,29 @@ RT_API rt_status RT_CALL rt_adam_step_count(
 );
 
 RT_API rt_status RT_CALL rt_adam_parameter_count(
+    const rt_adam* adam,
+    uint64_t* output
+);
+
+// Paged state divides each first/second-moment tensor into allocations of at
+// most page_size elements. CUDA pages use managed allocations and may migrate
+// between host and device; this interface does not promise disk-backed spill.
+RT_API rt_status RT_CALL rt_adam_state_storage(
+    const rt_adam* adam,
+    rt_adam_state_storage_kind* output
+);
+
+RT_API rt_status RT_CALL rt_adam_state_page_size(
+    const rt_adam* adam,
+    uint64_t* output
+);
+
+RT_API rt_status RT_CALL rt_adam_state_page_count(
+    const rt_adam* adam,
+    uint64_t* output
+);
+
+RT_API rt_status RT_CALL rt_adam_state_payload_bytes(
     const rt_adam* adam,
     uint64_t* output
 );

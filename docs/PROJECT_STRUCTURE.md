@@ -25,7 +25,8 @@ Python tuning experiments ─────────→ artifacts + post_traini
 Python serving ──→ Python ModelBundle + generation ──────────→ C ABI
 ```
 
-- `core` owns tensor storage, numerical tensor operations, and autograd. Its
+- `core` owns float tensor storage, immutable packed NF4 weight storage,
+  numerical operations, backend dispatch, and autograd. Its
   public `custom_gradient` seam connects an externally computed tensor result
   to validated positional VJPs without depending on a neural-network layer or
   model.
@@ -36,7 +37,7 @@ Python serving ──→ Python ModelBundle + generation ───────�
   depends on `core`; embedding and cross-entropy also consume token IDs from
   `data`.
 - `model` composes reusable layers into transformer-specific components,
-  owns transformer-wide LoRA target selection and merge coordination, and
+  owns transformer-wide LoRA targets, QLoRA packing/export coordination, and
   defines the inference-time `DecoderKeyValueCache` contract consumed by its
   detached one-token path.
 - `optim` owns parameter-update rules and depends on `nn` parameter
@@ -51,8 +52,9 @@ Python serving ──→ Python ModelBundle + generation ───────�
   through that strategy. Training policy does not own a stage.
 - `stages/pretraining` and `stages/post_training` are composition roots. They
   wire model, tokenizer, shared training, artifact capture, and optimizer
-  choices for one stage run. Post-training selects either all base parameters
-  or only LoRA adapter parameters, then merges adapters before handoff.
+  choices for one stage run. Post-training selects all base parameters, LoRA
+  adapters, or LoRA adapters over an NF4-packed base, then materializes a
+  serving-ready FP32 handoff.
 - `stages/serving` restores a native snapshot and owns autoregressive
   generation, KV-cache allocation strategies, and the shared paged pool. It
   depends on `artifacts`, `model`, and `data`, with no dependency on
@@ -61,7 +63,8 @@ Python serving ──→ Python ModelBundle + generation ───────�
   `apps/pretraining/train.cpp` delegates the native training run to
   `PretrainingStack`.
 - `c_api.h` and `src/c_api.cpp` expose opaque C handles over selected tensor,
-  model, LoRA, incremental decode, autograd, loss, and optimizer operations
+  model, LoRA/QLoRA, packed-memory diagnostics, incremental decode, autograd,
+  loss, and optimizer operations
   without exporting C++ layouts.
 - `python/riftco_transformer/native` wraps only the C ABI through the Python
   standard library's `ctypes`; it does not bind the C++ ABI. The package root
@@ -98,9 +101,9 @@ The native and Python stage surfaces solve related but different problems:
 | Python `ModelBundle` | Immutable, versioned persisted ZIP artifact | Weight checksum, content-derived artifact ID, metadata, and parent lineage | Optimizer state, random state, and training progress |
 
 Neither contract supports exact training resumption. That requires the future
-`TrainingCheckpoint` contract. For LoRA, both contracts currently carry only
-the merged base weights; separate adapter-factor persistence is deliberately
-outside these handoffs.
+`TrainingCheckpoint` contract. For LoRA and QLoRA, both contracts currently
+carry only materialized, merged FP32 weights; separate adapter factors and
+packed artifact persistence are deliberately outside these handoffs.
 
 ## Interface and implementation pairing
 
@@ -128,6 +131,34 @@ src/core/autograd/
   operations.cpp
   custom_gradient.cpp
   checkpoint.cpp
+
+include/riftco_transformer/core/quantized_weight.hpp
+src/core/quantization/
+  nf4.cpp
+  quantized_weight.cpp
+
+include/riftco_transformer/nn/quantized_linear.hpp
+src/nn/quantized_linear.cpp
+src/core/backend/nn/quantized_linear/
+  contracts.hpp
+  capability.hpp
+  storage.hpp
+  dispatch.hpp
+  dispatch.cpp
+  reference/
+    operations.hpp
+    operations.cpp
+  cuda/
+    launch.hpp
+    operations.cu
+    storage.cu
+  metal/
+    kernels.hpp
+    launch.hpp
+    runtime.mm
+  tpu/
+    launch.hpp
+    runtime.cpp
 
 include/riftco_transformer/model/feed_forward.hpp
 src/model/feed_forward.cpp
@@ -158,6 +189,18 @@ public custom-gradient operation
   src/core/autograd/custom_gradient.cpp
   tests/core/test_autograd.cpp
   docs/AUTOGRAD.md
+
+NF4 and quantized linear
+  include/riftco_transformer/core/quantized_weight.hpp
+  include/riftco_transformer/nn/quantized_linear.hpp
+  src/core/quantization/
+  src/core/backend/nn/quantized_linear/
+  src/nn/quantized_linear.cpp
+  tests/core/test_quantization.cpp
+  tests/core/backend/test_quantized_linear_backend.cpp
+  tests/nn/test_quantized_linear.cpp
+  tests/model/test_qlora_model.cpp
+  docs/QLORA.md
 
 causal attention
   include/riftco_transformer/model/causal_self_attention.hpp
@@ -203,7 +246,7 @@ low-rank adaptation
 
 Adam
   include/riftco_transformer/optim/adam.hpp
-  src/optim/adam.cpp
+  src/optim/adam.cpp                 contiguous/bounded-page state policy
   tests/optim/test_adam.cpp
 
 native artifact state
@@ -307,6 +350,26 @@ execution backends
       metal/
         kernels.hpp
         launch.hpp
+      quantized_linear/
+        contracts.hpp
+        capability.hpp
+        storage.hpp
+        dispatch.hpp
+        dispatch.cpp
+        reference/
+          operations.hpp
+          operations.cpp
+        cuda/
+          launch.hpp
+          operations.cu
+          storage.cu
+        metal/
+          kernels.hpp
+          launch.hpp
+          runtime.mm
+        tpu/
+          launch.hpp
+          runtime.cpp
     optim/adam/
       contracts.hpp
       capability.hpp
@@ -325,6 +388,7 @@ execution backends
   third_party/pjrt/                   pinned PJRT C ABI header and license
   tests/core/backend/test_backend.cpp
   tests/core/backend/test_nn_backend.cpp
+  tests/core/backend/test_quantized_linear_backend.cpp
   tests/fakes/fake_pjrt_tpu.cpp       tests-only PJRT boundary emulator
 
 C ABI and Python
@@ -456,6 +520,14 @@ The `src/core/backend/` folder mirrors the design roles:
 | `nn/reference/*` | Shared readable host math and the CPU/TPU semantic oracle |
 | `nn/cuda/*` | Native synchronous CUDA launchers/kernels for every NN request |
 | `nn/metal/*` | Native Metal NN shader source and launch boundary into the shared runtime |
+| `nn/quantized_linear/contracts.hpp` | Packed NF4 forward and input-backward request shapes |
+| `nn/quantized_linear/capability.hpp` | Quantized-linear-only Adapter interface |
+| `nn/quantized_linear/storage.hpp` | Backend-owned immutable packed-code and scale-storage contract |
+| `nn/quantized_linear/dispatch.*` | Backend selection plus packed-storage, shape, and alias validation |
+| `nn/quantized_linear/reference/*` | Readable inline-decode CPU forward and input backward |
+| `nn/quantized_linear/metal/*` | Persistent packed buffers and inline-decode Metal kernels |
+| `nn/quantized_linear/cuda/*` | Managed packed allocations and inline-decode CUDA kernels |
+| `nn/quantized_linear/tpu/*` | Packed U8 inputs and StableHLO scale reconstruction/dequantization/dot programs |
 | `optim/adam/contracts.hpp` | Transactional out-of-place Adam batch request |
 | `optim/adam/capability.hpp` | Adam-only Adapter interface |
 | `optim/adam/dispatch.*` | Backend selection plus Adam scalar, storage, and candidate-alias validation |
@@ -479,8 +551,9 @@ This structure applies the useful parts of SOLID without hiding control flow:
 - **Liskov substitution:** every available adapter must honor the same
   validated, synchronous storage and operation contracts.
 - **Interface segregation:** storage, layout, elementwise, reduction, matmul,
-  softmax, indexing, normalization, loss, attention, and Adam remain focused
-  capability interfaces rather than one unstructured device API.
+  quantized linear, softmax, indexing, normalization, loss, attention, and
+  Adam remain focused capability interfaces rather than one unstructured
+  device API.
 - **Dependency inversion:** `tensor_ops` dispatches through `BackendAdapter`;
   it never includes CPU, Objective-C, Metal, CUDA, or PJRT implementation
   details.
@@ -490,7 +563,8 @@ That makes startup order, duplicate identity, and adapter lifetime behavior
 deterministic. Future kernels should extend or add focused capability
 interfaces instead of accumulating unrelated methods in one contract.
 
-There are deliberately no empty `nn/tpu/` or `optim/adam/tpu/` directories.
-The TPU adapter names those two fallbacks by calling the shared reference
-modules directly; a TPU-specific subtree should appear only when it owns a
-real PJRT/StableHLO implementation.
+There are deliberately no generic `nn/tpu/` or `optim/adam/tpu/` directories.
+The TPU adapter names those generic-NN and Adam fallbacks by calling the shared
+reference modules directly. `nn/quantized_linear/tpu/` does exist because it
+owns real PJRT/StableHLO forward and input-backward programs. A backend-specific
+subtree appears only when it owns backend-specific implementation work.

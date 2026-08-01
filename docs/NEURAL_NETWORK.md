@@ -130,6 +130,19 @@ where $W$ is the weight matrix and $\mathbf{b}$ is the bias vector.
 Weights use Xavier-uniform initialization and biases start at zero. A shared
 standard-library random generator is passed through layer construction.
 
+### Packed quantized linear
+
+For QLoRA, `Linear` replaces its dense weight `Parameter` with an immutable
+`QuantizedWeight`; the bias and any attached LoRA factors remain FP32. The
+packed operation produces the same output shape and registers a VJP only for
+its input. There is deliberately no base-weight gradient or Adam state.
+
+Legacy NF4 stores one FP32 scale per weight block. The default QLoRA conversion
+double-quantizes those first-level scales into U8 codes, second-level FP32
+scales, and one FP32 offset. Forward and input backward decode values while
+accumulating rather than retaining a full FP32 matrix. See
+[QLORA.md](QLORA.md) for the exact encoding and payload formulas.
+
 ## Layer normalization
 
 Layer normalization operates independently on every final-axis feature
@@ -171,7 +184,8 @@ The exact Gaussian Error Linear Unit is:
 where $\mathrm{erf}$ is the Gaussian error function. The public equation
 is exact rather than the common tanh approximation. Its implementation routes
 one GELU forward request and one local derivative request through the backend;
-CPU uses the readable reference formula and Metal uses focused kernels.
+CPU uses the readable reference formula, Metal and CUDA use focused kernels,
+and TPU uses the host reference path over its mirror.
 
 The feed-forward layer requested for the transformer is now implemented:
 
@@ -205,6 +219,8 @@ requests and let the input tensor backend choose the Adapter:
 
 - embedding uses row-gather forward and repeated-row scatter-add backward;
 - `Linear` uses matmul plus routed broadcast/add operations;
+- packed `Linear` uses a quantized-linear forward/input-backward capability and
+  never exposes its frozen weight as a gradient parent;
 - LayerNorm has fused row normalization and dedicated input/scale/bias
   backward requests;
 - GELU and softmax have dedicated forward and vector-Jacobian-product requests;
@@ -212,12 +228,17 @@ requests and let the input tensor backend choose the Adapter:
   backend request.
 
 CPU implements these contracts in `backend/nn/reference/`; attention has its
-own reference implementations under `backend/attention/reference/`. Metal and
-CUDA execute the NN contracts and attention over persistent
-accelerator-visible buffers. TPU sends materialized attention and paged decode
-through PJRT but retains the reference Flash path; its non-attention NN
-requests also use the synchronous reference contracts over host-mirrored
-storage.
+own reference implementations under `backend/attention/reference/`. Packed
+linear has a focused `backend/nn/quantized_linear/` subtree. Metal and CUDA
+retain packed NF4 payloads in accelerator-visible buffers and decode inside
+their quantized-linear kernels. TPU retains packed host payloads, uploads U8
+codes and scale metadata, and reconstructs/dequantizes inside StableHLO. TPU
+sends materialized attention and paged decode through PJRT but retains the
+reference Flash and generic-NN paths over host-mirrored storage.
+
+The CUDA and TPU packed source paths are implemented, but actual NVIDIA GPU and
+Cloud TPU execution was not available on this macOS host. Their outstanding
+acceptance work is hardware validation, not a missing quantized-linear backend.
 Different reduction order and device math mean the parity contract uses
 tolerances rather than bitwise equality.
 
@@ -303,6 +324,13 @@ uses a polymorphic extra-parameter hook at each child, so attached or retained
 adapter storage participates in the same transaction even through a
 `Module&`. `parameters()` continues to mean base parameters only.
 
+Immutable NF4 weights intentionally sit outside that Parameter tree. Because
+they own backend storage of their own, `Module::to()` is virtual: quantized
+`Linear` and decoder overrides prepare packed-buffer transfers before the
+ordinary parameter transaction. This keeps calls through `Module&` correct and
+prevents a model from ending up with parameters and packed weights on different
+backends.
+
 ## Source map
 
 ```text
@@ -310,6 +338,7 @@ nn/parameter.hpp/.cpp       trainable state, handles, and named lists
 nn/module.hpp/.cpp          registered module lifecycle and ModuleList
 nn/embedding.hpp/.cpp       token-row lookup and scatter-add backward
 nn/linear.hpp/.cpp          arbitrary-rank final-axis projection
+nn/quantized_linear.hpp/.cpp packed NF4 projection and input VJP
 nn/layer_norm.hpp/.cpp      final-axis normalization
 nn/activations.hpp/.cpp     erf-form GELU and stable softmax
 nn/loss.hpp/.cpp            fused cross-entropy
@@ -328,4 +357,7 @@ shapes, repeated embedding IDs, constant normalization slices, large logits,
 masked softmax values, parameter registration, feed-forward composition, exact
 causal probabilities, attention projection parameters, residual paths,
 whole-model causality, end-to-end gradients, CPU reference requests, and
-conditional real-Metal forward/backward parity.
+conditional real-Metal forward/backward parity. Focused quantized-linear tests
+also compare legacy and double-quantized forward/input gradients with a decoded
+CPU oracle on every available accelerator and verify that packed residency is
+preserved.

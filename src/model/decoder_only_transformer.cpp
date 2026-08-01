@@ -460,7 +460,184 @@ Tensor DecoderOnlyTransformer::decode_token(
 }
 
 void DecoderOnlyTransformer::to(ExecutionBackend backend) {
+    struct QuantizedTransfer {
+        Linear* projection;
+        QuantizedWeight weight;
+    };
+    std::vector<QuantizedTransfer> transfers;
+    for (Linear* projection : all_linear_projections()) {
+        if (projection->has_quantized_weight() &&
+            projection->quantized_weight().backend() != backend) {
+            transfers.push_back({
+                projection,
+                projection->quantized_weight().to(backend),
+            });
+        }
+    }
     Module::to(backend);
+    for (auto& transfer : transfers) {
+        transfer.projection->quantized_weight_ =
+            std::move(transfer.weight);
+    }
+}
+
+void DecoderOnlyTransformer::quantize_linear_weights_nf4(
+    std::size_t block_size
+) {
+    quantize_linear_weights_nf4_impl(block_size, std::nullopt);
+}
+
+void DecoderOnlyTransformer::quantize_linear_weights_nf4_double_quantized(
+    std::size_t block_size,
+    std::size_t scale_block_size
+) {
+    quantize_linear_weights_nf4_impl(block_size, scale_block_size);
+}
+
+void DecoderOnlyTransformer::quantize_linear_weights_nf4_impl(
+    std::size_t block_size,
+    std::optional<std::size_t> scale_block_size
+) {
+    if (has_lora() || lora_was_merged_) {
+        throw std::invalid_argument(
+            "transformer Linear weights must be quantized before LoRA"
+        );
+    }
+    if (has_quantized_linear_weights()) {
+        throw std::invalid_argument(
+            "transformer Linear weights have already been quantized"
+        );
+    }
+    if (*graph_structure_version_ ==
+        std::numeric_limits<std::uint64_t>::max()) {
+        throw std::overflow_error(
+            "transformer graph structure version overflow"
+        );
+    }
+
+    std::vector<Linear*> projections = all_linear_projections();
+    std::vector<QuantizedWeight> candidates;
+    candidates.reserve(projections.size());
+    for (Linear* projection : projections) {
+        candidates.push_back(
+            projection->prepare_weight_quantization_nf4(
+                block_size,
+                scale_block_size
+            )
+        );
+    }
+    for (std::size_t index = 0; index < projections.size(); ++index) {
+        projections[index]->commit_prepared_weight_quantization(
+            std::move(candidates[index])
+        );
+    }
+    ++*graph_structure_version_;
+}
+
+bool DecoderOnlyTransformer::has_quantized_linear_weights()
+    const noexcept {
+    return quantized_linear_weight_count() != 0;
+}
+
+std::size_t DecoderOnlyTransformer::quantized_linear_weight_count()
+    const noexcept {
+    std::size_t result = 0;
+    const auto count = [&](const Linear& projection) {
+        result += projection.has_quantized_weight() ? 1U : 0U;
+    };
+    for (const auto& block : blocks_) {
+        count(block->attention_.query_);
+        count(block->attention_.key_);
+        count(block->attention_.value_);
+        count(block->attention_.output_);
+        count(block->feed_forward_.expand_);
+        count(block->feed_forward_.project_);
+    }
+    count(language_model_head_);
+    return result;
+}
+
+std::size_t
+DecoderOnlyTransformer::double_quantized_linear_weight_count()
+    const noexcept {
+    std::size_t result = 0;
+    const auto count = [&](const Linear& projection) {
+        if (projection.has_quantized_weight() &&
+            projection.quantized_weight()
+                .uses_double_quantized_scales()) {
+            ++result;
+        }
+    };
+    for (const auto& block : blocks_) {
+        count(block->attention_.query_);
+        count(block->attention_.key_);
+        count(block->attention_.value_);
+        count(block->attention_.output_);
+        count(block->feed_forward_.expand_);
+        count(block->feed_forward_.project_);
+    }
+    count(language_model_head_);
+    return result;
+}
+
+QuantizedMemoryUsage
+DecoderOnlyTransformer::quantized_memory_usage() const noexcept {
+    QuantizedMemoryUsage result;
+    const auto add_saturated = [](std::size_t& destination,
+                                  std::size_t value) {
+        destination = value >
+                              std::numeric_limits<std::size_t>::max() -
+                                  destination
+                          ? std::numeric_limits<std::size_t>::max()
+                          : destination + value;
+    };
+    const auto accumulate = [&](const Linear& projection) {
+        const QuantizedMemoryUsage current =
+            projection.quantized_memory_usage();
+        add_saturated(
+            result.packed_code_bytes,
+            current.packed_code_bytes
+        );
+        add_saturated(result.scale_bytes, current.scale_bytes);
+        add_saturated(
+            result.logical_payload_bytes,
+            current.logical_payload_bytes
+        );
+        add_saturated(
+            result.resident_payload_bytes,
+            current.resident_payload_bytes
+        );
+        add_saturated(
+            result.fp32_equivalent_bytes,
+            current.fp32_equivalent_bytes
+        );
+        add_saturated(
+            result.fp32_scale_bytes,
+            current.fp32_scale_bytes
+        );
+        add_saturated(
+            result.scale_code_bytes,
+            current.scale_code_bytes
+        );
+        add_saturated(
+            result.second_level_scale_bytes,
+            current.second_level_scale_bytes
+        );
+        add_saturated(
+            result.scale_offset_bytes,
+            current.scale_offset_bytes
+        );
+    };
+    for (const auto& block : blocks_) {
+        accumulate(block->attention_.query_);
+        accumulate(block->attention_.key_);
+        accumulate(block->attention_.value_);
+        accumulate(block->attention_.output_);
+        accumulate(block->feed_forward_.expand_);
+        accumulate(block->feed_forward_.project_);
+    }
+    accumulate(language_model_head_);
+    return result;
 }
 
 void DecoderOnlyTransformer::attach_lora(
@@ -549,6 +726,14 @@ void DecoderOnlyTransformer::attach_lora(
             );
         }
     }
+    for (const Linear* projection : all_linear_projections()) {
+        if (projection->has_quantized_weight() &&
+            projection->quantized_weight().backend() != backend) {
+            throw std::logic_error(
+                "transformer quantized weights must share the model backend"
+            );
+        }
+    }
 
     std::mt19937 random(config.random_seed);
     std::size_t attached_count = 0;
@@ -624,20 +809,43 @@ void DecoderOnlyTransformer::merge_lora() {
         );
     }
 
-    std::vector<Linear*> selected =
-        selected_lora_projections(lora_config_->targets);
-    std::vector<Tensor> merged_weights;
-    merged_weights.reserve(selected.size());
-    for (const Linear* projection : selected) {
-        merged_weights.push_back(
-            projection->prepare_lora_merge()
-        );
+    struct PreparedMaterialization {
+        Linear* projection;
+        Linear::PreparedMaterializedWeight weight;
+        bool includes_lora_delta;
+    };
+    std::vector<PreparedMaterialization> prepared;
+    const std::vector<Linear*> projections = all_linear_projections();
+    prepared.reserve(projections.size());
+
+    // QLoRA export deliberately materializes every packed base projection.
+    // Preparing every FP32 value, gradient, and canonical Parameter proxy
+    // before committing preserves validation/allocation atomicity, at the
+    // cost of a documented one-time export memory spike.
+    for (Linear* projection : projections) {
+        const bool includes_lora_delta = projection->has_lora();
+        if (!projection->has_quantized_weight() &&
+            !includes_lora_delta) {
+            continue;
+        }
+        prepared.push_back({
+            projection,
+            projection->prepare_materialized_weight(
+                includes_lora_delta
+            ),
+            includes_lora_delta,
+        });
     }
-    for (std::size_t index = 0;
-         index < selected.size();
-         ++index) {
-        selected[index]->commit_prepared_lora_merge(
-            std::move(merged_weights[index])
+    for (const auto& materialization : prepared) {
+        materialization.projection
+            ->validate_prepared_materialized_weight(
+                materialization.weight
+            );
+    }
+    for (auto& materialization : prepared) {
+        materialization.projection->commit_prepared_materialized_weight(
+            std::move(materialization.weight),
+            materialization.includes_lora_delta
         );
     }
 
@@ -648,6 +856,38 @@ void DecoderOnlyTransformer::merge_lora() {
 
 ParameterList DecoderOnlyTransformer::parameters() {
     return Module::parameters();
+}
+
+std::vector<Linear*>
+DecoderOnlyTransformer::all_linear_projections() {
+    std::vector<Linear*> result;
+    result.reserve(blocks_.size() * 6U + 1U);
+    for (auto& block : blocks_) {
+        result.push_back(&block->attention_.query_);
+        result.push_back(&block->attention_.key_);
+        result.push_back(&block->attention_.value_);
+        result.push_back(&block->attention_.output_);
+        result.push_back(&block->feed_forward_.expand_);
+        result.push_back(&block->feed_forward_.project_);
+    }
+    result.push_back(&language_model_head_);
+    return result;
+}
+
+std::vector<const Linear*>
+DecoderOnlyTransformer::all_linear_projections() const {
+    std::vector<const Linear*> result;
+    result.reserve(blocks_.size() * 6U + 1U);
+    for (const auto& block : blocks_) {
+        result.push_back(&block->attention_.query_);
+        result.push_back(&block->attention_.key_);
+        result.push_back(&block->attention_.value_);
+        result.push_back(&block->attention_.output_);
+        result.push_back(&block->feed_forward_.expand_);
+        result.push_back(&block->feed_forward_.project_);
+    }
+    result.push_back(&language_model_head_);
+    return result;
 }
 
 std::vector<Linear*>

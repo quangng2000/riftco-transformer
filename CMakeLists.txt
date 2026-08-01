@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     riftco_transformer
-    VERSION 0.3.0
+    VERSION 0.5.0
     DESCRIPTION "An auditable dependency-free transformer framework"
     LANGUAGES C CXX
 )
@@ -10,7 +10,7 @@ project(
 include(GNUInstallDirs)
 find_package(Threads REQUIRED)
 
-set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.2.0)
+set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.4.0)
 string(REPLACE "." ";" riftco_transformer_c_abi_components
     "${RIFTCO_TRANSFORMER_C_ABI_VERSION}"
 )
@@ -98,6 +98,8 @@ add_library(riftco_transformer_library STATIC
     src/core/autograd/custom_gradient.cpp
     src/core/autograd/graph.cpp
     src/core/autograd/operations.cpp
+    src/core/quantization/nf4.cpp
+    src/core/quantization/quantized_weight.cpp
     src/core/tensor/detail/validation.cpp
     src/core/tensor/elementwise.cpp
     src/core/tensor/indexing.cpp
@@ -123,6 +125,7 @@ add_library(riftco_transformer_library STATIC
     src/nn/loss.cpp
     src/nn/module.cpp
     src/nn/parameter.cpp
+    src/nn/quantized_linear.cpp
     src/stages/post_training/config.cpp
     src/stages/post_training/evaluation.cpp
     src/stages/post_training/instruction.cpp

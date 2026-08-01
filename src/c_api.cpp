@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <new>
@@ -31,12 +32,14 @@
 
 static_assert(sizeof(rt_transformer_config) == 64);
 static_assert(sizeof(rt_lora_config) == 40);
+static_assert(sizeof(rt_quantized_memory_stats) == 96);
 static_assert(sizeof(rt_decode_session_options) == 24);
-static_assert(sizeof(rt_adam_options) == 32);
+static_assert(sizeof(rt_adam_options) == 48);
 static_assert(sizeof(rt_adam_step_stats) == 32);
 static_assert(sizeof(rt_tokenizer_options) == 32);
 static_assert(sizeof(rt_bpe_merge_rule) == 12);
 static_assert(sizeof(rt_activation_checkpointing_kind) == 4);
+static_assert(sizeof(rt_adam_state_storage_kind) == 4);
 static_assert(
     RT_LORA_TARGET_ATTENTION_QUERY ==
     riftco_transformer::kLoraAttentionQuery
@@ -112,6 +115,7 @@ struct ModelState {
     riftco_transformer::DecoderOnlyTransformer value;
     std::atomic_size_t active_variables{0};
     std::atomic_size_t active_optimizers{0};
+    std::atomic_size_t active_parameter_lists{0};
     std::atomic_size_t active_lora_parameter_lists{0};
     std::atomic_size_t active_decode_sessions{0};
     std::atomic_uint64_t parameter_epoch{0};
@@ -174,6 +178,10 @@ struct rt_parameter_list {
         : owner(std::move(model_owner)),
           value(std::move(parameters)),
           tracks_lora(tracks_lora_parameters) {
+        owner->active_parameter_lists.fetch_add(
+            1,
+            std::memory_order_relaxed
+        );
         if (tracks_lora) {
             owner->active_lora_parameter_lists.fetch_add(
                 1,
@@ -183,6 +191,10 @@ struct rt_parameter_list {
     }
 
     ~rt_parameter_list() {
+        owner->active_parameter_lists.fetch_sub(
+            1,
+            std::memory_order_relaxed
+        );
         if (tracks_lora) {
             owner->active_lora_parameter_lists.fetch_sub(
                 1,
@@ -371,6 +383,35 @@ rt_backend c_backend(
             return RT_BACKEND_TPU;
     }
     throw std::invalid_argument("unknown native backend");
+}
+
+riftco_transformer::AdamStateStorageKind checked_adam_state_storage(
+    rt_adam_state_storage_kind kind
+) {
+    switch (kind) {
+        case RT_ADAM_STATE_CONTIGUOUS:
+            return riftco_transformer::AdamStateStorageKind::Contiguous;
+        case RT_ADAM_STATE_PAGED:
+            return riftco_transformer::AdamStateStorageKind::Paged;
+        default:
+            throw std::invalid_argument(
+                "unknown C API Adam state storage kind"
+            );
+    }
+}
+
+rt_adam_state_storage_kind c_adam_state_storage(
+    riftco_transformer::AdamStateStorageKind kind
+) {
+    switch (kind) {
+        case riftco_transformer::AdamStateStorageKind::Contiguous:
+            return RT_ADAM_STATE_CONTIGUOUS;
+        case riftco_transformer::AdamStateStorageKind::Paged:
+            return RT_ADAM_STATE_PAGED;
+    }
+    throw std::invalid_argument(
+        "unknown native Adam state storage kind"
+    );
 }
 
 riftco_transformer::FullSequenceAttentionKind
@@ -884,6 +925,36 @@ void require_epoch_increment_available(
     }
 }
 
+void require_model_quantization_safe(rt_model* model) {
+    require_model(model);
+    if (model->state->active_variables.load(
+            std::memory_order_relaxed
+        ) != 0) {
+        throw std::invalid_argument(
+            "cannot quantize a model while variable graphs are alive"
+        );
+    }
+    if (model->state->active_optimizers.load(
+            std::memory_order_relaxed
+        ) != 0) {
+        throw std::invalid_argument(
+            "cannot quantize a model while optimizers are alive"
+        );
+    }
+    if (model->state->active_parameter_lists.load(
+            std::memory_order_relaxed
+        ) != 0) {
+        throw std::invalid_argument(
+            "cannot quantize a model while parameter lists are alive"
+        );
+    }
+    require_no_active_decode_sessions(
+        *model->state,
+        "quantize a model"
+    );
+    require_epoch_increment_available(*model->state);
+}
+
 void require_adam(const rt_adam* adam) {
     if (adam == nullptr || adam->owner == nullptr) {
         throw std::invalid_argument(
@@ -991,13 +1062,37 @@ riftco_transformer::AdamOptions checked_adam_options(
             "Adam options reserved field must be zero"
         );
     }
-    return {
+    riftco_transformer::AdamOptions result{
         options->learning_rate,
         options->beta1,
         options->beta2,
         options->epsilon,
         options->maximum_gradient_norm,
     };
+    if (options->struct_size >=
+        offsetof(rt_adam_options, state_storage) +
+            sizeof(rt_adam_state_storage_kind)) {
+        result.state_storage = checked_adam_state_storage(
+            options->state_storage
+        );
+    }
+    if (options->struct_size >=
+            offsetof(rt_adam_options, reserved2) +
+                sizeof(std::uint32_t) &&
+        options->reserved2 != 0) {
+        throw std::invalid_argument(
+            "Adam options second reserved field must be zero"
+        );
+    }
+    if (options->struct_size >=
+        offsetof(rt_adam_options, page_size) +
+            sizeof(std::uint64_t)) {
+        result.page_size = checked_size(
+            options->page_size,
+            "Adam state page size"
+        );
+    }
+    return result;
 }
 
 riftco_transformer::LoraConfig checked_lora_config(
@@ -2052,6 +2147,144 @@ rt_status RT_CALL rt_model_lora_config(
     });
 }
 
+rt_status RT_CALL rt_model_quantize_linear_weights_nf4(
+    rt_model* model,
+    uint64_t block_size
+) {
+    return guard([&] {
+        require_model_quantization_safe(model);
+        model->state->value.quantize_linear_weights_nf4(
+            checked_size(block_size, "NF4 block size")
+        );
+        model->state->parameter_epoch.fetch_add(
+            1,
+            std::memory_order_relaxed
+        );
+    });
+}
+
+
+rt_status RT_CALL
+rt_model_quantize_linear_weights_nf4_double_quantized(
+    rt_model* model,
+    uint64_t block_size,
+    uint64_t scale_block_size
+) {
+    return guard([&] {
+        require_model_quantization_safe(model);
+        model->state->value
+            .quantize_linear_weights_nf4_double_quantized(
+                checked_size(block_size, "NF4 block size"),
+                checked_size(
+                    scale_block_size,
+                    "NF4 scale block size"
+                )
+            );
+        model->state->parameter_epoch.fetch_add(
+            1,
+            std::memory_order_relaxed
+        );
+    });
+}
+
+rt_status RT_CALL rt_model_has_quantized_linear_weights(
+    const rt_model* model,
+    int32_t* output
+) {
+    return guard([&] {
+        require_model(model);
+        if (output == nullptr) {
+            throw std::invalid_argument(
+                "quantized model state output must not be null"
+            );
+        }
+        *output =
+            model->state->value.has_quantized_linear_weights()
+                ? 1
+                : 0;
+    });
+}
+
+rt_status RT_CALL rt_model_quantized_memory_stats(
+    const rt_model* model,
+    rt_quantized_memory_stats* output
+) {
+    return guard([&] {
+        require_model(model);
+        if (output == nullptr) {
+            throw std::invalid_argument(
+                "quantized memory statistics output must not be null"
+            );
+        }
+        constexpr std::size_t minimum_size =
+            offsetof(
+                rt_quantized_memory_stats,
+                fp32_equivalent_bytes
+            ) +
+            sizeof(std::uint64_t);
+        checked_structure_size(
+            output->struct_size,
+            minimum_size,
+            "quantized memory statistics structure"
+        );
+        const std::uint64_t output_size = output->struct_size;
+        const auto usage =
+            model->state->value.quantized_memory_usage();
+        const rt_quantized_memory_stats initialized{
+            output_size,
+            checked_u64(
+                model->state->value.quantized_linear_weight_count(),
+                "quantized linear weight count"
+            ),
+            checked_u64(
+                usage.packed_code_bytes,
+                "NF4 packed code bytes"
+            ),
+            checked_u64(usage.scale_bytes, "NF4 scale bytes"),
+            checked_u64(
+                usage.logical_payload_bytes,
+                "NF4 logical payload bytes"
+            ),
+            checked_u64(
+                usage.resident_payload_bytes,
+                "NF4 resident payload bytes"
+            ),
+            checked_u64(
+                usage.fp32_equivalent_bytes,
+                "NF4 FP32-equivalent bytes"
+            ),
+            checked_u64(
+                usage.fp32_scale_bytes,
+                "NF4 FP32 first-level scale bytes"
+            ),
+            checked_u64(
+                usage.scale_code_bytes,
+                "NF4 double-quantized scale-code bytes"
+            ),
+            checked_u64(
+                usage.second_level_scale_bytes,
+                "NF4 second-level scale bytes"
+            ),
+            checked_u64(
+                usage.scale_offset_bytes,
+                "NF4 scale-offset bytes"
+            ),
+            checked_u64(
+                model->state->value
+                    .double_quantized_linear_weight_count(),
+                "double-quantized linear weight count"
+            ),
+        };
+        const auto writable_size = static_cast<std::size_t>(
+            std::min<std::uint64_t>(
+                output_size,
+                sizeof(initialized)
+            )
+        );
+        std::memcpy(output, &initialized, writable_size);
+    });
+}
+
 rt_status RT_CALL rt_model_forward(
     const rt_model* model,
     const uint32_t* token_ids,
@@ -2870,7 +3103,7 @@ rt_status RT_CALL rt_adam_options_init(
             "Adam options structure"
         );
         const riftco_transformer::AdamOptions defaults;
-        *options = {
+        const rt_adam_options initialized{
             options_size,
             defaults.learning_rate,
             defaults.beta1,
@@ -2878,7 +3111,17 @@ rt_status RT_CALL rt_adam_options_init(
             defaults.epsilon,
             defaults.maximum_gradient_norm,
             0,
+            c_adam_state_storage(defaults.state_storage),
+            0,
+            checked_u64(defaults.page_size, "Adam state page size"),
         };
+        const auto writable_size = static_cast<std::size_t>(
+            std::min<std::uint64_t>(
+                options_size,
+                sizeof(initialized)
+            )
+        );
+        std::memcpy(options, &initialized, writable_size);
     });
 }
 
@@ -2950,6 +3193,77 @@ rt_status RT_CALL rt_adam_parameter_count(
         *output = checked_u64(
             adam->value.parameter_tensor_count(),
             "Adam parameter count"
+        );
+    });
+}
+
+rt_status RT_CALL rt_adam_state_storage(
+    const rt_adam* adam,
+    rt_adam_state_storage_kind* output
+) {
+    return guard([&] {
+        require_adam(adam);
+        if (output == nullptr) {
+            throw std::invalid_argument(
+                "Adam state-storage output must not be null"
+            );
+        }
+        *output = c_adam_state_storage(
+            adam->value.state_storage_kind()
+        );
+    });
+}
+
+rt_status RT_CALL rt_adam_state_page_size(
+    const rt_adam* adam,
+    uint64_t* output
+) {
+    return guard([&] {
+        require_adam(adam);
+        if (output == nullptr) {
+            throw std::invalid_argument(
+                "Adam state-page-size output must not be null"
+            );
+        }
+        *output = checked_u64(
+            adam->value.state_page_size(),
+            "Adam state page size"
+        );
+    });
+}
+
+rt_status RT_CALL rt_adam_state_page_count(
+    const rt_adam* adam,
+    uint64_t* output
+) {
+    return guard([&] {
+        require_adam(adam);
+        if (output == nullptr) {
+            throw std::invalid_argument(
+                "Adam state-page-count output must not be null"
+            );
+        }
+        *output = checked_u64(
+            adam->value.state_page_count(),
+            "Adam state page count"
+        );
+    });
+}
+
+rt_status RT_CALL rt_adam_state_payload_bytes(
+    const rt_adam* adam,
+    uint64_t* output
+) {
+    return guard([&] {
+        require_adam(adam);
+        if (output == nullptr) {
+            throw std::invalid_argument(
+                "Adam state-payload output must not be null"
+            );
+        }
+        *output = checked_u64(
+            adam->value.state_payload_bytes(),
+            "Adam state payload bytes"
         );
     });
 }

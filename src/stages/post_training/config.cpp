@@ -60,6 +60,7 @@ void validate_fine_tuning(
         case FineTuningMethod::Full:
             return;
         case FineTuningMethod::Lora:
+        case FineTuningMethod::Qlora:
             break;
         default:
             throw std::invalid_argument(
@@ -111,6 +112,35 @@ void PostTrainingConfig::validate() const {
     validate_attention(attention);
     validate_activation_checkpointing(activation_checkpointing);
     validate_fine_tuning(fine_tuning_method, lora);
+    if (fine_tuning_method == FineTuningMethod::Qlora) {
+        const auto validate_nf4_block_size = [](std::size_t block_size) {
+            switch (block_size) {
+                case 32:
+                case 64:
+                case 128:
+                case 256:
+                case 512:
+                case 1024:
+                case 2048:
+                case 4096:
+                    return;
+                default:
+                    throw std::invalid_argument(
+                        "post-training NF4 block size is unsupported"
+                    );
+            }
+        };
+        validate_nf4_block_size(nf4_block_size);
+        if (nf4_double_quantization) {
+            validate_nf4_block_size(nf4_scale_block_size);
+        }
+        if (qlora_paged_optimizer && qlora_optimizer_page_size == 0) {
+            throw std::invalid_argument(
+                "post-training QLoRA optimizer page size must be "
+                "greater than zero"
+            );
+        }
+    }
     if (!std::isfinite(optimizer.learning_rate) ||
         optimizer.learning_rate <= 0.0F ||
         !std::isfinite(optimizer.beta1) ||
@@ -125,6 +155,20 @@ void PostTrainingConfig::validate() const {
         optimizer.maximum_gradient_norm <= 0.0F) {
         throw std::invalid_argument(
             "post-training Adam options are invalid"
+        );
+    }
+    switch (optimizer.state_storage) {
+        case AdamStateStorageKind::Contiguous:
+        case AdamStateStorageKind::Paged:
+            break;
+        default:
+            throw std::invalid_argument(
+                "post-training Adam state storage is not recognized"
+            );
+    }
+    if (optimizer.page_size == 0) {
+        throw std::invalid_argument(
+            "post-training Adam page size must be greater than zero"
         );
     }
 }

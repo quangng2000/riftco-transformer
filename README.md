@@ -8,7 +8,8 @@
 A small, auditable decoder-only Transformer built directly in C++20, with a
 zero-third-party-dependency default Python API. Train on CPU, Apple Metal, or
 optional source-built NVIDIA CUDA and Google Cloud TPU backends; post-train
-with full fine-tuning or LoRA, measure held-out generalization, save portable
+with full fine-tuning, LoRA, or packed-weight QLoRA, measure held-out
+generalization, save portable
 artifacts, and serve through paged attention.
 
 | Install | Import | Third-party Python dependencies |
@@ -24,19 +25,32 @@ no legacy package-name alias is installed.
 | --- | --- | --- |
 | CPU | Supported in every build | Complete readable reference implementation |
 | Apple Metal | Supported on compatible Macs | Persistent shared buffers and native Metal kernels |
-| NVIDIA CUDA | Optional source build | Managed CUDA storage with native tensor/NN, matmul, attention, and Adam-update kernels |
-| Google Cloud TPU | Experimental Linux x86-64 source build | Host-mirrored storage with PJRT/StableHLO matmul, materialized attention, and paged decode |
+| NVIDIA CUDA | Optional source build | Managed CUDA storage with native tensor/NN, packed NF4 linear, matmul, attention, and Adam-update kernels |
+| Google Cloud TPU | Experimental Linux x86-64 source build | Host-mirrored storage with PJRT/StableHLO packed NF4 linear, matmul, materialized attention, and paged decode |
 
 The TPU adapter is opt-in and dynamically loads Google's external `libtpu.so`;
 an absolute zero-library TPU build is therefore not possible. Default builds
 and standard wheels retain the dependency-free behavior and contain a clean
 unavailable TPU stub. The TPU slice targets one addressable device in one
-process. It runs batched matmul, materialized attention and its gradients, and
-paged decode through PJRT; Flash attention and the remaining capabilities stay
-on audited host reference paths. CI covers compilation, no-device behavior,
-and the loader/compile/transfer/execute/download sequence with a tests-only fake
-PJRT plugin. Real `libtpu` and Cloud TPU hardware validation is still required
-before treating it as production support.
+process. It runs packed NF4 linear forward/input backward, batched matmul,
+materialized attention and its gradients, and paged decode through PJRT; Flash
+attention and the remaining capabilities stay on audited host reference paths.
+CI covers compilation, no-device behavior, and the
+loader/compile/transfer/execute/download sequence with a tests-only fake PJRT
+plugin. The fake also checks packed quantized-linear forward/input backward for
+both scale encodings against the CPU oracle. Real `libtpu` and Cloud TPU
+hardware validation is still required before treating it as production
+support.
+
+QLoRA's packed-weight linear path is implemented on CPU, Apple Metal, optional
+CUDA, and optional TPU builds. CPU decodes in the readable reference loop;
+Metal and CUDA decode inside their kernels; TPU uploads packed bytes and
+dequantizes inside its StableHLO computation. All four retain the frozen base
+without a persistent FP32 expansion. The CUDA sources are wired into the
+opt-in CUDA build, and both backends have CPU-oracle test coverage when
+available. The TPU sources also pass the local strict C++ syntax check. CUDA
+compilation and both backends' actual NVIDIA/Cloud-TPU hardware paths were not
+available on this macOS host.
 
 ## Architecture
 
@@ -55,7 +69,7 @@ flowchart LR
     Tokens -->|tokenizer state| Base
 
     subgraph T["2 · Post-training"]
-        Base --> Tune["Full fine-tuning<br/>or LoRA"]
+        Base --> Tune["Full fine-tuning<br/>LoRA · QLoRA"]
         Instructions["Prompt / response<br/>JSONL"] --> Tune
         Tune -->|capture; merge LoRA first| Child[("Child .rift<br/>ModelBundle")]
     end
@@ -73,7 +87,7 @@ flowchart LR
 
 | Core | Training | Serving |
 | --- | --- | --- |
-| Tensors · modules · autograd · C ABI | Flash attention · activation checkpointing · fused Metal Adam · LoRA | Immutable bundles · paged KV cache · sampling · local chat/API |
+| Tensors · modules · autograd · NF4 · C ABI | Flash attention · activation checkpointing · contiguous/paged Adam · LoRA/QLoRA | Immutable bundles · paged KV cache · sampling · local chat/API |
 
 ## From text to chat
 
@@ -100,10 +114,10 @@ sequenceDiagram
     A->>M: restore base
     loop Post-training steps
         I->>M: prompt/response batches
-        M->>O: full or LoRA gradients
+        M->>O: Full/LoRA/QLoRA selected gradients
         O-->>M: update selected weights
     end
-    M->>A: save child after LoRA merge
+    M->>A: merge adapters; save FP32 child
     A->>S: load once
     U->>S: prompt
     loop Each new token
@@ -112,7 +126,7 @@ sequenceDiagram
     S-->>U: generated text
 ```
 
-> Implemented: pretraining, full/LoRA post-training, immutable model bundles,
+> Implemented: pretraining, full/LoRA/QLoRA post-training, immutable model bundles,
 > and local serving. Exact resumable optimizer/data checkpoints are future work.
 
 ## Setup
@@ -159,11 +173,12 @@ cmake --build build/cuda
 ctest --test-dir build/cuda --output-on-failure
 ```
 
-CUDA is functionally available to tensors, autograd, pretraining, Full and LoRA
-post-training, held-out evaluation, and serving. CUDA tensors use managed
+CUDA is functionally available to tensors, autograd, pretraining, Full, LoRA,
+and QLoRA post-training, held-out evaluation, and serving. CUDA tensors use managed
 memory; layout, elementwise, reduction, indexing, normalization, loss, matmul,
 materialized and memory-linear Flash attention, their gradient kernels, paged
-decode, and Adam's candidate-state update run on the GPU. Autograd traversal
+decode, packed NF4 linear forward/input backward, and Adam's candidate-state
+update run on the GPU. Autograd traversal
 and Adam's overflow-safe global gradient norm remain host control flow over
 host-visible storage, so selecting CUDA is not a claim that every part of the
 workload is device-resident or faster.
@@ -183,6 +198,11 @@ The loader also checks `TPU_LIBRARY_PATH` and then the system loader path for
 `-DRIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON` to make device absence a test
 failure. The TPU option is off by default and standard wheels do not bundle or
 load `libtpu`.
+
+QLoRA defaults to double-quantized NF4 scales and bounded-page Adam state.
+Paged Adam stores the two moment vectors as fixed-size tensor pages and updates
+one page at a time. On CUDA those pages use managed memory; this is not a
+general OS spill, eviction, or page-fault manager.
 
 ## One training step
 
@@ -223,7 +243,7 @@ Use `.to("metal")` on a supported Mac, `.to("cuda")` in a CUDA-enabled source
 build, or `.to("tpu")` in a TPU-enabled Cloud TPU build. Construct a fresh
 forward/loss graph for every optimizer step.
 
-## Train → LoRA → chat
+## Train → QLoRA → chat
 
 From a source checkout:
 
@@ -234,7 +254,8 @@ python3 examples/python/pretrain_stage.py \
   --backend cpu --steps 10
 
 python3 examples/python/post_train_stage.py \
-  --backend cpu --fine-tuning-method lora --steps 5
+  --backend cpu --fine-tuning-method qlora \
+  --nf4-block-size 64 --steps 5
 
 python3 examples/python/serve_stage.py --backend cpu
 ```
@@ -264,6 +285,7 @@ Open `http://127.0.0.1:8000/`. The stages exchange immutable `.rift` bundles in
 | Compare attention paths | [Attention](docs/ATTENTION.md) · [Execution backends and Python](docs/BACKENDS_AND_PYTHON.md) |
 | Run all three stages | [Pipeline](docs/PIPELINE.md) · [LoRA](docs/LORA.md) · [Serving](docs/SERVING.md) |
 | Compare full tuning and LoRA | [Post-training generalization](docs/GENERALIZATION.md) |
+| Fine-tune with packed NF4 base weights | [QLoRA](docs/QLORA.md) |
 | Prepare Hugging Face data | [Datasets and LoRA experiments](docs/DATASETS_AND_LORA_EXPERIMENTS.md) |
 | Navigate or contribute | [Project structure](docs/PROJECT_STRUCTURE.md) · [Roadmap](docs/ROADMAP.md) · [Release automation](python/README.md#release-automation) |
 | See feature superposition | [3D vector lab source](visualizations/vector-distribution.html) · [Run the visualization](visualizations/README.md) |
@@ -271,7 +293,7 @@ Open `http://127.0.0.1:8000/`. The stages exchange immutable `.rift` bundles in
 ## CMake consumers
 
 ```cmake
-find_package(riftco_transformer 0.2 CONFIG REQUIRED)
+find_package(riftco_transformer 0.5 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE riftco_transformer::library)
 ```
 
