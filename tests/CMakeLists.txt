@@ -324,7 +324,6 @@ target_include_directories(backend_tests
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src
 )
-find_package(Threads REQUIRED)
 target_link_libraries(c_api_tests PRIVATE Threads::Threads)
 target_link_libraries(backend_tests PRIVATE Threads::Threads)
 

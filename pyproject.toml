@@ -34,7 +34,6 @@ sdist.exclude = [
   "**/__pycache__/**",
   "**/*.pyc",
   "data/external/**",
-  "data/pretraining/huggingface/**",
   "results/**",
   "runs/**",
 ]

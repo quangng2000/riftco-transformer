@@ -29,7 +29,6 @@ EXPECTED_LICENSE = "Apache-2.0"
 EXPECTED_LICENSE_FILE = "LICENSE"
 FORBIDDEN_SDIST_PARTS = (
     "/data/external/",
-    "/data/pretraining/huggingface/",
 )
 
 

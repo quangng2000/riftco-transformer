@@ -2,7 +2,6 @@
 /cmake-build-*/
 /.idea/
 /data/external/
-/data/pretraining/huggingface/
 /python/build/
 /python/dist/
 /python/*.egg-info/
