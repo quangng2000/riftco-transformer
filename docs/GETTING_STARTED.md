@@ -108,10 +108,10 @@ ctest --preset debug
 ```
 
 A successful run ends with all configured tests passing. The default preset
-builds the library, C ABI, training CLI, experiment executables, install
-checks, and Python binding tests. On supported Apple systems, it also compiles
-the Metal adapter; CPU remains the selected execution backend unless a caller
-requests another one.
+builds the native framework libraries, C ABI, install checks, and Python
+binding/workflow tests. On supported Apple systems, it also compiles the Metal
+adapter; CPU remains the selected execution backend unless a caller requests
+another one. Research labs are Python source modules rather than CMake targets.
 
 ### If configuration fails
 
@@ -125,24 +125,17 @@ For common failure signatures, see [Troubleshooting](TROUBLESHOOTING.md).
 
 ## Run a short training smoke test
 
-The repository includes a tiny corpus and a deliberately small configuration.
-Run twenty CPU steps and write metrics outside the tracked source files:
+Python owns the readable training loop. Run five CPU steps through the public
+package and native engine:
 
 ```bash
-./build/debug/riftco-transformer \
-  --config configs/tiny.conf \
-  --steps 20 \
-  --metrics results/getting-started/metrics.csv \
-  --backend cpu
+PYTHONPATH=python python3 examples/python/train_tiny.py \
+  --steps 5 --backend cpu
 ```
 
 The command reports the corpus size, vocabulary, parameter count, selected
-backend, attention algorithm, checkpointing policy, loss, gradient norm, and
-clipping scale. It also writes this CSV header:
-
-```text
-step,loss,gradient_norm,clip_scale
-```
+backend, attention algorithm, checkpointing policy, loss, validation loss,
+gradient norm, and clipping scale.
 
 This run is a wiring check, not evidence of language-model quality. The tiny
 dataset and short schedule are designed to make the forward pass, autograd,
@@ -151,13 +144,11 @@ meaning of each metric.
 
 ## Select an available backend
 
-The same CLI accepts a backend name explicitly:
+The same Python example accepts a backend name explicitly:
 
 ```bash
-./build/debug/riftco-transformer \
-  --config configs/tiny.conf \
-  --steps 20 \
-  --backend metal
+PYTHONPATH=python python3 examples/python/train_tiny.py \
+  --steps 5 --backend metal
 ```
 
 Use `metal` only on a build with an available Metal adapter. CUDA and TPU need
@@ -205,6 +196,6 @@ You are ready for the learning guides when all of these are true:
 
 - the CPU context or debug build initializes successfully;
 - the tensor example returns `[39.0]` or the native test suite passes;
-- the short CLI run writes at least one finite loss row; and
+- the short Python run reports at least one finite loss; and
 - you understand that the smoke test validates integration, not
   generalization or production readiness.

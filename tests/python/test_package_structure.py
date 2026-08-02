@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -9,7 +10,6 @@ import unittest
 import riftco_transformer
 import riftco_transformer.artifacts
 import riftco_transformer.data
-import riftco_transformer.experiments
 import riftco_transformer.native
 import riftco_transformer.post_training
 import riftco_transformer.pretraining
@@ -18,10 +18,6 @@ import riftco_transformer.training
 from riftco_transformer import Tensor
 from riftco_transformer.artifacts import ModelBundle
 from riftco_transformer.data import HuggingFaceDatasetClient
-from riftco_transformer.experiments import (
-    FineTuningExperimentConfig,
-    LoraRankExperimentConfig,
-)
 from riftco_transformer.native import Tensor as NativeTensor
 from riftco_transformer.post_training import (
     CausalEvaluation,
@@ -37,16 +33,15 @@ from riftco_transformer.training import CausalLanguageModelTrainer
 
 
 class PackageStructureTests(unittest.TestCase):
+    def test_repository_labs_are_not_framework_packages(self) -> None:
+        self.assertIsNone(
+            importlib.util.find_spec("riftco_transformer.experiments")
+        )
+
     def test_public_types_are_owned_by_responsibility_packages(self) -> None:
         expected_modules = {
             ModelBundle: "riftco_transformer.artifacts.bundle",
             HuggingFaceDatasetClient: "riftco_transformer.data.client",
-            LoraRankExperimentConfig: (
-                "riftco_transformer.experiments.lora_rank"
-            ),
-            FineTuningExperimentConfig: (
-                "riftco_transformer.experiments.fine_tuning"
-            ),
             CausalLanguageModelTrainer: "riftco_transformer.training.engine",
             PretrainingConfig: "riftco_transformer.pretraining.pipeline",
             PostTrainingConfig: "riftco_transformer.post_training.pipeline",
@@ -82,7 +77,6 @@ class PackageStructureTests(unittest.TestCase):
             riftco_transformer.native,
             riftco_transformer.artifacts,
             riftco_transformer.data,
-            riftco_transformer.experiments,
             riftco_transformer.training,
             riftco_transformer.pretraining,
             riftco_transformer.post_training,

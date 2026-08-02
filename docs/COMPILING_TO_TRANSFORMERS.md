@@ -6,7 +6,7 @@ The long-term goal is to write a small, typed program, compile part of that
 program into known Transformer weights, and train the rest of the model around
 it. That gives us a ground-truth algorithm inside an otherwise learned model.
 
-The compiler, compact circuit, and learned Section 4 experiment slices are now
+The reusable compiler, lowering, programmed-sequence, and analysis slices are
 implemented. The Cajal-lite symbolic frontend
 provides an immutable AST, finite linear types, a Cajal-style linear-context
 checker, and a deterministic reference interpreter. The backend-neutral
@@ -16,11 +16,17 @@ materializes that map as a differentiable frozen or trainable module using an
 exact dense contraction, unary linear map, or bilinear identity-kernel
 linear-attention construction. A reusable sequence adapter now surrounds a
 program with learned projections, places its result into target positions, and
-captures named representations. One conditional-reverse lab is a compact exact
-circuit. A second target trains the paper-style F/P/T/I hybrid around a raw
-program core. Both use the separate dependency-free interpretation component.
-Keeping the symbolic and analysis paths independent of tensors gives both
-execution and interpretation trustworthy, reusable boundaries.
+captures named representations. Keeping the symbolic and analysis paths
+independent of tensors gives both execution and interpretation trustworthy,
+reusable boundaries.
+
+The former exact conditional-reverse target and learned F/P/T/I target were
+task-specific C++ experiment code. They were retired from the installed
+framework when high-level training and labs moved to Python. Top-level
+`labs/conditional_reverse` now owns the task and deterministic protocol, while
+one historical F record remains explicitly labelled as evidence from the
+retired prototype. The current lab does not execute or claim to reproduce the
+learned variants.
 
 ## Why this is not a general lambda calculus
 
@@ -45,19 +51,16 @@ flowchart LR
     E --> F["Configurable lowering registry"]
     F --> G["Differentiable programmed module"]
     G --> H["Learned projections + sequence placement"]
-    H --> I["Compact exact circuit"]
-    H --> M["Learned F/P/T/I hybrid"]
-    M --> N["Target-half loss + Adam"]
-    I --> J["Named representation capture"]
-    M --> J
+    H --> J["Named representation capture"]
     J --> K["PCA"]
-    I --> L["Ablation + steering"]
-    M --> L
+    H --> L["Ablation + steering"]
+    H -. "future public Python composition" .-> M["Program-augmented research lab"]
 ```
 
-Every arrow above is implemented. The next boundary is empirical: run and
-archive full-scale multi-seed F/P/T/I comparisons before making a claim about
-reproducing the paper's reported results.
+Every solid arrow above is implemented as reusable framework functionality.
+The dotted arrow is the missing boundary: Python needs a public, task-neutral
+way to compose a programmed module into a trainable model before rebuilding
+the F/P/T/I study and collecting multi-seed evidence.
 
 ## Finite types
 
@@ -132,12 +135,10 @@ target_link_libraries(symbolic_tool PRIVATE riftco_transformer::compiler)
 target_link_libraries(neural_tool PRIVATE riftco_transformer::lowering)
 target_link_libraries(analysis_tool PRIVATE riftco_transformer::analysis)
 target_link_libraries(sequence_tool PRIVATE riftco_transformer::programmed)
-target_link_libraries(reverse_lab PRIVATE riftco_transformer::conditional_reverse)
-target_link_libraries(learned_lab PRIVATE riftco_transformer::conditional_reverse_learned)
 ```
 
-The lowering, programmed, and experiment targets carry their one-way
-dependencies transitively. `analysis` and `compiler` each remain
+The lowering and programmed targets carry their one-way dependencies
+transitively. `analysis` and `compiler` each remain
 standard-library-only and do not link the tensor runtime.
 
 | Strategy | Accepted arity | Computation | Exactness |
@@ -361,36 +362,16 @@ include/riftco_transformer/programmed/
 src/programmed/
   sequence_placement.cpp
 
-include/riftco_transformer/experiments/conditional_reverse/
-  conditional_reverse.hpp compact-circuit aggregate include
-  learned.hpp       learned-experiment aggregate include
-  program.hpp       exact finite programs and resource preflight
-  task.hpp          deterministic balanced compact-task data
-  circuit.hpp       compact compiled circuit and evaluation
-  learned_dataset.hpp paper protocol, splits, examples, and batches
-  learned_hybrid.hpp F/P/T/I model, capture, intervention, and metrics
-  learned_training.hpp Adam training and batched evaluation
-
-src/experiments/conditional_reverse/
-  program.cpp
-  task.cpp
-  circuit.cpp
-  learned_dataset.cpp
-  learned_hybrid.cpp
-  learned_training.cpp
-
-apps/experiments/
-  conditional_reverse.cpp
-  conditional_reverse_learned.cpp
+labs/conditional_reverse/
+  protocol.py       task, deterministic splits, controls, and metrics
+  run.py            source-only protocol audit and JSON report
+  reports/          reviewed historical evidence with provenance
+  tests/            task semantics, disjointness, determinism, and metrics
 
 tests/compiler/cajal/test_cajal.cpp
 tests/compiler/cajal/test_multilinear_compiler.cpp
 tests/lowering/test_cajal_neural_lowering.cpp
 tests/analysis/
-tests/experiments/test_conditional_reverse_program.cpp
-tests/experiments/test_conditional_reverse_task.cpp
-tests/experiments/test_conditional_reverse_circuit.cpp
-tests/experiments/learned_hybrid_test.cpp
 ```
 
 The frontend and multilinear compiler use only the C++ standard library. They
@@ -417,10 +398,10 @@ constant/linear/bilinear/higher-arity execution, input and coefficient
 gradients, seeded randomization, precision policy, fallback diagnostics,
 parameter registration, backend transfer, and the installed CMake target.
 
-## Conditional reversal with a compiled attention head
+## Historical conditional-reversal circuit design
 
-For sequence length $L$ and alphabet size $N$, the experiment compiles two
-explicit inputs:
+The retired task-specific C++ prototype compiled two explicit inputs for
+sequence length $L$ and alphabet size $N$:
 
 - a two-coordinate condition, `Reverse` or `Copy`, projected from the first
   source symbol;
@@ -445,20 +426,23 @@ no coefficient parameter. `RandomUniform` supplies a seeded same-shape control;
 `trainable=true` deliberately adds the coefficient tensor to the normal
 parameter tree.
 
-The lab executable runs the compiled-circuit protocol on disjoint deterministic
-train/validation/test splits. PCA is fit on training captures and applied,
-without refitting, to validation and test captures; behavioral controls and
-interventions are reported on the held-out test split:
+That exact circuit and its C++ executable are no longer installed framework
+surfaces. The current Python-owned lab preserves the task, source-disjoint
+splits, exact oracle, and copy/reverse controls:
 
 ```bash
-cmake --build --preset debug
-./build/debug/riftco-conditional-reverse
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run \
+  --output runs/conditional-reverse/protocol.json
 ```
 
-## Learned F/P/T/I hybrid
+This command audits protocol contracts; it does not train a model or run PCA,
+ablation, and steering on learned representations.
 
-The separate `riftco_transformer::conditional_reverse_learned` target follows
-the paper artifact's learned architecture without changing the compact circuit.
+## Retired learned F/P/T/I hybrid design
+
+The retired prototype followed the paper artifact's learned architecture
+without changing the compact circuit. The following equations document that
+historical design; they do not describe a current installed target.
 For a source $s$ and conditional target $f(s)$, the protocol forms
 
 ```math
@@ -496,34 +480,19 @@ biasless $30\to20$ residual merge. I omits that branch and uses $r_2=h_1+r_1$.
 | T | F-shaped full map with seeded random coefficients | trainable through ordinary Adam parameters |
 | I | no program branch | no program coefficients or merge |
 
-One `LearnedHybridConfig::seed` controls learned initialization and T's
-randomized coefficient initialization. F/P override coefficient policy to
-compiled and frozen, while T overrides it to randomized and trainable, so a
-caller cannot accidentally change a control's scientific meaning through a
-generic lowering flag. The learned trainer defaults to practical unclipped
-Adam by setting the runtime's finite clipping ceiling to the largest finite
-float.
+In the prototype, one seed controlled learned initialization and T's randomized
+coefficients. F/P used compiled frozen coefficients, while T used randomized
+trainable coefficients so the controls retained distinct scientific meanings.
 
-The default config exposes the artifact dimensions ($L=15$, 26 letters plus
-delimiter, $d_{model}=20$, two two-head causal attention modules, and
-10k/5k/1k/1k train/probe/validation/test splits). The executable defaults to a
-smaller, fast configuration so architecture and analysis can be checked during
-development. Its finite sources are sampled without replacement across splits,
-so its held-out label does not hide train/test source overlap:
-
-```bash
-./build/debug/riftco-conditional-reverse-learned --variant F
-./build/debug/riftco-conditional-reverse-learned --variant T --steps 32
-./build/debug/riftco-conditional-reverse-learned --variant F --paper
-```
-
-`--paper` selects the full resource scale and is intentionally opt-in. A clean
-paper reproduction still requires completed multi-seed runs, archived configs
-and outputs, and comparison against the reported results; architecture support
-alone is not that evidence.
+The prototype used the artifact dimensions ($L=15$, 26 letters plus delimiter,
+$d_{model}=20$, two two-head causal attention modules, and 10k/5k/1k/1k
+train/probe/validation/test splits). Rebuilding it now requires a public,
+task-neutral program-augmented model API that a Python lab can compose. A clean
+paper reproduction would additionally require completed multi-seed runs,
+archived configs and outputs, and comparison against the reported results.
 
 One complete local seed-42 `F` run is archived as a machine-readable record at
-[`results/experiments/conditional-reverse/m4-max-metal-f-seed-42.json`](../results/experiments/conditional-reverse/m4-max-metal-f-seed-42.json).
+[`labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json`](../labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json).
 On an Apple M4 Max through Metal, 790 Adam steps completed in 277.68 seconds
 and reached 100% target-token and exact-sequence accuracy on the 1,000-example
 held-out test split. Batch-rolling the program output reduced paired token
@@ -551,44 +520,33 @@ lets the same analysis component later consume ordinary attention, MLP,
 residual-stream, GNN, or other model activations.
 
 PCA must be fit on a fit-only analysis split and only transformed on held-out
-examples. The compact circuit uses its training capture split; the learned lab
-uses the complete dedicated probe split and transforms complete
-validation/test captures in bounded execution batches. PCA uses the raw
-$L$-position program output rather than treating the padded zero half as
-observations, and the lab reports held-out PC1 associations with branch,
-position, and token labels. Ablation and steering results are reported beside
-an unaltered baseline and matched controls. Learned-attention, program-output,
-and simultaneous attention-plus-program batch-roll effects are separate
-measurements. F steering uses an independently generated balanced reverse/copy
-set and the artifact's near-exclusive $(0,100)$ / $(100,0)$ scales. The three
-methods together are much stronger than a PCA plot alone.
+examples. The retired learned prototype used its dedicated probe split for the
+fit, raw $L$-position program output rather than padded zeros, and separate
+attention/program/combined batch-roll controls. Those details remain useful as
+requirements for a future Python reconstruction, but they are not executed by
+the current protocol-only lab. PCA plus matched ablation and steering evidence
+would be much stronger than a PCA plot alone.
 
 ## Current status and next evidence milestone
 
-The current circuit deliberately factors the known condition into a
-two-coordinate input and the source into an $NL$-coordinate input. That is
-behaviorally exact on valid one-hot task encodings, but it is a compact
-compiled-circuit baseline rather than a reproduction of the paper's learned
-Model F. The paper model projects the same learned residual sequence into two
-full program inputs, and its projection sharing, latent geometry, training
-dynamics, and steering basis are therefore different.
+The installed framework currently stops at reusable compiler, lowering,
+programmed-sequence, and analysis primitives. The Python conditional-reversal
+lab specifies the task, creates source-disjoint train/probe/validation/test
+splits, and audits the exact oracle plus copy/reverse controls. It does not
+attach a program to `DecoderOnlyTransformer`, train F/P/T/I, or capture learned
+representations.
 
-That separate learned hybrid is now implemented: 26 letters, length 15, token
-and position embeddings, a $20\to80\to20$ ReLU path, four learned causal
-heads, shared biasless $20\to10$ program projection, F/P/T/I controls,
-target-half loss, Adam, branch-stratified held-out metrics, stable captures,
-probe-fit PCA, paired resample ablations, and privileged-basis steering.
+The archived M4 Max record establishes only that one paper-scale `F`
+configuration ran end to end on the retired native Metal prototype. It does
+not establish current executability, variance across seeds, or the relative
+behavior of `P`, `T`, and `I`.
 
-The archived M4 Max record establishes that the paper-scale `F` configuration
-executes end to end on the native Metal path. It does not establish variance
-across seeds or the relative behavior of `P`, `T`, and `I`.
-
-The next milestone is not another architectural layer. It is a reproducible
-full-scale experiment suite: run every variant across declared seeds and
-hyperparameters, retain validation-based selection, evaluate test once after
-selection, archive metrics/checkpoints, and compare PCA/ablation/steering
-effects with the paper. Until that evidence exists, the implementation should
-be described as paper-faithful experiment support rather than a reproduced
+The next framework milestone is a task-neutral program-augmented model API
+that Python can compose. After that boundary exists, the lab can rebuild every
+variant, select using validation, evaluate test once, archive
+metrics/checkpoints, and compare PCA/ablation/steering effects with the paper.
+Until then, the repository should describe the F/P/T/I work as historical
+prototype evidence rather than current experiment support or a reproduced
 result.
 
 ## Deliberate omissions
@@ -600,6 +558,8 @@ result.
 - no sparse or factored multilinear-map representation
 - no generic exact GELU-MLP lowering
 - no attachment to the production `DecoderOnlyTransformer` or KV-cached decode
+- no current learned F/P/T/I implementation; the task-specific native
+  prototype was retired when lab ownership moved to Python
 - no archived full-scale multi-seed reproduction, checkpoint, or
   hyperparameter-sweep result yet; only one local seed-42 `F` execution record
   is archived

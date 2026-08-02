@@ -45,11 +45,11 @@ Place a change in the lowest reusable layer that owns its semantics:
 | Transformer-specific composition | `include/riftco_transformer/model/`, `src/model/` | training or serving policy |
 | Optimizer rule | `include/riftco_transformer/optim/`, `src/optim/` | a concrete model |
 | Tokenization or batch representation | `include/riftco_transformer/data/`, `src/data/` | model policy |
-| Stage-neutral training policy | `include/riftco_transformer/training/`, `src/training/` | pretraining or post-training composition roots |
-| Pretraining, post-training, or serving composition | `include/riftco_transformer/stages/`, `src/stages/` | an unrelated stage |
+| High-level training, evaluation, or dataset policy | `python/riftco_transformer/` | private C++ layouts |
+| Native serving composition | `include/riftco_transformer/stages/serving/`, `src/stages/serving/` | training or optimizer policy |
 | Symbolic compiler or interpretation analysis | its separately linked component | the tensor runtime unless it is the explicit lowering bridge |
-| CLI parsing and presentation | `apps/` | reusable algorithms |
-| Python orchestration | `python/riftco_transformer/` | a C++ ABI layout |
+| Small public-API demonstration | `examples/python/` | experiment-specific policy |
+| Research protocol, comparison, or reporting | `labs/` | non-public framework internals |
 
 Read [Project structure](PROJECT_STRUCTURE.md) before moving a responsibility
 across layers. The public declaration normally lives below
@@ -97,6 +97,10 @@ build and tell the truth about dispatch.
 
 - Build a fresh computation graph for every training step.
 - Keep loss and optimizer policy outside the model.
+- Keep high-level training loops, dataset policy, and evaluation orchestration
+  in Python; C++ owns the numerical primitives beneath the C ABI.
+- Keep research hypotheses, fixed comparisons, and generated reports in
+  source-only `labs/`, not installed framework packages.
 - Keep serving independent of training and optimizer dependencies.
 - Treat `ModelSnapshot` as an in-memory native handoff and `ModelBundle` as the
   persisted Python artifact; neither is an exact resumable training

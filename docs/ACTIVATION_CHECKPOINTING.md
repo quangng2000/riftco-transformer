@@ -154,7 +154,7 @@ PostTrainingConfig(
 )
 ```
 
-Native and Python training CLIs accept:
+The Python training examples accept:
 
 ```text
 --activation-checkpointing disabled|block
@@ -220,7 +220,7 @@ Tests verify:
 - exception-atomic backward behavior;
 - graph lifetime after the original C++/C/Python model handle is released;
 - incremental decode independence;
-- C ABI, Python, native-stage, CLI, and installed-package contracts.
+- C ABI, Python workflow, and installed-package contracts.
 
 The original systematic treatment is
 [Training Deep Nets with Sublinear Memory Cost](https://arxiv.org/abs/1604.06174).

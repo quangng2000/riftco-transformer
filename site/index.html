@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0d0c">
-  <meta name="description" content="Riftco Transformer is an auditable C++20 framework for learning, training, fine-tuning, interpreting, and serving decoder-only transformers from first principles.">
+  <meta name="description" content="Riftco Transformer combines an auditable C++20 numerical runtime with dependency-free Python training workflows and repository-owned research labs.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Riftco Transformer — Build the stack. See every layer.">
   <meta property="og:description" content="Tensors, autograd, attention, LoRA, QLoRA, serving, hardware backends, and programs compiled into transformers—built to be read.">
@@ -16,7 +16,7 @@
   <meta name="twitter:image" content="https://quangng2000.github.io/riftco-transformer/og.png">
   <link rel="canonical" href="https://quangng2000.github.io/riftco-transformer/">
   <link rel="stylesheet" href="assets/styles.css">
-  <title>Riftco Transformer — Auditable C++20 Transformer Framework</title>
+  <title>Riftco Transformer — Python Workflows, Auditable C++ Runtime</title>
 </head>
 <body data-site-root=".">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -56,7 +56,7 @@
       <div class="hero-copy" data-reveal>
         <div class="eyebrow"><span class="status-dot"></span> Version 0.5.0 · C++20 · Apache-2.0</div>
         <h1>Build the transformer stack.<br><span>See every layer.</span></h1>
-        <p class="hero-lede">An auditable decoder-only Transformer framework built from first principles in C++—from tensor strides and reverse-mode autograd to QLoRA, paged serving, native accelerators, and programs compiled into attention.</p>
+        <p class="hero-lede">An auditable decoder-only Transformer stack: Python owns training and research orchestration, while the C++20 runtime owns tensor math, autograd, models, Adam, serving primitives, accelerators, and programs compiled into attention.</p>
         <div class="hero-actions">
           <a class="button button-primary" href="#quickstart">Start building <span aria-hidden="true">→</span></a>
           <a class="button button-secondary" href="docs/concepts/architecture.html">Read the architecture</a>
@@ -129,7 +129,7 @@
     <section class="section shell" id="framework">
       <div class="section-heading" data-reveal>
         <div><span class="section-kicker">The framework</span><h2>One stack, separated by responsibility.</h2></div>
-        <p>The readable CPU path defines the contract. Accelerated backends implement the same focused capabilities. Training, serving, compilation, and analysis stay separate so each can evolve without dragging the others with it.</p>
+        <p>The readable CPU path defines the numerical contract. Python composes datasets, training loops, evaluation, and labs; C++ implements reusable computation, serving, compilation, and analysis primitives behind stable boundaries.</p>
       </div>
 
       <div class="stack-map" data-reveal>
@@ -146,7 +146,7 @@
         </a>
         <span class="stack-arrow" aria-hidden="true">→</span>
         <a class="stack-node" href="docs/learn/training.html">
-          <span class="node-number">04</span><strong>Train</strong><small>Full · LoRA · QLoRA<br>Adam · checkpoints</small>
+          <span class="node-number">04</span><strong>Train</strong><small>Python control loop<br>C++ loss · backward · Adam</small>
         </a>
         <span class="stack-arrow" aria-hidden="true">→</span>
         <a class="stack-node" href="docs/how-to/serving.html">
@@ -216,7 +216,7 @@
         <div class="quickstart-copy" data-reveal>
           <span class="section-kicker">Quick start</span>
           <h2>From install to first gradient.</h2>
-          <p>Use the dependency-free Python surface, link the native CMake target, or build the entire stack from source. Both Python and C++ reach the same runtime.</p>
+          <p>Use the dependency-free Python surface for training and labs, link focused native CMake targets for reusable primitives, or build the stack from source. Python calls the same C++ runtime through the stable C ABI.</p>
           <ul class="check-list">
             <li>Python 3.10+ with no runtime packages</li>
             <li>C++20 and CMake 3.24+</li>
@@ -228,7 +228,7 @@
           <div class="code-tabs" role="tablist" aria-label="Installation method">
             <button role="tab" aria-selected="true" data-code-tab="python">Python</button>
             <button role="tab" aria-selected="false" data-code-tab="source">Source</button>
-            <button role="tab" aria-selected="false" data-code-tab="metal">Metal lab</button>
+            <button role="tab" aria-selected="false" data-code-tab="metal">Python lab</button>
           </div>
           <div class="code-panel active" role="tabpanel" data-code-panel="python">
             <pre><code>python3 -m pip install riftco-transformer
@@ -245,11 +245,9 @@ cmake --build --preset debug
 ctest --preset debug</code></pre>
           </div>
           <div class="code-panel" role="tabpanel" data-code-panel="metal" hidden>
-            <pre><code>cmake --preset release
-cmake --build --preset release
-
-./build/release/riftco-conditional-reverse-learned \
-  --variant F --backend metal --paper</code></pre>
+            <pre><code>PYTHONPATH=python:. python3 -m \
+  labs.conditional_reverse.run \
+  --output runs/conditional-reverse/protocol.json</code></pre>
           </div>
           <div class="console-footer"><span>C ABI 2.4</span><span>C++ package · Python ctypes</span></div>
         </div>
@@ -294,16 +292,16 @@ cmake --build --preset release
     <section class="section experiment-section" id="experiment">
       <div class="shell experiment-grid">
         <div class="experiment-copy" data-reveal>
-          <span class="section-kicker">Compiled attention lab</span>
+          <span class="section-kicker">Conditional-reversal lab</span>
           <h2>Can a program become a Transformer head?</h2>
-          <p>The conditional-reversal experiment compiles a finite Cajal-lite program into a frozen attention-shaped branch, trains the surrounding network, then tests the representation with PCA, ablation, and steering.</p>
-          <div class="variant-row" aria-label="Experiment variants">
+          <p>The Python lab now owns the task, source-disjoint splits, evaluation, and reports. Generic Cajal compilation and analysis remain C++ framework primitives; the former task-specific F/P/T/I C++ prototype is retired.</p>
+          <div class="variant-row" aria-label="Historical experiment variants">
             <span><b>F</b> frozen compiled</span>
-            <span><b>P</b> partial control</span>
+            <span><b>P</b> reverse-only control</span>
             <span><b>T</b> trainable random</span>
             <span><b>I</b> no program</span>
           </div>
-          <a class="button button-primary" href="docs/internals/compiling_to_transformers.html#learned-fpti-hybrid">Read the experiment</a>
+          <a class="button button-primary" href="docs/internals/compiling_to_transformers.html">Read the experiment boundary</a>
         </div>
 
         <article class="result-card" data-reveal data-delay="1">
@@ -323,8 +321,8 @@ cmake --build --preset release
             <div class="steering-label"><span>force reverse</span><strong>86.28%</strong></div>
             <div class="meter reverse"><i style="--value:86.28%"></i></div>
           </div>
-          <p><strong>Scope:</strong> one local paper-scale configuration on Apple Metal. This is evidence that the implementation runs and uses the compiled branch—not a multi-seed paper reproduction or hardware benchmark.</p>
-          <a href="https://github.com/quangng2000/riftco-transformer/blob/main/results/experiments/conditional-reverse/m4-max-metal-f-seed-42.json">Run record <span>↗</span></a>
+          <p><strong>Historical scope:</strong> one local paper-scale configuration from the retired pre-boundary C++ prototype. The archived record is not evidence that the current Python lab executes F/P/T/I, nor a multi-seed paper reproduction or hardware benchmark.</p>
+          <a href="https://github.com/quangng2000/riftco-transformer/blob/main/labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json">Archived run record <span>↗</span></a>
         </article>
       </div>
     </section>
@@ -347,10 +345,10 @@ cmake --build --preset release
           <code>riftco_transformer::programmed</code>
         </div>
         <div class="target-column">
-          <span>analysis + labs</span>
+          <span>analysis + Python labs</span>
           <code>riftco_transformer::analysis</code>
-          <code>riftco_transformer::conditional_reverse</code>
-          <code>riftco_transformer::conditional_reverse_learned</code>
+          <code>labs/* · repository only</code>
+          <code>not installed or exported</code>
         </div>
       </div>
     </section>

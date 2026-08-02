@@ -1,715 +1,271 @@
 # Project Structure
 
-The lab is organized by responsibility rather than by implementation
-milestone. Milestones remain in `ROADMAP.md`; source files live where future
-components can extend them without reorganizing the project again.
+The repository separates a reusable native execution engine from Python-owned
+workflow and research policy. That boundary keeps numerical code portable and
+auditable without turning one experiment into framework API.
+
+## Ownership rule
+
+| Concern | Owner | Examples |
+| --- | --- | --- |
+| Numerical execution | C++ framework | tensors, autograd, modules, transformer, loss, Adam, NF4, backends |
+| Reusable model/runtime state | C++ framework | tokenizer state, `ModelSnapshot`, native generation, KV cache |
+| Symbolic and interpretation primitives | C++ framework | Cajal compiler, neural lowering, programmed placement, PCA/ablation helpers |
+| Stable language boundary | C ABI | opaque handles and size-versioned structures used by `ctypes` |
+| Workflow policy | installed Python package | datasets, batches, training loops, pretraining, post-training, evaluation, bundles, HTTP serving |
+| Small usage demonstrations | `examples/python/` | one readable training run and three-stage artifact flow |
+| Research policy | top-level `labs/` | hypotheses, candidate sweeps, fixed seeds, held-out selection, reports |
+
+Labs are source-checkout modules. They are not included in the wheel, installed
+headers, exported CMake targets, or stable API promise. Generated lab output
+belongs under ignored `runs/`; only small reviewed evidence records belong in a
+lab's `reports/` directory.
 
 ## Dependency direction
 
-```text
-apps/pretraining ──→ stages/pretraining
+```mermaid
+flowchart TD
+    Compiler["C++ compiler primitives"] --> Lowering["C++ neural lowering"]
+    Analysis["C++ analysis primitives"] --> Programmed["C++ programmed sequence"]
+    Lowering --> Programmed
 
-stages/pretraining ──────→ artifacts + shared training
-stages/post_training ────→ artifacts + shared training
-stages/serving ──────────→ artifacts + model + data
-                            (no training or optim dependency)
+    Core["C++ core: tensor + autograd + backends"] --> NN["C++ NN + loss"]
+    NN --> Model["C++ decoder model"]
+    Model --> Artifacts["C++ state + native serving"]
+    Model --> CABI["Stable C ABI"]
+    Core --> CABI
 
-shared training ──→ model + data + optimizer strategy
-Adam adapter ─────→ optim ──→ nn
-artifacts ────────→ model + data
-model ────────────→ nn ─────→ core
+    CABI --> PyNative["Python native bindings"]
+    PyNative --> PyWorkflow["Python training + data + stages + bundles"]
+    PyWorkflow --> Examples["examples/python"]
+    PyWorkflow --> Labs["labs"]
 
-lowering ──→ compiler/cajal + nn + core
-compiler/cajal finite compiler ───────→ C++ standard library only
-analysis interpretation algorithms ──→ C++ standard library only
-programmed sequence placement ───────→ lowering + analysis
-conditional-reverse experiment ──────→ programmed sequence placement
-learned conditional-reverse ─────────→ conditional-reverse + model/nn/Adam
-
-Python pretraining/post-training ──→ Python shared training ──→ C ABI
-Python dataset preparation ────────→ stdlib HTTP/JSON + prepared files
-Python tuning experiments ─────────→ artifacts + post_training + evaluation
-Python serving ──→ Python ModelBundle + generation ──────────→ C ABI
+    Programmed -. "future task-neutral Python composition" .-> Labs
 ```
 
-- `compiler/cajal` owns the backend-independent symbolic language and finite
-  compiler: types, immutable expressions and values, linear usage checking,
-  deterministic reference interpretation, coordinate encodings, dense
-  multilinear maps, and recursive checked-AST lowering. The whole layer uses
-  only the C++ standard library and deliberately has no tensor, autograd,
-  neural-network, or backend dependency.
-- `lowering` is the optional one-way bridge from a dense Cajal multilinear map
-  to a differentiable programmed module. It owns configuration, inspectable
-  metadata, strategy discovery/selection/fallback, exact FP32 policy, seeded
-  randomized ablations, and backend placement. Adding a lowering strategy does
-  not change the symbolic compiler, `nn`, or `model`.
-- `analysis` owns model-neutral representation matrices, named captures,
-  deterministic PCA, row-wise interventions, and paired ablation summaries.
-  It uses only the C++ standard library and has no tensor, autograd, compiler,
-  or model dependency.
-- `programmed` owns the reusable integration seam: learned projections,
-  source-input arrangement, execution of a lowered program, disjoint target
-  placement, representation capture, batch-roll ablation, and privileged-basis
-  steering. Core `nn` and `model` do not depend on it.
-- `experiments/conditional_reverse` owns task-specific syntax, data, exact
-  projection initialization, compiled/random controls, learned F/P/T/I data,
-  training, interpretation hooks, and evaluation rather than adding
-  conditional-reversal policy to the generic compiler.
-- The exported CMake targets encode that separation:
-  `riftco_transformer::compiler` has no runtime dependency,
-  `riftco_transformer::analysis` has no runtime dependency,
-  `riftco_transformer::library` has no compiler dependency,
-  `riftco_transformer::lowering` links compiler to runtime one way,
-  `riftco_transformer::programmed` adds sequence integration, and
-  `riftco_transformer::conditional_reverse` adds the compact experiment.
-  `riftco_transformer::conditional_reverse_learned` is a separate target for
-  the paper-style learned dataset/model/trainer, so compact consumers do not
-  acquire it.
-- `core` owns float tensor storage, immutable packed NF4 weight storage,
-  numerical operations, backend dispatch, and autograd. Its
-  public `custom_gradient` seam connects an externally computed tensor result
-  to validated positional VJPs without depending on a neural-network layer or
-  model.
-- `data` owns token IDs, byte tokenization, and next-token batches.
-- `nn` owns reusable parameters, initialization, activations, layers, and
-  losses, including the registered `Module`/`ModuleList` lifecycle,
-  handle-backed named parameters, and the reusable low-rank linear adapter. It
-  depends on `core`; embedding and cross-entropy also consume token IDs from
-  `data`.
-- `model` composes reusable layers into transformer-specific components,
-  owns transformer-wide LoRA targets, QLoRA packing/export coordination, and
-  defines the inference-time `DecoderKeyValueCache` contract consumed by its
-  detached one-token path.
-- `optim` owns parameter-update rules and depends on `nn` parameter
-  registration without depending on `model`.
-- `artifacts` captures and restores a native model configuration, named
-  parameter values, and exact byte/BPE tokenizer state. Its `ModelSnapshot`
-  is an in-memory handoff value, not a persisted artifact or training
-  checkpoint. Active, unmerged adapters are rejected so snapshots always use
-  the ordinary base-model parameter schema.
-- `training` owns stage-neutral batch sources, the optimizer strategy,
-  `CausalLanguageModelTrainer`, and the adapter that presents native `Adam`
-  through that strategy. Training policy does not own a stage.
-- `stages/pretraining` and `stages/post_training` are composition roots. They
-  wire model, tokenizer, shared training, artifact capture, and optimizer
-  choices for one stage run. Post-training selects all base parameters, LoRA
-  adapters, or LoRA adapters over an NF4-packed base, then materializes a
-  serving-ready FP32 handoff.
-- `stages/serving` restores a native snapshot and owns autoregressive
-  generation, KV-cache allocation strategies, and the shared paged pool. It
-  depends on `artifacts`, `model`, and `data`, with no dependency on
-  `training` or `optim`.
-- `apps` owns command-line concerns.
-  `apps/pretraining/train.cpp` delegates the native training run to
-  `PretrainingStack`; `apps/experiments/conditional_reverse.cpp` is the
-  deterministic compiled-attention interpretation lab; and
-  `apps/experiments/conditional_reverse_learned.cpp` trains/configures the
-  learned F/P/T/I lab and runs held-out interpretation.
-- `c_api.h` and `src/c_api.cpp` expose opaque C handles over selected tensor,
-  model, LoRA/QLoRA, packed-memory diagnostics, incremental decode, autograd,
-  loss, and optimizer operations
-  without exporting C++ layouts.
-- `python/riftco_transformer/native` wraps only the C ABI through the Python
-  standard library's `ctypes`; it does not bind the C++ ABI. The package root
-  re-exports this public API without installing a legacy package-name alias.
-- `python/riftco_transformer/artifacts` is the immutable handoff contract between
-  stages.
-- `python/riftco_transformer/data` owns the dependency-free Hugging Face client,
-  dataset-specific row adapters, deterministic content-hash splitting,
-  serialization, provenance manifests, and prepared-file verification. It
-  does not own a training objective.
-- `python/riftco_transformer/experiments` composes existing artifact,
-  post-training, and evaluation APIs into controlled comparisons. The generic
-  fine-tuning experiment compares full and LoRA recipes, while the specialized
-  rank experiment preserves rank-only selection. Both verify prepared splits,
-  select on validation, and defer test evaluation until after selection.
-- `python/riftco_transformer/training` owns stage-neutral batching, evaluation,
-  and optimizer-loop policy. The `pretraining` and `post_training` packages
-  configure that engine rather than duplicating it.
-- `python/riftco_transformer/serving` owns generation, the in-process model
-  service, and the HTTP adapter. It depends on artifacts and the native model,
-  not on the training engine.
+Arrows point from a consumer to the lower-level capability it uses. In
+particular:
 
-Dependencies should point downward in this list. In particular, `core` must
-not include anything from `nn` or `model`, `nn` must not include `model`, and
-the native serving stage must not acquire a training or optimizer dependency.
+- `core` does not depend on `nn`, `model`, Python, or a research task;
+- `model` does not own datasets, loss selection, optimizer loops, or serving
+  policy;
+- C++ serving does not depend on training or optimizer orchestration;
+- Python binds the C ABI, never a C++ object layout; and
+- labs import public Python framework APIs, not internal C++ headers or private
+  binding details.
 
-## Two handoff contracts
+## Native C++ layout
 
-The native and Python stage surfaces solve related but different problems:
-
-| Contract | Lifetime and storage | Integrity and lineage | Deliberately excluded |
-| --- | --- | --- | --- |
-| Native `ModelSnapshot` | Value-like, in-memory handoff of model and tokenizer state | No checksum, artifact ID, metadata, or lineage | Persistence, optimizer state, random state, and training progress |
-| Python `ModelBundle` | Immutable, versioned persisted ZIP artifact | Weight checksum, content-derived artifact ID, metadata, and parent lineage | Optimizer state, random state, and training progress |
-
-Neither contract supports exact training resumption. That requires the future
-`TrainingCheckpoint` contract. For LoRA and QLoRA, both contracts currently
-carry only materialized, merged FP32 weights; separate adapter factors and
-packed artifact persistence are deliberately outside these handoffs.
-
-## Interface and implementation pairing
-
-Every public interface lives below `include/riftco_transformer/`. Its
-implementation uses the corresponding path below `src/`:
+Public declarations live under `include/riftco_transformer/`; implementations
+mirror them under `src/`:
 
 ```text
-include/riftco_transformer/compiler/cajal/
-  cajal.hpp
-  type.hpp
-  expression.hpp
-  value.hpp
-  checker.hpp
-  interpreter.hpp
-  encoding.hpp
-  multilinear_map.hpp
-  compiler.hpp
-src/compiler/cajal/
-  type.cpp
-  expression.cpp
-  value.cpp
-  checker.cpp
-  interpreter.cpp
-  encoding.cpp
-  multilinear_map.cpp
-  compiler.cpp
+include/riftco_transformer/
+├── core/                 tensor, operations, autograd, quantized weights
+├── nn/                   parameters, modules, layers, activation, loss, LoRA
+├── model/                attention, blocks, decoder-only transformer, KV API
+├── optim/                Adam and optimizer-state policies
+├── data/                 tokenizer and token-batch representations
+├── artifacts/            in-memory model/tokenizer state
+├── stages/serving/       reusable in-process generation composition
+├── compiler/cajal/       finite typed AST, checker, evaluator, compiler
+├── lowering/             compiler-to-neural bridge
+├── programmed/           generic sequence placement and representation capture
+├── analysis/             PCA, interventions, and ablation statistics
+└── c_api.h               stable C boundary
 
-include/riftco_transformer/lowering/
-  lowering.hpp
-  config.hpp
-  module.hpp
-  strategy.hpp
-  cajal.hpp
-src/lowering/
-  config.cpp
-  module.cpp
-  strategy.cpp
-  cajal.cpp
-
-include/riftco_transformer/analysis/
-  analysis.hpp
-  matrix.hpp
-  representation.hpp
-  pca.hpp
-  intervention.hpp
-  ablation.hpp
-src/analysis/
-  matrix.cpp
-  representation.cpp
-  pca.cpp
-  intervention.cpp
-  ablation.cpp
-
-include/riftco_transformer/programmed/
-  programmed.hpp
-  sequence_placement.hpp
-src/programmed/
-  sequence_placement.cpp
-
-include/riftco_transformer/experiments/conditional_reverse/
-  conditional_reverse.hpp
-  learned.hpp
-  program.hpp
-  task.hpp
-  circuit.hpp
-  learned_dataset.hpp
-  learned_hybrid.hpp
-  learned_training.hpp
-src/experiments/conditional_reverse/
-  program.cpp
-  task.cpp
-  circuit.cpp
-  learned_dataset.cpp
-  learned_hybrid.cpp
-  learned_training.cpp
-
-include/riftco_transformer/core/tensor.hpp
-src/core/tensor/
-  storage.cpp
-  layout.cpp
-
-include/riftco_transformer/core/tensor_ops.hpp
-src/core/tensor/
-  elementwise.cpp
-  matmul.cpp
-  layout_ops.cpp
-  indexing.cpp
-  reductions.cpp
-  softmax.cpp
-
-include/riftco_transformer/core/autograd.hpp
-src/core/autograd/
-  graph.cpp
-  operations.cpp
-  custom_gradient.cpp
-  checkpoint.cpp
-
-include/riftco_transformer/core/quantized_weight.hpp
-src/core/quantization/
-  nf4.cpp
-  quantized_weight.cpp
-
-include/riftco_transformer/nn/quantized_linear.hpp
-src/nn/quantized_linear.cpp
-src/core/backend/nn/quantized_linear/
-  contracts.hpp
-  capability.hpp
-  storage.hpp
-  dispatch.hpp
-  dispatch.cpp
-  reference/
-    operations.hpp
-    operations.cpp
-  cuda/
-    launch.hpp
-    operations.cu
-    storage.cu
-  metal/
-    kernels.hpp
-    launch.hpp
-    runtime.mm
-  tpu/
-    launch.hpp
-    runtime.cpp
-
-include/riftco_transformer/model/feed_forward.hpp
-src/model/feed_forward.cpp
-
-include/riftco_transformer/artifacts/state.hpp
-src/artifacts/state.cpp
-
-include/riftco_transformer/stages/serving/stack.hpp
-src/stages/serving/stack.cpp
+src/
+├── core/
+│   ├── tensor/           Tensor implementation details
+│   ├── autograd/         graph, operations, checkpoint/custom-gradient details
+│   ├── quantization/     NF4 packing and quantized-weight storage
+│   └── backend/          capability contracts, dispatch, and adapters
+├── nn/
+├── model/
+├── optim/
+├── data/
+├── artifacts/
+├── stages/serving/
+├── compiler/cajal/
+├── lowering/
+├── programmed/
+├── analysis/
+└── c_api.cpp
 ```
 
-Tests use the same domain names below `tests/`. This makes a component's
-contract, implementation, and verification easy to locate.
+There is intentionally no native pretraining stack, post-training stack,
+training CLI, or task-specific conditional-reversal library. Direct C++ users
+can still compose the reusable model, loss, autograd, and Adam primitives;
+repository high-level orchestration is canonical in Python.
 
-## Component map
+### Header and implementation pairing
+
+An `.hpp` file declares the public contract a consumer compiles against. A
+matching `.cpp` file owns non-template implementation details. This pairing:
+
+- keeps dependencies visible at the interface;
+- prevents implementation helpers from becoming accidental API;
+- reduces recompilation when implementation changes; and
+- allows readable CPU code and accelerator dispatch to share one contract.
+
+Private helpers belong under `src/**/detail/` or in an unnamed namespace, not
+under public `include/`.
+
+## Backend organization
+
+Backend code is split by capability first and hardware second:
 
 ```text
-Cajal-lite symbolic frontend and finite multilinear compiler
-  include/riftco_transformer/compiler/cajal/
-  src/compiler/cajal/
-  tests/compiler/cajal/test_cajal.cpp
-  tests/compiler/cajal/test_multilinear_compiler.cpp
-  docs/COMPILING_TO_TRANSFORMERS.md
-
-Cajal neural lowering bridge
-  include/riftco_transformer/lowering/
-  src/lowering/
-  tests/lowering/test_cajal_neural_lowering.cpp
-  docs/COMPILING_TO_TRANSFORMERS.md
-
-model-neutral interpretation analysis
-  include/riftco_transformer/analysis/
-  src/analysis/
-  tests/analysis/
-  docs/COMPILING_TO_TRANSFORMERS.md
-
-programmed sequence integration
-  include/riftco_transformer/programmed/
-  src/programmed/
-  tests/experiments/test_conditional_reverse_circuit.cpp
-  docs/COMPILING_TO_TRANSFORMERS.md
-
-conditional-reverse compiled-attention and learned hybrid labs
-  include/riftco_transformer/experiments/conditional_reverse/
-  src/experiments/conditional_reverse/
-  apps/experiments/conditional_reverse.cpp
-  apps/experiments/conditional_reverse_learned.cpp
-  tests/experiments/
-  docs/COMPILING_TO_TRANSFORMERS.md
-
-module and parameter lifecycle
-  include/riftco_transformer/nn/module.hpp
-  include/riftco_transformer/nn/parameter.hpp
-  src/nn/module.cpp
-  src/nn/parameter.cpp
-  tests/nn/test_module.cpp
-  docs/MODULES.md
-
-public custom-gradient operation
-  include/riftco_transformer/core/autograd.hpp
-  src/core/autograd/custom_gradient.cpp
-  tests/core/test_autograd.cpp
-  docs/AUTOGRAD.md
-
-NF4 and quantized linear
-  include/riftco_transformer/core/quantized_weight.hpp
-  include/riftco_transformer/nn/quantized_linear.hpp
-  src/core/quantization/
-  src/core/backend/nn/quantized_linear/
-  src/nn/quantized_linear.cpp
-  tests/core/test_quantization.cpp
-  tests/core/backend/test_quantized_linear_backend.cpp
-  tests/nn/test_quantized_linear.cpp
-  tests/model/test_qlora_model.cpp
-  docs/QLORA.md
-
-causal attention
-  include/riftco_transformer/model/causal_self_attention.hpp
-  src/model/causal_self_attention.cpp
-  tests/model/test_causal_self_attention.cpp
-
-transformer block
-  include/riftco_transformer/model/activation_checkpointing.hpp
-  include/riftco_transformer/model/transformer_block.hpp
-  src/model/transformer_block.cpp
-  tests/model/test_transformer_block.cpp
-
-decoder-only transformer
-  include/riftco_transformer/model/decoder_kv_cache.hpp
-  include/riftco_transformer/model/decoder_only_transformer.hpp
-  src/model/decoder_only_transformer.cpp
-  tests/model/test_decoder_only_transformer.cpp
-
-activation checkpoint primitive
-  include/riftco_transformer/core/autograd.hpp
-  src/core/autograd/checkpoint.cpp
-  tests/core/test_autograd.cpp
-  docs/ACTIVATION_CHECKPOINTING.md
-
-serving KV cache
-  include/riftco_transformer/stages/serving/kv_cache.hpp
-  src/stages/serving/cache/
-    detail/
-      validation.hpp
-      page_storage.hpp
-      page_table_cache.hpp
-    validation.cpp
-    page_storage.cpp
-    page_table_cache.cpp
-    contiguous_kv_cache.cpp
-    paged_kv_cache.cpp
-  tests/stages/test_native_serving_generation.cpp
-
-low-rank adaptation
-  include/riftco_transformer/nn/low_rank_adapter.hpp
-  src/nn/low_rank_adapter.cpp
-  include/riftco_transformer/model/lora.hpp
-
-Adam
-  include/riftco_transformer/optim/adam.hpp
-  src/optim/adam.cpp                 contiguous/bounded-page state policy
-  tests/optim/test_adam.cpp
-
-native artifact state
-  include/riftco_transformer/artifacts/state.hpp
-  src/artifacts/state.cpp
-
-shared native training
-  include/riftco_transformer/training/
-    optimizer.hpp
-    batch_source.hpp
-    causal_language_model_trainer.hpp
-    adam_optimizer_adapter.hpp
-  src/training/
-    batch_source.cpp
-    causal_language_model_trainer.cpp
-    adam_optimizer_adapter.cpp
-
-native stage composition roots
-  include/riftco_transformer/stages/
-    pretraining/
-    post_training/
-    serving/
-  src/stages/
-    pretraining/
-    post_training/
-    serving/
-  tests/stages/
-    test_native_stage_stacks.cpp
-    test_native_serving_generation.cpp
-    test_stage_contracts.cpp
-
-native pretraining CLI
-  apps/pretraining/train.cpp
-
-execution backends
-  include/riftco_transformer/core/backend.hpp
-  src/core/backend/
-    storage.hpp                       shared storage contract
-    adapter.hpp                       composition facade for capabilities
-    registry.cpp                      closed backend selection
-    unavailable_adapter.hpp           shared optional-backend stub
-    adapters/
-      cpu/adapter.cpp
-      cuda/adapter.cu
-      cuda/stub.cpp
-      metal/adapter.mm
-      metal/stub.cpp
-      metal/runtime.mm
-      tpu/adapter.cpp
-      tpu/stub.cpp
-      tpu/compile_options.hpp
-      tpu/runtime.hpp
-      tpu/runtime.cpp
-    attention/
-      contracts.hpp
-      capability.hpp
-      dispatch.hpp
-      dispatch.cpp
-      reference/
-        materialized_causal.hpp
-        materialized_causal.cpp
-        flash_causal.hpp
-        flash_causal.cpp
-        paged_decode.hpp
-        paged_decode.cpp
-      cuda/
-        launch.hpp
-        common.cuh
-        materialized_causal.cu
-        flash_causal.cu
-        paged_decode.cu
-      metal/
-        launch.hpp
-        materialized_causal_kernels.hpp
-        flash_causal_kernels.hpp
-        paged_decode_kernels.hpp
-      tpu/
-        common.hpp
-        materialized_causal.hpp
-        materialized_causal.cpp
-        paged_decode.hpp
-        paged_decode.cpp
-    nn/
-      contracts.hpp
-      capability.hpp
-      dispatch.hpp
-      dispatch.cpp
-      reference/
-        operations.hpp
-        operations.cpp
-      cuda/
-        launch.hpp
-        common.cuh
-        elementwise.cu
-        reduction.cu
-        layout.cu
-        softmax.cu
-        indexing.cu
-        normalization.cu
-        loss.cu
-      metal/
-        kernels.hpp
-        launch.hpp
-      quantized_linear/
-        contracts.hpp
-        capability.hpp
-        storage.hpp
-        dispatch.hpp
-        dispatch.cpp
-        reference/
-          operations.hpp
-          operations.cpp
-        cuda/
-          launch.hpp
-          operations.cu
-          storage.cu
-        metal/
-          kernels.hpp
-          launch.hpp
-          runtime.mm
-        tpu/
-          launch.hpp
-          runtime.cpp
-    optim/adam/
-      contracts.hpp
-      capability.hpp
-      dispatch.hpp
-      dispatch.cpp
-      reference/
-        update.hpp
-        update.cpp
-      cuda/
-        launch.hpp
-        update.cu
-      metal/
-        kernels.hpp
-        launch.hpp
-        diagnostics.hpp
-  third_party/pjrt/                   pinned PJRT C ABI header and license
-  tests/core/backend/test_backend.cpp
-  tests/core/backend/test_nn_backend.cpp
-  tests/core/backend/test_quantized_linear_backend.cpp
-  tests/fakes/fake_pjrt_tpu.cpp       tests-only PJRT boundary emulator
-
-C ABI and Python
-  include/riftco_transformer/c_api.h
-  src/c_api.cpp
-  tests/abi/test_c_api.c
-  python/riftco_transformer/
-    __init__.py                    public native API exports
-    native/
-      bindings.py                 typed ctypes C ABI client
-    artifacts/
-      bundle.py                   immutable stage handoff
-    data/
-      client.py                   stdlib Hugging Face API adapter
-      adapters.py                 audited source-to-record presets
-      splitting.py                seeded content-hash partitions
-      serialization.py            canonical JSONL/plain-text writers
-      preparation.py              atomic output and provenance verification
-    experiments/
-      fine_tuning.py               full/LoRA generalization comparison
-      lora_rank.py                validation-selected rank comparison
-    training/
-      engine.py                   shared batches and optimizer loop
-    pretraining/
-      pipeline.py                 stage 1 orchestration
-    post_training/
-      evaluation.py               split integrity and exhaustive scoring
-      pipeline.py                 stage 2 orchestration
-    serving/
-      generation.py               sampling and ABI decode-session orchestration
-      service.py                  synchronized model runtime
-      http.py                     local JSON HTTP adapter
-  examples/python/
-    prepare_huggingface_data.py   bounded dataset preparation CLI
-    compare_fine_tuning.py        full-versus-LoRA generalization CLI
-    compare_lora_ranks.py         reproducible LoRA-rank CLI
-  tests/python/test_python_binding.py
-  tests/python/test_huggingface_data.py
-  tests/python/test_fine_tuning_experiment.py
-  tests/python/test_lora_rank_experiment.py
-  tests/python/test_generation.py
-  tests/python/test_stage_stack.py
-  tests/python/test_package_structure.py
+src/core/backend/
+├── adapters/
+│   ├── cpu/
+│   ├── metal/
+│   ├── cuda/
+│   └── tpu/
+├── attention/
+│   ├── reference/
+│   ├── metal/
+│   ├── cuda/
+│   └── tpu/
+├── nn/
+│   ├── reference/
+│   ├── metal/
+│   ├── cuda/
+│   ├── tpu/
+│   └── quantized_linear/
+└── optim/adam/
 ```
 
-The `model` test directory mirrors all three model components. The `optim`
-test directory contains optimizer verification. The native artifact,
-training, and stage tests cover state handoff, configuration contracts,
-composition, paged KV-cache behavior, and serving generation. The serving
-design and its deliberate scheduler limits are documented in `docs/SERVING.md`.
-Downloaded corpora are generated inputs below ignored `data/external/`;
-experiment bundles and summaries are generated outputs below ignored
-`results/`. Their manifests and fingerprints should be retained with
-experimental records rather than committed as framework source. The data
-preparation and selection contracts are documented in
-`docs/DATASETS_AND_LORA_EXPERIMENTS.md`; metric definitions and the native
-split-aware stage are documented in `docs/GENERALIZATION.md`.
-Avoid generic helper directories: a helper should live with the domain that
-owns its behavior.
+The readable reference implementation is the correctness oracle. Dispatch
+validates a backend-neutral request, then selects an available capability.
+Hardware directories implement that contract without leaking CUDA, Metal, or
+PJRT types into tensors, neural layers, Adam, or Python.
 
-## Framework extension seams
+This separation supports extension without copying whole algorithms into every
+backend. A new kernel normally changes one capability contract/dispatcher,
+one reference test, and the hardware implementation that benefits from it.
 
-The public C++ framework separates three forms of extension:
+## Python distribution
 
-- derive a concrete `Module`, keep direct children at stable addresses, and
-  register parameters or child modules once during construction before the
-  subtree is attached and sealed;
-- implement a typed forward method by composing existing `Variable`
-  operations, or attach an externally computed tensor with
-  `custom_gradient(output, inputs, vjp)`;
-- pass the resulting `ParameterList` to generic consumers such as Adam,
-  backend transfer, or `global_gradient_norm`.
+```text
+python/riftco_transformer/
+├── native/          typed `ctypes` wrappers over opaque C handles
+├── training/        batches, trainer loop, metrics, backend selection
+├── pretraining/     next-token workflow and immutable base bundle creation
+├── post_training/   Full/LoRA/QLoRA workflow and held-out evaluation
+├── data/            preparation, adapters, splitting, verification
+├── artifacts/       versioned `.rift` `ModelBundle`
+└── serving/         sampling, model service, chat, and local HTTP
+```
 
-`parameters()` traverses the registered tree in stable depth-first insertion
-order. `ModuleList` shared-owns repeated children and supplies numeric
-registration names. Parameter entries retain canonical state through
-`ParameterHandle`;
-their public raw pointers are compatibility views rather than a separate
-ownership contract.
+The package is dependency-free by default. Python owns mutable workflow state
+only for the duration of a run; numerical forward/loss/backward/Adam calls
+execute in the native engine. The wheel contains this package and the matching
+C ABI shared library, but not repository labs.
 
-The module base intentionally does not define one virtual `forward()` and does
-not own backward traversal. Input types remain concrete, while core autograd
-owns the chain rule and validates public custom VJPs. This is source-level
-framework extensibility, not a runtime binary-plugin system. Dynamically
-attached LoRA factors also remain an explicit separate list rather than
-changing the stable base-parameter tree.
+## Examples and labs
+
+```text
+examples/python/
+├── train_tiny.py
+├── prepare_huggingface_data.py
+├── pretrain_stage.py
+├── post_train_stage.py
+└── serve_stage.py
+
+labs/
+├── _support/             shared report publication helpers
+├── lora_rank/            controlled LoRA-rank selection
+├── fine_tuning/          full-versus-LoRA comparison
+└── conditional_reverse/  task/protocol audit and historical evidence
+```
+
+An example answers “how do I call this public API?” A lab answers “what fixed
+hypothesis and evidence protocol are we testing?” If code selects candidates,
+owns train/validation/test policy, performs ablations, or publishes a research
+report, it belongs in `labs/`.
+
+Run labs from the repository root:
+
+```bash
+PYTHONPATH=python:. python3 -m labs.lora_rank.run --help
+PYTHONPATH=python:. python3 -m labs.fine_tuning.run --help
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run --help
+```
+
+The conditional-reversal lab currently audits deterministic data and oracle
+controls only. The former C++ F/P/T/I implementation was retired; one record
+under `labs/conditional_reverse/reports/` preserves its provenance without
+presenting it as a current benchmark or paper reproduction.
+
+## State handoffs
+
+Two state contracts remain intentionally different:
+
+| Contract | Owner | Purpose | Persistent | Resumable training |
+| --- | --- | --- | --- | --- |
+| `ModelSnapshot` | C++ | in-process model/tokenizer state, including native serving restore | No | No |
+| `ModelBundle` | Python | immutable, checksummed stage handoff and distribution | Yes (`.rift`) | No |
+
+Neither stores Adam moments, optimizer step, sampler position, or random state.
+A future exact `TrainingCheckpoint` is a separate contract.
+
+## Tests
+
+```text
+tests/
+├── core/          tensor, autograd, quantization, backend dispatch
+├── nn/            layers, loss, LoRA
+├── model/         attention, transformer, decode
+├── optim/         Adam equations, paging, transactionality
+├── data/          tokenizer and batches
+├── artifacts/     state capture/restore
+├── stages/        native serving
+├── compiler/      Cajal checker/evaluator/compiler equivalence
+├── lowering/      neural lowering
+├── analysis/      PCA and interventions
+├── abi/           stable C boundary
+├── package/       installed CMake consumers
+└── python/        bindings and Python-owned workflows
+
+labs/*/tests/      source-only research protocol tests
+```
+
+Tests belong at the lowest contract they protect. Accelerator integration is
+compared with the CPU oracle; compilation or an unavailable-device stub is not
+reported as real-hardware validation.
 
 ## CMake organization
 
-The root `CMakeLists.txt` defines the project targets and delegates focused
-policy to:
+The installed package exports these concerns separately:
 
-```text
-cmake/RiftcoTransformerBackends.cmake
-cmake/RiftcoTransformerSanitizers.cmake
-cmake/RiftcoTransformerWarnings.cmake
-cmake/RiftcoTransformerInstall.cmake
-```
-
-The install module exports `riftco_transformer::library` and
-`riftco_transformer::c_api`. The private adapter header stays under
-`src/core/backend` and is not installed. `tests/CMakeLists.txt` owns test
-registration through one helper function, while `tests/package` verifies that
-fresh C and C++ projects can consume only the installed package.
-
-At repository level, `.github/workflows/release.yml` builds and verifies the
-source distribution and the supported Linux, macOS, and Windows wheels before
-creating a tagged release. Platform claims should be based on a green wheel
-job, not inferred from a local stub build.
-
-## SOLID-oriented backend module
-
-The `src/core/backend/` folder mirrors the design roles:
-
-| File | Responsibility |
+| Target | Purpose |
 | --- | --- |
-| `storage.hpp` | Backend-owned contiguous storage contract |
-| `adapter.hpp` | Composition facade for the segregated backend capabilities |
-| `attention/contracts.hpp` | Separate materialized-causal, Flash-causal, and paged-decode request shapes |
-| `attention/capability.hpp` | Attention-only Adapter interface |
-| `attention/dispatch.*` | Backend selection plus attention contract and alias validation |
-| `attention/reference/*` | Readable CPU materialized-causal, tile-8 Flash-causal, and paged-decode algorithms |
-| `attention/cuda/*` | Native CUDA materialized-causal, memory-linear Flash-causal, and paged-decode launchers/kernels |
-| `attention/metal/*` | Focused materialized, tile-8 Flash, and paged-decode Metal shader-source families |
-| `attention/tpu/*` | Shape-specialized StableHLO materialized-causal and paged-decode programs; Flash intentionally remains reference-backed |
-| `nn/contracts.hpp` | Elementwise, reduction, layout, softmax, indexing, normalization, and loss request shapes |
-| `nn/capability.hpp` | Segregated NN Adapter interfaces |
-| `nn/dispatch.*` | Backend selection plus NN shape, storage, and alias validation |
-| `nn/reference/*` | Shared readable host math and the CPU/TPU semantic oracle |
-| `nn/cuda/*` | Native synchronous CUDA launchers/kernels for every NN request |
-| `nn/metal/*` | Native Metal NN shader source and launch boundary into the shared runtime |
-| `nn/quantized_linear/contracts.hpp` | Packed NF4 forward and input-backward request shapes |
-| `nn/quantized_linear/capability.hpp` | Quantized-linear-only Adapter interface |
-| `nn/quantized_linear/storage.hpp` | Backend-owned immutable packed-code and scale-storage contract |
-| `nn/quantized_linear/dispatch.*` | Backend selection plus packed-storage, shape, and alias validation |
-| `nn/quantized_linear/reference/*` | Readable inline-decode CPU forward and input backward |
-| `nn/quantized_linear/metal/*` | Persistent packed buffers and inline-decode Metal kernels |
-| `nn/quantized_linear/cuda/*` | Managed packed allocations and inline-decode CUDA kernels |
-| `nn/quantized_linear/tpu/*` | Packed U8 inputs and StableHLO scale reconstruction/dequantization/dot programs |
-| `optim/adam/contracts.hpp` | Transactional out-of-place Adam batch request |
-| `optim/adam/capability.hpp` | Adam-only Adapter interface |
-| `optim/adam/dispatch.*` | Backend selection plus Adam scalar, storage, and candidate-alias validation |
-| `optim/adam/reference/*` | Shared double-intermediate Adam semantics used by CPU, TPU, and Metal safety retry |
-| `optim/adam/cuda/*` | Native double-intermediate CUDA candidate-state update |
-| `optim/adam/metal/*` | Fused Metal shader source, launch boundary, and path diagnostics |
-| `registry.cpp` | Backend identity lookup, availability, and selection |
-| `adapters/cpu/adapter.cpp` | CPU storage, matmul, and reference-operation delegation |
-| `adapters/metal/*` | Apple Metal adapter/stub and shared lazy kernel runtime |
-| `adapters/cuda/*` | Optional managed CUDA adapter, native capability delegation, and default-build stub |
-| `adapters/tpu/*` | Optional host-mirrored TPU adapter, generic dynamic PJRT runtime, and default-build stub |
-| `unavailable_adapter.hpp` | Shared closed-registry stub implementation for optional backends |
+| `riftco_transformer::library` | native tensor/model/optimizer/artifact/serving runtime |
+| `riftco_transformer::compiler` | standard-library-only Cajal frontend/compiler |
+| `riftco_transformer::analysis` | standard-library-only interpretation primitives |
+| `riftco_transformer::lowering` | one-way compiler-to-neural bridge |
+| `riftco_transformer::programmed` | generic programmed sequence composition |
+| `riftco_transformer::c_api` | shared stable C ABI used by Python |
 
-This structure applies the useful parts of SOLID without hiding control flow:
+`cmake/RiftcoTransformerBackends.cmake` owns hardware options;
+`RiftcoTransformerWarnings.cmake` and `RiftcoTransformerSanitizers.cmake` own
+toolchain policy; `RiftcoTransformerInstall.cmake` owns package export and
+wheel-library placement. No experiment target is exported.
 
-- **Single responsibility:** shared contracts, portable reference math, backend
-  selection, and each device integration live in separate subtrees.
-- **Open/closed:** a built-in backend adds one adapter and one explicit registry
-  entry; tensor, autograd, model, C ABI, and Python code do not change unless
-  that backend is exposed through those public surfaces.
-- **Liskov substitution:** every available adapter must honor the same
-  validated, synchronous storage and operation contracts.
-- **Interface segregation:** storage, layout, elementwise, reduction, matmul,
-  quantized linear, softmax, indexing, normalization, loss, attention, and
-  Adam remain focused capability interfaces rather than one unstructured
-  device API.
-- **Dependency inversion:** `tensor_ops` dispatches through `BackendAdapter`;
-  it never includes CPU, Objective-C, Metal, CUDA, or PJRT implementation
-  details.
+## Extension checklist
 
-The registry remains explicit rather than using static self-registration.
-That makes startup order, duplicate identity, and adapter lifetime behavior
-deterministic. Future kernels should extend or add focused capability
-interfaces instead of accumulating unrelated methods in one contract.
+Before adding a component, ask:
 
-There are deliberately no generic `nn/tpu/` or `optim/adam/tpu/` directories.
-The TPU adapter names those generic-NN and Adam fallbacks by calling the shared
-reference modules directly. `nn/quantized_linear/tpu/` does exist because it
-owns real PJRT/StableHLO forward and input-backward programs. A backend-specific
-subtree appears only when it owns backend-specific implementation work.
+1. Is it reusable numerical/model behavior? Put its contract in C++ and expose
+   only the necessary stable C operation to Python.
+2. Is it dataset, loop, evaluation, or workflow policy? Put it in the installed
+   Python package.
+3. Is it a controlled hypothesis, sweep, ablation, or report? Put it in
+   top-level `labs/` and import only public Python APIs.
+4. Is it a small usage demonstration? Put it in `examples/python/`.
+5. Does it require a new hardware path? Add a reference contract first, then a
+   capability-specific backend implementation and oracle comparison.
+
+These rules preserve separation of concerns and make framework features
+reusable without making experiments permanent dependencies.

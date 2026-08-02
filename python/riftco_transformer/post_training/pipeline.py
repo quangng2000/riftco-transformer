@@ -24,7 +24,7 @@ FULL_SEQUENCE_OBJECTIVE = "full_sequence_causal_sft"
 _ASCII_WHITESPACE = " \t\n\r\f\v"
 
 
-def _selected_post_training_backend(
+def selected_post_training_backend(
     config: PostTrainingConfig,
     *,
     require_qlora_capability: bool = False,
@@ -305,7 +305,7 @@ def post_train(
     ):
         raise TypeError("examples must contain InstructionExample values")
 
-    backend = _selected_post_training_backend(config)
+    backend = selected_post_training_backend(config)
     with base_bundle.instantiate(backend) as runtime:
         runtime.model.set_full_sequence_attention(config.attention)
         runtime.model.set_activation_checkpointing(
@@ -520,4 +520,5 @@ __all__ = [
     "load_instruction_jsonl_bytes",
     "post_train",
     "post_train_jsonl",
+    "selected_post_training_backend",
 ]

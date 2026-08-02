@@ -1,7 +1,9 @@
 # Training Loop
 
-The training loop connects the completed tokenizer, model, autograd engine,
-and Adam optimizer. One iteration is:
+The Python training loop connects the tokenizer, native model, autograd engine,
+and Adam optimizer. Python owns batch policy, iteration, evaluation, and metric
+delivery; C++ executes tensor operations, forward, loss, backward, and Adam.
+One iteration is:
 
 ```text
 sample window starts
@@ -16,7 +18,7 @@ backward pass
         ↓
 global gradient clipping and Adam update
         ↓
-write one CSV metrics row
+publish one immutable metric record
 ```
 
 The loop coordinates these components; it does not move their responsibilities.
@@ -45,8 +47,8 @@ replacement**, so:
 Duplicates are expected samples, not an error. Sampling with replacement keeps
 each draw simple and gives every valid window the same chance on every row.
 
-The sampler and model initializer each receive their own `std::mt19937`
-instance seeded with the configured `seed`. Their state is independent, so
+The Python sampler owns a dedicated `random.Random` seeded by the workflow
+config, while native model initialization receives its own seed. Their state is independent, so
 consuming more random numbers while constructing the model does not silently
 change the training batches. With the same corpus, configuration, command-line
 overrides, and implementation, a seeded run reproduces its batch sequence.
@@ -57,22 +59,17 @@ repeatedly for every batch row.
 
 ## A fresh graph on every step
 
-In simplified C++, the loop is:
+In simplified Python, the loop is:
 
-```cpp
-for (std::size_t step = 0; step < training_steps; ++step) {
-    const auto batch = sample_batch();
-    const auto logits = model.forward(
-        batch.inputs(),
-        {batch.batch_size(), batch.context_size()}
-    );
-    const auto loss = cross_entropy(logits, batch.targets());
-    const float loss_value = loss.value().flat(0);
-
-    loss.backward();
-    const auto stats = optimizer.step();
-    write_metrics(stats.step, loss_value, stats);
-}
+```python
+for _ in range(config.steps):
+    batch = source.next_batch()
+    with model(batch.inputs) as logits:
+        with cross_entropy(logits, batch.targets) as loss:
+            loss_value = loss.item()
+            loss.backward()
+            stats = optimizer.step()
+    publish_metric(stats.step, loss_value, stats)
 ```
 
 Every call to `model.forward` creates new operation nodes that remember the
@@ -85,16 +82,12 @@ The loss is copied to `loss_value` before the optimizer step because it
 describes the prediction made with the pre-update parameters. Adam reports the
 gradient norm and clip scale used for that same update.
 
-## CSV metrics
+## Metric records
 
-The default path is the configured results directory followed by
-`metrics.csv`. The file has this exact header:
-
-```csv
-step,loss,gradient_norm,clip_scale
-```
-
-One row is written for each successful optimizer update:
+`CausalLanguageModelTrainer.run()` returns immutable `TrainingMetric` values
+and can send each one to a caller-supplied metric sink. Examples print them;
+labs may serialize them into run reports. The framework does not prescribe a
+CSV file or overwrite policy.
 
 | Column | Meaning |
 | --- | --- |
@@ -105,34 +98,29 @@ One row is written for each successful optimizer update:
 
 `clip_scale` is `1` when the norm is already within the configured limit. When
 clipping is required it is `gradient_clip / gradient_norm`, a value below `1`.
-Together, these columns show whether learning is progressing and whether
+Together, these fields show whether learning is progressing and whether
 updates are regularly being clipped.
 
-## Running and overriding a short experiment
+## Running a short example
 
 From the project directory:
 
 ```bash
-cmake --preset debug
-cmake --build --preset debug
-./build/debug/riftco-transformer --config configs/tiny.conf
+PYTHONPATH=python python3 examples/python/train_tiny.py \
+  --steps 5 --backend cpu
 ```
 
-The configuration's `training_steps` controls the normal run. Two command-line
-options make short experiments convenient:
+The example exposes the Python workflow controls directly:
 
 ```bash
-./build/debug/riftco-transformer \
-  --config configs/tiny.conf \
+PYTHONPATH=python python3 examples/python/train_tiny.py \
   --steps 20 \
-  --metrics results/debug-metrics.csv \
+  --backend cpu \
   --attention flash \
   --activation-checkpointing block
 ```
 
-- `--steps N` overrides `training_steps` for this run and requires a positive
-  count.
-- `--metrics PATH` overrides the default CSV output path for this run.
+- `--steps N` selects a positive optimizer-step count.
 - `--backend cpu|metal|cuda|tpu` selects model, activation, gradient, and optimizer
   storage. Metal routes the training graph's layout, elementwise, reduction,
   GELU, LayerNorm, softmax/causal-mask, embedding gather/scatter,
@@ -176,7 +164,8 @@ options make short experiments convenient:
   backward. Disabled remains the default.
 - Options may appear in any order.
 
-These are execution overrides; they do not edit the configuration file. Metal,
+These are Python command options; they do not change persisted model
+configuration. Metal,
 CUDA, and TPU execution are synchronous and do not imply
 asynchronous streams, bitwise equality with CPU, or an unmeasured speedup from
 selecting an accelerator or Flash.
@@ -207,10 +196,9 @@ parameter candidates for transactionality. CUDA page tensors use managed
 allocations; there is no explicit eviction, host/disk spill, prefetch policy,
 memory budget, or general OS page-fault manager.
 
-Post-training chooses paged state automatically for QLoRA and contiguous state
-for Full or LoRA. Python can override that policy with
-`optimizer_state="contiguous"|"paged"`; C++ uses
-`PostTrainingConfig::qlora_paged_optimizer`. See [ADAM.md](ADAM.md) for
+Python post-training chooses paged state automatically for QLoRA and contiguous
+state for Full or LoRA. Override that policy with
+`optimizer_state="contiguous"|"paged"`. See [ADAM.md](ADAM.md) for
 diagnostics and failure atomicity.
 
 ## Tiny-batch overfitting acceptance

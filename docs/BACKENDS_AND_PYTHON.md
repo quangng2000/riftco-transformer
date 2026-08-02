@@ -73,63 +73,26 @@ the generated quantized-linear program contract and checks legacy and
 double-quantized forward/input-backward results against CPU oracles. Real
 `libtpu` and Cloud TPU hardware validation remain pending.
 
-## Selecting a C++ backend
+## Selecting a backend
 
-The training executable accepts:
+Low-level C++ and C APIs use explicit CPU, Metal, CUDA, or TPU selectors.
+High-level Python workflows and labs additionally accept `auto`: it selects
+TPU when available, then CUDA, Metal, and CPU. Requesting an unavailable
+explicit backend fails instead of silently changing a run.
 
-```bash
-./build/release/riftco-transformer \
-  --config configs/tiny.conf \
-  --steps 20 \
-  --backend cpu \
-  --attention flash \
-  --activation-checkpointing block
-```
-
-On a Metal-capable Mac:
+For example, the Python-owned training example accepts the backend alongside
+independent attention and activation-retention policies:
 
 ```bash
-./build/release/riftco-transformer \
-  --config configs/tiny.conf \
+PYTHONPATH=python python3 examples/python/train_tiny.py \
   --steps 20 \
   --backend metal \
   --attention flash \
   --activation-checkpointing block
 ```
 
-In a CUDA-enabled source build:
-
-```bash
-./build/cuda/riftco-transformer \
-  --config configs/tiny.conf \
-  --steps 20 \
-  --backend cuda \
-  --attention flash \
-  --activation-checkpointing block
-```
-
-In a TPU-enabled Cloud TPU build:
-
-```bash
-./build/tpu-release/riftco-transformer \
-  --config configs/tiny.conf \
-  --steps 20 \
-  --backend tpu \
-  --attention flash \
-  --activation-checkpointing block
-```
-
-`--attention materialized|flash` selects the full-sequence algorithm;
-materialized is the default. It is independent from
-`--backend cpu|metal|cuda|tpu`.
-`--activation-checkpointing disabled|block` controls full-sequence autograd
-retention independently of both selectors.
-
-The native CLI and low-level C++/C/Python APIs use the explicit names `cpu`,
-`metal`, `cuda`, and `tpu`. High-level Python stage and experiment
-configurations also accept `auto`: it selects TPU when available, then CUDA,
-Metal, and CPU. Requesting an unavailable explicit backend fails instead of
-silently changing the experiment backend.
+Use `cpu` in every build, `metal` on a compatible Mac, `cuda` in a
+CUDA-enabled source build, or `tpu` in a TPU-enabled Cloud TPU build.
 
 The public C++ default-selection interface is:
 
@@ -696,7 +659,8 @@ Output:
 [58.0, 64.0, 139.0, 154.0]
 ```
 
-The same package exposes the high-level native training objects:
+The same package exposes low-level Python wrappers around native model,
+autograd, loss, and Adam objects:
 
 ```python
 from riftco_transformer import (
@@ -919,7 +883,7 @@ establish kernel numerical parity without a visible NVIDIA GPU. That real-GPU
 acceptance run was not available on the macOS development host.
 
 TPU verification covers its additive ABI identity, unavailable-stub contract,
-stage/CLI recognition, TPU-runtime source compilation on Linux, and fake-PJRT
+C ABI/Python recognition, TPU-runtime source compilation on Linux, and fake-PJRT
 matmul, packed quantized-linear, and materialized/paged-attention execution. On
 a Cloud TPU host it
 additionally requires CPU/TPU transfer, batched matmul/autograd parity, both

@@ -9,7 +9,7 @@ on:
       - ".github/workflows/pages.yml"
       - "docs/**"
       - "README.md"
-      - "results/experiments/conditional-reverse/**"
+      - "labs/conditional_reverse/reports/**"
       - "site/**"
   workflow_dispatch:
 

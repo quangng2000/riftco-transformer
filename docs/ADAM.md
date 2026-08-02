@@ -153,13 +153,12 @@ eviction, host/disk spill budget, prefetch policy, out-of-core scheduler, or
 general OS page-fault manager. “Paged” means bounded state allocations and
 bounded update requests here.
 
-The native and Python post-training policies keep ordinary Full and LoRA runs
-contiguous by default. QLoRA defaults to paged state because its frozen NF4 base
-has no Adam moments and only the floating-point adapter state is updated. In
-Python, `PostTrainingConfig.optimizer_state="auto"` makes that selection;
-`"contiguous"` and `"paged"` are explicit overrides. The native stack uses
-`PostTrainingConfig::qlora_paged_optimizer` and
-`qlora_optimizer_page_size`.
+Python post-training keeps ordinary Full and LoRA runs contiguous by default.
+QLoRA defaults to paged state because its frozen NF4 base has no Adam moments
+and only the floating-point adapter state is updated.
+`PostTrainingConfig.optimizer_state="auto"` makes that selection;
+`"contiguous"` and `"paged"` are explicit overrides. Direct C++ callers may
+select the same storage policy through `AdamOptions`.
 
 ### State diagnostics
 

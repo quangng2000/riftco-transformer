@@ -1,10 +1,17 @@
 # riftco-transformer Python distribution
 
 This package is the typed, runtime-dependency-free-by-default `ctypes` interface to
-`libriftco_transformer_c`, plus explicit data preparation, pretraining,
-post-training, experiment, artifact, generation, and local-serving modules.
+`libriftco_transformer_c`, plus explicit data preparation, Python-owned
+training orchestration, pretraining, post-training, artifact, generation, and
+local-serving modules.
 A platform wheel carries both the Python modules and its native C ABI library;
 users do not install the native framework separately.
+
+The ownership boundary is intentional: Python owns datasets, high-level
+training loops, evaluation, and workflow policy; C++ owns tensors, autograd,
+models, losses, Adam, artifacts, serving primitives, and hardware kernels.
+Repository research protocols live in top-level `labs/` and are not included
+in the installed distribution.
 
 ## Install
 
@@ -208,7 +215,7 @@ the complete forward/backward path before starting the forward pass. If the
 device rejects a very wide head, use more heads or select
 `attention="materialized"`.
 
-## Hugging Face data and rank experiments
+## Hugging Face data and research labs
 
 The `riftco_transformer.data` package is also dependency-free. Its default
 transport uses `urllib` to read bounded pages from the official Hugging Face
@@ -235,32 +242,18 @@ adapter maps `instruction` plus optional `context` into `prompt`, preserves
 remains chosen/rejected preference data and is not accepted by the current SFT
 pipeline.
 
-The `riftco_transformer.experiments` package compares LoRA ranks from the same
-immutable base:
+Controlled comparisons are repository labs rather than installed framework
+API. From a source checkout, compare LoRA ranks from one immutable base with:
 
-```python
-from riftco_transformer.artifacts import ModelBundle
-from riftco_transformer.experiments import (
-    LoraRankExperimentConfig,
-    compare_lora_ranks,
-    load_prepared_instruction_splits,
-)
-
-base = ModelBundle.load("results/stages/tinystories_pretrained.rift")
-splits = load_prepared_instruction_splits(
-    "data/external/huggingface/dolly-lora-v1"
-)
-comparison = compare_lora_ranks(
-    base,
-    splits,
-    LoraRankExperimentConfig(
-        ranks=(1, 2, 4, 8),
-        alpha_over_rank=2.0,
-        steps=20,
-        backend="cpu",
-    ),
-)
-print(comparison.best_rank, comparison.selected_test.loss)
+```bash
+PYTHONPATH=python:. python3 -m labs.lora_rank.run \
+  --base results/stages/tinystories_pretrained.rift \
+  --data data/external/huggingface/dolly-lora-v1 \
+  --output runs/lora-rank \
+  --ranks 1,2,4,8 \
+  --alpha-over-rank 2 \
+  --steps 20 \
+  --backend cpu
 ```
 
 Every rank shares data fingerprints, seeds, sampler, optimizer controls,
@@ -272,17 +265,16 @@ timings are only smoke measurements. The CLI atomically publishes a new,
 complete output directory and embeds the verified prepared-data manifest plus
 its SHA-256 in `comparison.json`.
 
-`compare_fine_tuning()` generalizes the same held-out protocol to fixed full
+The fine-tuning lab generalizes the same held-out protocol to fixed full
 fine-tuning recipes and LoRA rank groups. It exhaustively evaluates train and
 validation to calculate a comparable generalization gap, then evaluates test
-only for the fixed full recipe and validation-selected LoRA rank. The example
-CLI is:
+only for the fixed full recipe and validation-selected LoRA rank:
 
 ```bash
-python3 examples/python/compare_fine_tuning.py \
+PYTHONPATH=python:. python3 -m labs.fine_tuning.run \
   --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
-  --output results/experiments/full-vs-lora \
+  --output runs/fine-tuning \
   --full-learning-rate 0.001 \
   --lora-learning-rate 0.005 \
   --backend cpu
@@ -472,7 +464,6 @@ riftco_transformer/
 ├── native/          # stable C ABI bindings
 ├── artifacts/       # ModelBundle persistence
 ├── data/            # external dataset adapters and preparation
-├── experiments/     # controlled full/LoRA and rank comparisons
 ├── training/        # shared batches, metrics, and trainer
 ├── pretraining/     # next-token pretraining stage
 ├── post_training/   # supervised continuation stage
@@ -481,6 +472,8 @@ riftco_transformer/
 
 The package root re-exports the public low-level API. The breaking rename
 installs only `riftco_transformer`; no legacy package-name alias is provided.
+Top-level `labs/` composes these public APIs into controlled experiments, but
+is source-checkout-only and is not packaged in the wheel.
 
 ## License
 

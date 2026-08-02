@@ -152,35 +152,24 @@ same machine.
 
 ## Configuration and training
 
-### `could not open config`
+### A Python workflow cannot open an input
 
-**Symptom:** `riftco-transformer` exits before printing a run summary.
+**Symptom:** a pretraining, post-training, or lab command reports that its
+corpus, instruction data, prepared dataset, or base artifact cannot be read.
 
-**Cause:** the `--config` path is relative to the current working directory,
-not to the executable.
+**Cause:** script paths are resolved from the current working directory.
+Source-only lab modules also require both `python/` and the repository root on
+the import path.
 
-**Fix:** run from the repository root or provide an absolute path.
+**Fix:** run from the repository root, use explicit paths, and invoke labs as
+modules:
 
 ```bash
-./build/release/riftco-transformer --config configs/tiny.conf --steps 1
+PYTHONPATH=python:. python3 -m labs.lora_rank.run --help
 ```
 
-**Verify:** the startup summary prints resolved corpus, results, and metrics
-paths.
-
-### Config reports an unknown or duplicate key
-
-**Symptom:** `unknown config key`, `duplicate config key`, or `expected
-key=value`.
-
-**Cause:** the parser is intentionally strict; it does not ignore misspellings
-or accept repeated overrides.
-
-**Fix:** compare the file with
-[`configs/tiny.conf`](https://github.com/quangng2000/riftco-transformer/blob/main/configs/tiny.conf)
-and the complete key table in [Configuration reference](CONFIGURATION_REFERENCE.md).
-
-**Verify:** run one step with `--steps 1`.
+**Verify:** the command reaches argument validation or starts the requested
+workflow without an import/path error.
 
 ### `d_model must be divisible by n_heads`
 
@@ -190,7 +179,7 @@ and the complete key table in [Configuration reference](CONFIGURATION_REFERENCE.
 
 **Fix:** choose `d_model` and `n_heads` so `d_model % n_heads == 0`.
 
-**Verify:** calculate `head_width = d_model / n_heads`, then rerun the one-step
+**Verify:** calculate `head_width = d_model / n_heads`, then rerun the Python
 smoke command.
 
 ### Corpus is too short
@@ -204,7 +193,7 @@ following target.
 **Fix:** provide at least `context_size + 1` encodable tokens or reduce the
 context size.
 
-**Verify:** a one-step run creates the metrics header and first row.
+**Verify:** a one-step Python run reports a finite training metric.
 
 ### Loss or gradient becomes non-finite
 
@@ -216,8 +205,8 @@ overflow. Adam validates complete candidate state transactionally.
 **Fix:** inspect the first failing step, lower the learning rate, retain finite
 gradient clipping, and reproduce on CPU with the same seed and batch.
 
-**Verify:** `loss`, `gradient_norm`, and `clip_scale` remain finite in the CSV;
-the successful step counter advances by one.
+**Verify:** `loss`, `gradient_norm`, and `clip_scale` remain finite in the
+reported metrics; the successful step counter advances by one.
 
 ## Tensor and autograd errors
 

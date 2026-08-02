@@ -587,7 +587,7 @@ class PipelineStageTests(unittest.TestCase):
                 ),
             ) as available:
                 self.assertEqual(
-                    post_training_pipeline._selected_post_training_backend(
+                    post_training_pipeline.selected_post_training_backend(
                         config,
                         require_qlora_capability=True,
                     ),
@@ -601,7 +601,7 @@ class PipelineStageTests(unittest.TestCase):
             return_value=False,
         ) as available:
             self.assertEqual(
-                post_training_pipeline._selected_post_training_backend(config),
+                post_training_pipeline.selected_post_training_backend(config),
                 "cpu",
             )
             self.assertEqual(
@@ -620,7 +620,7 @@ class PipelineStageTests(unittest.TestCase):
                 return_value=True,
             ) as available:
                 self.assertEqual(
-                    post_training_pipeline._selected_post_training_backend(
+                    post_training_pipeline.selected_post_training_backend(
                         PostTrainingConfig(
                             backend=backend,
                             fine_tuning_method="qlora",

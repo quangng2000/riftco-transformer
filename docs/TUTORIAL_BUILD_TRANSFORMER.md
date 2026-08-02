@@ -327,8 +327,10 @@ for (std::size_t step = 0; step < training_steps; ++step) {
 - Create `logits` and `loss` inside the loop so every iteration has a fresh
   graph.
 
-The framework's `CausalLanguageModelTrainer` and stage stacks package this
-policy without moving it into the model. See [Training loop](TRAINING.md) and
+This C++ loop is useful for learning how the framework primitives compose.
+The repository's reusable high-level trainer and staged training workflows are
+Python-owned; they call the same native model, loss, autograd, and Adam
+operations through the C ABI. See [Training loop](TRAINING.md) and
 [Staged model pipeline](PIPELINE.md).
 
 ## Verify your understanding

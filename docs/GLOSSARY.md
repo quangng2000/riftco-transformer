@@ -121,8 +121,8 @@ vector. A `[batch,time]` token matrix becomes `[batch,time,model_width]`.
 
 **Epoch**
 
-One pass through a finite training dataset. The corpus-window pretraining CLI
-is step-based sampling with replacement rather than epoch-based traversal.
+One pass through a finite training dataset. The Python corpus-window training
+workflow is step-based sampling with replacement rather than epoch traversal.
 
 ## F
 
@@ -150,16 +150,18 @@ paged KV-cache layout.
 
 **F/P/T/I**
 
-Conditional-reversal controls: F is a frozen compiled conditional program, P
-is a frozen unconditional reverse program, T is a randomized trainable program
-with F's shape, and I omits the program branch.
+Historical conditional-reversal controls from the retired C++ prototype: F was
+a frozen compiled conditional program, P a frozen unconditional reverse
+program, T a randomized trainable program with F's shape, and I omitted the
+program branch. The current Python lab specifies and audits the task but does
+not execute these variants.
 
 ## G
 
 **Generalization**
 
-Performance on examples not used for optimizer updates. The framework reports
-train/validation/test losses and gaps; one split or one experiment does not
+Performance on examples not used for optimizer updates. Python evaluators and
+labs report train/validation/test losses and gaps; one split or one experiment does not
 prove broad generalization.
 
 **Gradient**

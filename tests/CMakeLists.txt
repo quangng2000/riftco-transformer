@@ -44,13 +44,6 @@ option(
     OFF
 )
 
-add_riftco_transformer_test(
-    config_tests
-    config
-    integration/test_config.cpp
-    ${PROJECT_SOURCE_DIR}/configs/tiny.conf
-)
-
 add_executable(c_api_tests
     abi/test_c_api.c
 )
@@ -82,7 +75,7 @@ endif()
 
 option(
     RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS
-    "Build and run the Python C ABI tests"
+    "Build and run Python binding, workflow, and lab tests"
     ON
 )
 if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS)
@@ -217,20 +210,28 @@ if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS)
                 ${CMAKE_CURRENT_SOURCE_DIR}/python/test_huggingface_data.py
         )
         add_test(
-            NAME python_lora_rank_experiment
+            NAME python_lora_rank_lab
             COMMAND
                 ${CMAKE_COMMAND} -E env
                 ${python_test_environment}
                 ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_lora_rank_experiment.py
+                ${PROJECT_SOURCE_DIR}/labs/lora_rank/tests/test_protocol.py
         )
         add_test(
-            NAME python_fine_tuning_experiment
+            NAME python_fine_tuning_lab
             COMMAND
                 ${CMAKE_COMMAND} -E env
                 ${python_test_environment}
                 ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_fine_tuning_experiment.py
+                ${PROJECT_SOURCE_DIR}/labs/fine_tuning/tests/test_protocol.py
+        )
+        add_test(
+            NAME python_conditional_reverse_lab
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                ${Python3_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/labs/conditional_reverse/tests/test_protocol.py
         )
         set_tests_properties(
             python_binding
@@ -239,8 +240,9 @@ if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS)
             python_stage_stack
             python_package_structure
             python_huggingface_data
-            python_lora_rank_experiment
-            python_fine_tuning_experiment
+            python_lora_rank_lab
+            python_fine_tuning_lab
+            python_conditional_reverse_lab
             PROPERTIES
                 TIMEOUT 120
         )
@@ -287,19 +289,6 @@ if(RIFTCO_TRANSFORMER_ENABLE_INSTALL)
             "-DRIFTCO_TRANSFORMER_CUDA_TOOLKIT_ROOT=${riftco_transformer_test_cuda_toolkit_root}"
             -P
             ${CMAKE_CURRENT_SOURCE_DIR}/package/test_installed_package.cmake
-    )
-endif()
-
-if(TARGET riftco_transformer_cli)
-    add_test(
-        NAME neural_pipeline_smoke
-        COMMAND
-            ${CMAKE_COMMAND}
-            -DRIFTCO_TRANSFORMER_EXECUTABLE=$<TARGET_FILE:riftco_transformer_cli>
-            -DCONFIG_PATH=${PROJECT_SOURCE_DIR}/configs/tiny.conf
-            -DMETRICS_PATH=${CMAKE_CURRENT_BINARY_DIR}/neural_pipeline_smoke_metrics.csv
-            -P
-            ${CMAKE_CURRENT_SOURCE_DIR}/integration/test_training_cli.cmake
     )
 endif()
 
@@ -525,39 +514,6 @@ set_tests_properties(analysis_representation
         LABELS "analysis;interpretability;representation"
 )
 
-add_riftco_transformer_component_test(
-    conditional_reverse_task_tests
-    conditional_reverse_task
-    experiments/test_conditional_reverse_task.cpp
-    riftco_transformer::conditional_reverse
-)
-add_riftco_transformer_component_test(
-    conditional_reverse_program_tests
-    conditional_reverse_program
-    experiments/test_conditional_reverse_program.cpp
-    riftco_transformer::conditional_reverse
-)
-add_riftco_transformer_component_test(
-    conditional_reverse_circuit_tests
-    conditional_reverse_circuit
-    experiments/test_conditional_reverse_circuit.cpp
-    riftco_transformer::conditional_reverse
-)
-add_riftco_transformer_component_test(
-    conditional_reverse_learned_tests
-    conditional_reverse_learned
-    experiments/learned_hybrid_test.cpp
-    riftco_transformer::conditional_reverse_learned
-)
-set_tests_properties(
-    conditional_reverse_task
-    conditional_reverse_program
-    conditional_reverse_circuit
-    conditional_reverse_learned
-    PROPERTIES
-        LABELS "compiler;cajal;analysis;conditional-reverse;learned"
-)
-
 add_riftco_transformer_test(
     tokenizer_tests
     tokenizer
@@ -667,25 +623,7 @@ add_riftco_transformer_test(
 )
 
 add_riftco_transformer_test(
-    shared_native_training_tests
-    shared_native_training
-    training/test_shared_native_training.cpp
-)
-
-add_riftco_transformer_test(
     native_serving_generation_tests
     native_serving_generation
     stages/test_native_serving_generation.cpp
-)
-
-add_riftco_transformer_test(
-    native_stage_contract_tests
-    native_stage_contracts
-    stages/test_stage_contracts.cpp
-)
-
-add_riftco_transformer_test(
-    native_stage_stack_tests
-    native_stage_stacks
-    stages/test_native_stage_stacks.cpp
 )

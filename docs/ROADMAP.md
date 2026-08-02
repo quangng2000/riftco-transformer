@@ -133,7 +133,7 @@ standard Adam equations.
 - a sampling random engine independent of model initialization
 - forward, loss, backward, clip, update
 - a fresh computation graph for every step
-- CSV step, loss, gradient-norm, and clipping metrics
+- immutable Python step, loss, gradient-norm, clipping, and validation metrics
 - tiny-batch overfitting test
 
 Acceptance check: loss falls substantially on one repeated tiny batch, and a
@@ -143,13 +143,6 @@ seeded run reproduces its batch sequence.
 
 - native in-memory model/tokenizer state capture and restoration through
   `ModelSnapshot` — complete slice
-- native stage-neutral batch-source, optimizer-strategy, Adam-adapter, and
-  causal-language-model trainer contracts — complete slice
-- native `PretrainingStack`, with the existing CLI migrated to that
-  composition root — complete slice
-- native full-sequence supervised `PostTrainingStack` with full-parameter or
-  adapter-only Adam selection and a merged, detached result snapshot —
-  complete slice
 - reusable low-rank linear adapters, transformer target selection, and
   one-way merge into serving-ready base weights — complete slice
 - artifact guards that reject active, unmerged adapters — complete slice
@@ -160,9 +153,9 @@ seeded run reproduces its batch sequence.
 - logical page tables over shared per-layer K/V pools, backend-owned
   CPU/Metal/CUDA/TPU paged attention, and a swappable contiguous reference
   factory — complete slice
-- native artifact, shared-training, stage-contract, stage-stack, and
-  serving-generation tests — complete slice
-- shared stage-neutral Python causal training engine — complete slice
+- native artifact and serving-generation tests — complete slice
+- shared stage-neutral Python causal training engine, batch sources, metrics,
+  and evaluation policy — complete slice
 - self-supervised pretraining that emits an immutable base artifact —
   complete slice
 - full-sequence supervised full/LoRA/QLoRA post-training that emits a
@@ -181,9 +174,8 @@ seeded run reproduces its batch sequence.
 - reproducible saved sample artifacts
 
 Native handoff acceptance check: a captured `ModelSnapshot` restores exact
-model parameter and tokenizer state; post-training leaves its input snapshot
-unchanged; serving restores a compatible inference runtime without importing
-training or optimizer policy.
+model parameter and tokenizer state, and serving restores a compatible
+inference runtime without importing training or optimizer policy.
 
 Python artifact acceptance check: a reloaded `ModelBundle` produces identical
 tokenizer state, parameter values, logits, and seeded token IDs. Persistent
@@ -227,33 +219,20 @@ next batch, loss, gradients, and Adam update as an uninterrupted run.
 - raw programmed-sequence core with explicit shared projection groups,
   biasless projections, logical-input interventions, and pre-merge output —
   complete slice
-- exact conditional-reverse finite program with checked
-  $[NL,2,NL]$ resources and exhaustive interpreter/compiler semantics —
-  complete slice
-- exact unary reverse and full two-sequence conditional programs, including
-  exhaustive discrete/off-basis semantics and resource preflight — complete
-  slice
-- conditional-reverse circuit whose frozen compiled coefficients lower through
-  `linear_attention`, whose projections use the ordinary Module/Adam lifecycle,
-  and whose target-half placement solves deterministic reverse/copy examples —
-  complete slice
 - separately linked, standard-library-only interpretation analysis with named
   representation matrices, deterministic covariance/Jacobi PCA,
   fit/transform/reconstruct, row-wise interventions, and paired ablation
   statistics — complete slice
-- deterministic disjoint train/validation/test splits, compiled/random
-  controls, train-fit/held-out-transform PCA, held-out resample ablation, and
-  force-copy/force-reverse steering lab executable — complete slice
-- paper-style teacher-forced conditional-reversal data with deterministic
-  10k/5k/1k/1k train/probe/validation/test defaults and strict semantic
-  validation — complete slice
-- learned F/P/T/I hybrid with token/position embeddings, ReLU residual MLP,
-  four causal heads, shared biasless program projection, biasless merge,
-  target-half cross entropy, and ordinary Adam training — complete slice
-- overall plus reverse/copy-stratified held-out evaluation, stable activation
-  captures aggregated across bounded batches, raw-output probe-fit PCA with
-  branch/token/position associations, separate and combined paired ablations,
-  and balanced F-selector steering lab — complete slice
+- Python-owned conditional-reversal task, deterministic source-disjoint
+  10k/5k/1k/1k train/probe/validation/test protocol, branch-stratified metrics,
+  exact oracle, and copy/reverse controls — complete slice
+- one curated historical F-variant record from the retired task-specific C++
+  prototype, clearly separated from current executable evidence — complete
+  slice
+- public task-neutral program-augmented model composition that Python labs can
+  use without importing experiment-specific C++ — future boundary
+- rebuilt Python F/P/T/I training, PCA, ablation, and steering study after that
+  generic composition boundary exists
 - full paper-scale multi-seed F/P/T/I runs with archived configurations,
   validation-based selection, test metrics, checkpoints, and comparison to the
   reported analysis
@@ -270,18 +249,13 @@ multilinear-map coordinates match the encoded reference-interpreter result.
 Non-dictionary outputs also decode to the same source value. Dictionary
 coefficients remain explicit key/value outer products.
 
-Program-integration acceptance check — complete for the compact and learned
-slices:
-strategy analysis is inspectable before allocation; exact mode rejects lossy
-FP32 materialization; automatic lowering selects bilinear linear attention;
-frozen coefficients stay out of Adam while Adam-compatible projections receive
-gradients and T's randomized coefficients enter Adam; source and target spans
-remain disjoint; F/T share a full program signature; target loss excludes the
-source half; branch metrics expose copy-class imbalance; fit-only captures train
-the runtime-independent PCA model while held-out captures only transform
-through it; and paired batch-roll/steering interventions report behavioral
-changes. The next acceptance boundary is archived full-scale experimental
-evidence, not another implementation label.
+Program-integration acceptance check: strategy analysis is inspectable before
+allocation; exact mode rejects lossy FP32 materialization; automatic lowering
+selects bilinear linear attention; and frozen coefficients stay out of Adam.
+For a future learned conditional-reversal lab, Python must be able to compose
+the generic programmed module, train surrounding parameters, fit PCA only on
+probe/train captures, and apply held-out ablation/steering without a
+task-specific installed C++ target.
 
 ## 11. Optional performance work
 
@@ -322,11 +296,11 @@ Only after correctness:
 - dependency-free exact memory-linear Flash causal-attention forward/backward,
   tile-8 on CPU/Metal and block-parallel on CUDA, with `[B,H,T]` row statistics
   instead of saved `[B,H,T,T]` probabilities — complete slice
-- C ABI and Python/native-stage full-sequence attention selection —
+- C ABI and Python full-sequence attention selection —
   complete slice
 - exception-atomic nested VJPs plus transformer-block activation
   checkpointing across the registered backends, including LoRA dependencies,
-  C ABI, Python, stage, and CLI selection — complete slice
+  C ABI and Python selection — complete slice
 - additive ABI 2.1 CUDA identity, unavailable stub, optional CUDA Toolkit 12+
   source build, managed tensor/packed-weight storage, synchronous GPU matmul,
   quantized linear, and all attention contracts — complete slice; real-GPU

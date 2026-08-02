@@ -84,8 +84,8 @@ PostTrainingConfig(fine_tuning_method="full")
 
 ## Comparing ranks without test leakage
 
-`python/riftco_transformer/experiments/lora_rank.py` builds a controlled
-experiment around the post-training API. It verifies prepared Dolly
+Top-level `labs/lora_rank` builds a controlled Python experiment around the
+installed post-training API. It verifies prepared Dolly
 train/validation/test files, starts each candidate from the same immutable
 base artifact, and fixes:
 
@@ -101,11 +101,10 @@ the branch scale comparable while varying adapter capacity and trainable
 parameter count.
 
 ```bash
-PYTHONPATH="$PWD/python" \
-python3 examples/python/compare_lora_ranks.py \
+PYTHONPATH=python:. python3 -m labs.lora_rank.run \
   --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
-  --output results/experiments/dolly-lora-ranks \
+  --output runs/lora-rank \
   --ranks 1,2,4,8 \
   --alpha-over-rank 2 \
   --steps 20 \
@@ -140,7 +139,13 @@ included generation timings as evidence that a lower or higher LoRA rank
 serves faster.
 
 To compare the validation-selected LoRA recipe with full-parameter
-fine-tuning, use `examples/python/compare_fine_tuning.py`. It evaluates both
+fine-tuning, use `labs.fine_tuning`:
+
+```bash
+PYTHONPATH=python:. python3 -m labs.fine_tuning.run --help
+```
+
+It evaluates both
 methods with the same exhaustive train/validation/test metric, reports actual
 generalization gaps, and keeps separate learning-rate controls. See
 [Post-training generalization](GENERALIZATION.md). Reporting both final test

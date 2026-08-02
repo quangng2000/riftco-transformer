@@ -125,12 +125,9 @@ Adam optimizer(model.lora_parameters(), adam_options);
 model.merge_lora();  // Explicitly materializes the serving/export weights.
 ```
 
-The native post-training stack selects the same lifecycle with
-`FineTuningMethod::Qlora`. `PostTrainingConfig` exposes `nf4_block_size`,
-`nf4_double_quantization`, `nf4_scale_block_size`,
-`qlora_paged_optimizer`, and `qlora_optimizer_page_size`; their defaults are
-64, `true`, 256, `true`, and 4096 respectively.
-Python post-training accepts `fine_tuning_method="qlora"`:
+The direct C++ sequence above documents reusable model and optimizer
+primitives, not a native high-level training stage. Python owns the configured
+post-training lifecycle and accepts `fine_tuning_method="qlora"`:
 
 ```python
 from riftco_transformer import LoraConfig
@@ -153,7 +150,7 @@ The runtime performs these steps:
 2. Pack every eligible transformer `Linear` weight as NF4 and release its FP32
    parameter and gradient storage.
 3. Attach unchanged FP32 `LowRankAdapter` factors to the selected projections.
-4. Train only `model.adapter_parameters()` with Adam. The stage's automatic
+4. Train only `model.adapter_parameters()` with Adam. Python's automatic
    optimizer policy selects bounded-page state for QLoRA.
 5. At export, explicitly dequantize all packed weights, add trained LoRA deltas
    where present, and restore the ordinary FP32 parameter schema.

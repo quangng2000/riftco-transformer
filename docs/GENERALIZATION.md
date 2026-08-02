@@ -79,11 +79,10 @@ Prepare a verified instruction dataset as described in
 [Datasets and LoRA experiments](DATASETS_AND_LORA_EXPERIMENTS.md), then run:
 
 ```bash
-PYTHONPATH="$PWD/python" \
-python3 examples/python/compare_fine_tuning.py \
+PYTHONPATH=python:. python3 -m labs.fine_tuning.run \
   --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
-  --output results/experiments/full-vs-lora \
+  --output runs/fine-tuning \
   --methods full,lora \
   --lora-ranks 1,2,4,8 \
   --alpha-over-rank 2 \
@@ -137,14 +136,15 @@ Unselected rank trials deliberately have `null` test fields. The report marks
 the test split as consumed. The CLI refuses to replace an existing output
 directory, preserving prior evidence.
 
-## Python API
+## Python lab API
 
 `FineTuningCandidate` wraps an ordinary `PostTrainingConfig`. Candidates use
-their fine-tuning method as the default selection group:
+their fine-tuning method as the default selection group. These protocol types
+live in the source-only lab, not the installed `riftco_transformer` package:
 
 ```python
 from riftco_transformer import LoraConfig
-from riftco_transformer.experiments import (
+from labs.fine_tuning import (
     FineTuningCandidate,
     FineTuningExperimentConfig,
     compare_fine_tuning,
@@ -190,48 +190,13 @@ evaluation scores that serving-ready artifact. Paging does not reduce the two-
 FP32-moment payload; CUDA pages use managed memory but there is no OS spill or
 page-fault manager.
 
-The shared types and evaluator live in `riftco_transformer.post_training`,
-because split integrity and held-out scoring are not LoRA-specific. The older
-`compare_lora_ranks()` API remains available for a rank-only experiment. The
-supplied `compare_fine_tuning.py` command remains the focused Full-versus-LoRA
-workflow; construct QLoRA candidates through this API when comparing all three
-methods.
-
-## Native C++ stage
-
-The native stage has a split-aware overload for any fine-tuning method:
-
-```cpp
-using namespace riftco_transformer::stages::post_training;
-
-InstructionSplits splits{
-    training_examples,
-    validation_examples,
-    test_examples,
-};
-PostTrainingConfig config;
-config.fine_tuning_method = FineTuningMethod::Qlora;  // or Full/Lora
-
-PostTrainingStack stack(
-    base_snapshot,
-    std::move(splits),
-    formatter,
-    config
-);
-const PostTrainingResult result = stack.run();
-const PostTrainingEvaluationMetrics& evaluation = result.evaluation.value();
-```
-
-`evaluate_causal_sequences()` is optimizer-independent and uses the model's
-current backend. The legacy constructor that receives one example vector is
-still supported; it remains training-only and returns an empty optional
-evaluation.
-
-This C++ overload represents one pre-registered candidate and evaluates its
-test split on every run. It is not a native rank-sweep or recipe-selection
-orchestrator. For multiple candidates, use `compare_fine_tuning()` so all
-validation winners are fixed before any test forward pass; do not repeatedly
-run the split-aware C++ stack and choose a recipe from its test results.
+Reusable split types and the read-only evaluator live in
+`riftco_transformer.post_training`, because split integrity and held-out
+scoring are framework capabilities rather than LoRA-specific policy. Candidate
+construction, group selection, and reporting live in `labs.fine_tuning`.
+`labs.lora_rank` provides the focused rank-only protocol. C++ supplies the
+model/loss/autograd/Adam operations used by both labs; it does not own a
+candidate-sweep or held-out-selection orchestrator.
 
 ## What this does not prove
 

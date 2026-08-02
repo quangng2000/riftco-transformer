@@ -135,6 +135,10 @@ def main() -> int:
         )
 
     package_directory = Path(bindings.__file__).resolve().parents[1]
+    if (package_directory / "experiments").exists():
+        raise RuntimeError(
+            "repository labs must not be included in the framework wheel"
+        )
     bundled_library = package_directory / ".libs" / native_filename()
     if not bundled_library.is_file():
         raise RuntimeError(f"bundled native library is missing: {bundled_library}")

@@ -56,7 +56,7 @@
       "section": "get-started",
       "type": "Overview",
       "order": 1,
-      "summary": "Survey the framework, backend status, staged workflow, installation paths, and documentation map.",
+      "summary": "Survey the Python workflow, C++ runtime boundary, backend status, research labs, installation paths, and documentation map.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["New users", "Framework users"]
@@ -66,7 +66,7 @@
       "section": "get-started",
       "type": "Tutorial",
       "order": 2,
-      "summary": "Install Riftco Transformer, verify a tensor calculation, build the C++ source, and run a short training smoke test.",
+      "summary": "Install Riftco Transformer, verify native tensor math, build the C++ runtime, and run a short Python training smoke test.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["New users", "Learners"]
@@ -146,7 +146,7 @@
       "section": "learn",
       "type": "Concept",
       "order": 8,
-      "summary": "Understand seeded batches, fresh computation graphs, cross-entropy, gradient clipping, Adam updates, and training metrics.",
+      "summary": "Understand how Python orchestrates seeded batches and metrics while C++ executes fresh graphs, cross-entropy, backward, and Adam.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Learners", "Framework users"]
@@ -156,10 +156,10 @@
       "section": "how-to",
       "type": "How-to",
       "order": 1,
-      "summary": "Compose pretraining, supervised post-training, immutable artifact handoff, generation, and local serving.",
+      "summary": "Compose Python-owned pretraining and post-training with immutable artifact handoff and native-backed local serving.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
-      "audience": ["Framework users", "C++ developers", "Python developers"]
+      "audience": ["Framework users", "Python developers"]
     },
     {
       "source": "docs/LORA.md",
@@ -216,7 +216,7 @@
       "section": "concepts",
       "type": "Overview",
       "order": 1,
-      "summary": "Map the implemented dataflow and the boundaries between model, autograd, training, serving, and execution backends.",
+      "summary": "Map the Python orchestration and C++ runtime boundary across model, autograd, training, serving, and execution backends.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Framework users", "Contributors"]
@@ -266,7 +266,7 @@
       "section": "reference",
       "type": "Reference",
       "order": 2,
-      "summary": "Look up native configuration keys, stage options, defaults, validation rules, and backend availability requirements.",
+      "summary": "Look up CMake backend options plus Python training, post-training, and serving configuration contracts.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Framework users", "API consumers"]
@@ -276,7 +276,7 @@
       "section": "reference",
       "type": "Reference",
       "order": 3,
-      "summary": "Look up training, experiment, data preparation, fine-tuning, and serving commands and their options.",
+      "summary": "Look up the Python training, lab, data preparation, fine-tuning, and serving commands and their options.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Framework users", "Researchers"]
@@ -316,7 +316,7 @@
       "section": "internals",
       "type": "Explanation",
       "order": 3,
-      "summary": "Follow finite Cajal-style syntax through checking, interpretation, multilinear compilation, neural lowering, and conditional-reversal analysis.",
+      "summary": "Follow reusable Cajal compilation and neural lowering, then understand the boundary around the Python-owned conditional-reversal lab.",
       "stability": "Active",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Researchers", "Compiler contributors", "Framework contributors"]

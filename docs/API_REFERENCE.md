@@ -17,13 +17,11 @@ target_link_libraries(app PRIVATE riftco_transformer::library)
 
 | Imported target | Public surface | Dependency boundary |
 | --- | --- | --- |
-| `riftco_transformer::library` | Tensor, autograd, neural modules, model, optimizer, stages | Core runtime |
+| `riftco_transformer::library` | Tensor, autograd, neural modules, model, optimizer, artifacts, native serving | Core runtime |
 | `riftco_transformer::compiler` | Cajal types, AST, evaluator, encoding, compiler | Standard library only |
 | `riftco_transformer::analysis` | Matrices, representation traces, PCA, interventions, ablations | Standard library only |
 | `riftco_transformer::lowering` | Cajal/multilinear-map to neural modules | Compiler + runtime |
 | `riftco_transformer::programmed` | Placement of lowered programs in sequence residuals | Analysis + lowering |
-| `riftco_transformer::conditional_reverse` | Exact conditional-reversal circuit | Programmed layer |
-| `riftco_transformer::conditional_reverse_learned` | Learned F/P/T/I experiment | Conditional-reversal layer |
 | `riftco_transformer::c_api` | Stable C ABI 2.4 shared library | Runtime behind opaque handles |
 
 The exported target definitions live in
@@ -94,15 +92,12 @@ Variable logits = model.forward(token_ids, {batch, time});
 in either optimizer list. See [Modules](MODULES.md), [Transformer](TRANSFORMER.md),
 [LoRA](LORA.md), [QLoRA](QLORA.md), and [Adam](ADAM.md).
 
-## Data, training, stages, and artifacts
+## Data, native serving, and artifacts
 
 | Header | Principal API | Lifetime notes |
 | --- | --- | --- |
 | [`data/tokenizer.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/data/tokenizer.hpp) | `TokenizerStrategy`, `ByteTokenizer`, `BytePairTokenizer`, `make_tokenizer` | Tokenizers own immutable vocabulary state and return owned token vectors/strings. |
 | [`data/token_batch.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/data/token_batch.hpp) | `TokenBatch`, `make_next_token_batch`, `sample_next_token_batch` | Batch owns rectangular input and target token arrays. Caller owns the seeded RNG. |
-| [`training/causal_language_model_trainer.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/training/causal_language_model_trainer.hpp) | `CausalLanguageModelTrainer::train_step`, `evaluate_loss` | Non-owning references to model and optimizer; both must outlive the trainer. |
-| [`stages/pretraining/stack.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/stages/pretraining/stack.hpp) | `PretrainingStack(corpus, config)`, `run` | Owns one stage attempt. `run()` is fail-stop and may be called once. |
-| [`stages/post_training/stack.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/stages/post_training/stack.hpp) | `PostTrainingStack(snapshot, examples_or_splits, formatter, config)`, `run` | Restores detached state, owns its optimizer, and trains only the training split. |
 | [`stages/serving/stack.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/stages/serving/stack.hpp) | `ServingStack(snapshot, config)`, `generate` | Restores model/tokenizer inference state and owns its cache factory. |
 | [`artifacts/state.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/artifacts/state.hpp) | `ModelSnapshot`, `capture_snapshot`, `load_model_state`, `restore_tokenizer` | In-memory, backend-neutral value handoff; no optimizer state, lineage, or persistence. |
 
@@ -118,7 +113,6 @@ Configuration defaults are listed in [Configuration reference](CONFIGURATION_REF
 | [`lowering`](https://github.com/quangng2000/riftco-transformer/tree/main/include/riftco_transformer/lowering) | `NeuralLoweringConfig`, `LoweringRegistry`, `analyze_neural_lowering`, `lower_to_neural`, `LoweredMultilinearModule` |
 | [`programmed`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/programmed/sequence_placement.hpp) | `ProgrammedSequenceCore`, `ProgrammedSequenceAdapter`, placement, capture, steering, and batch-roll ablation options |
 | [`analysis`](https://github.com/quangng2000/riftco-transformer/tree/main/include/riftco_transformer/analysis) | `Matrix`, `RepresentationTrace`, `fit_pca`, `transform_pca`, `apply_intervention`, `summarize_ablation` |
-| [`experiments::conditional_reverse`](https://github.com/quangng2000/riftco-transformer/tree/main/include/riftco_transformer/experiments/conditional_reverse) | Exact program/circuit plus learned dataset, F/P/T/I hybrid, trainer, evaluation, and hypothesis scoring |
 
 The compiler and analysis libraries do not depend on the tensor runtime.
 Lowering is the explicit one-way bridge into differentiable modules. Cajal is
@@ -184,7 +178,11 @@ high-level packages are:
 | [`pretraining`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/pretraining) | `PretrainingConfig`, `pretrain_text`, `pretrain_splits`, `pretrain_file`, `pretrain_files` |
 | [`post_training`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/post_training) | Instruction loading/splits, `PostTrainingConfig`, `post_train`, held-out evaluation |
 | [`serving`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/serving) | Samplers, `TextGenerator`, `ModelService`, dependency-free HTTP server |
-| [`experiments`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/experiments) | Full/LoRA/QLoRA comparisons and LoRA-rank selection |
+
+Repository research protocols are intentionally outside this installed API.
+Top-level [`labs`](https://github.com/quangng2000/riftco-transformer/tree/main/labs)
+contains Python-owned fine-tuning, LoRA-rank, and conditional-reversal labs;
+they compose the public packages above and write ignored `runs/` output.
 
 Python loads the native library from the wheel, recognized source-build
 directories, the system loader, or the explicit `RIFTCO_TRANSFORMER_LIBRARY`

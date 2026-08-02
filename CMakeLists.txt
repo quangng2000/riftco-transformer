@@ -75,11 +75,6 @@ include(cmake/RiftcoTransformerSanitizers.cmake)
 include(cmake/RiftcoTransformerBackends.cmake)
 
 option(
-    RIFTCO_TRANSFORMER_BUILD_CLI
-    "Build the riftco-transformer training executable"
-    ${PROJECT_IS_TOP_LEVEL}
-)
-option(
     RIFTCO_TRANSFORMER_ENABLE_INSTALL
     "Generate install rules and an exported CMake package"
     ${PROJECT_IS_TOP_LEVEL}
@@ -89,14 +84,7 @@ option(
     "Build and install the native runtime for the Python wheel"
     OFF
 )
-option(
-    RIFTCO_TRANSFORMER_BUILD_EXPERIMENTS
-    "Build learning-lab experiment executables"
-    ${PROJECT_IS_TOP_LEVEL}
-)
-
 add_library(riftco_transformer_library STATIC
-    src/config.cpp
     ${riftco_transformer_backend_sources}
     src/artifacts/state.cpp
     src/core/autograd/checkpoint.cpp
@@ -131,12 +119,6 @@ add_library(riftco_transformer_library STATIC
     src/nn/module.cpp
     src/nn/parameter.cpp
     src/nn/quantized_linear.cpp
-    src/stages/post_training/config.cpp
-    src/stages/post_training/evaluation.cpp
-    src/stages/post_training/instruction.cpp
-    src/stages/post_training/stack.cpp
-    src/stages/pretraining/config.cpp
-    src/stages/pretraining/stack.cpp
     src/stages/serving/config.cpp
     src/stages/serving/cache/contiguous_kv_cache.cpp
     src/stages/serving/cache/page_storage.cpp
@@ -145,9 +127,6 @@ add_library(riftco_transformer_library STATIC
     src/stages/serving/cache/validation.cpp
     src/stages/serving/generation.cpp
     src/stages/serving/stack.cpp
-    src/training/adam_optimizer_adapter.cpp
-    src/training/batch_source.cpp
-    src/training/causal_language_model_trainer.cpp
 )
 
 set_target_properties(riftco_transformer_library
@@ -368,87 +347,6 @@ riftco_transformer_enable_warnings(riftco_transformer_programmed)
 riftco_transformer_enable_sanitizers(riftco_transformer_programmed)
 riftco_transformer_propagate_sanitizer_runtime(riftco_transformer_programmed)
 
-# Paper-inspired conditional-reversal vertical slice. It remains a separately
-# linked experiment so production model/runtime users do not acquire it.
-add_library(riftco_transformer_conditional_reverse STATIC
-    src/experiments/conditional_reverse/circuit.cpp
-    src/experiments/conditional_reverse/program.cpp
-    src/experiments/conditional_reverse/task.cpp
-)
-add_library(
-    riftco_transformer::conditional_reverse
-    ALIAS riftco_transformer_conditional_reverse
-)
-set_target_properties(riftco_transformer_conditional_reverse
-    PROPERTIES
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN YES
-        POSITION_INDEPENDENT_CODE ON
-        EXPORT_NAME conditional_reverse
-        OUTPUT_NAME riftco_transformer_conditional_reverse
-)
-target_include_directories(riftco_transformer_conditional_reverse
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-)
-target_compile_features(riftco_transformer_conditional_reverse
-    PUBLIC
-        cxx_std_20
-)
-target_link_libraries(riftco_transformer_conditional_reverse
-    PUBLIC
-        riftco_transformer::programmed
-)
-riftco_transformer_enable_warnings(riftco_transformer_conditional_reverse)
-riftco_transformer_enable_sanitizers(riftco_transformer_conditional_reverse)
-riftco_transformer_propagate_sanitizer_runtime(
-    riftco_transformer_conditional_reverse
-)
-
-# Learned conditional-reversal replication with the paper's F/P/T/I controls.
-# This remains a second, opt-in experiment archive so the exact compact circuit
-# and ordinary runtime consumers do not acquire dataset/training dependencies.
-add_library(riftco_transformer_conditional_reverse_learned STATIC
-    src/experiments/conditional_reverse/learned_dataset.cpp
-    src/experiments/conditional_reverse/learned_hybrid.cpp
-    src/experiments/conditional_reverse/learned_training.cpp
-)
-add_library(
-    riftco_transformer::conditional_reverse_learned
-    ALIAS riftco_transformer_conditional_reverse_learned
-)
-set_target_properties(riftco_transformer_conditional_reverse_learned
-    PROPERTIES
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN YES
-        POSITION_INDEPENDENT_CODE ON
-        EXPORT_NAME conditional_reverse_learned
-        OUTPUT_NAME riftco_transformer_conditional_reverse_learned
-)
-target_include_directories(riftco_transformer_conditional_reverse_learned
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-)
-target_compile_features(riftco_transformer_conditional_reverse_learned
-    PUBLIC
-        cxx_std_20
-)
-target_link_libraries(riftco_transformer_conditional_reverse_learned
-    PUBLIC
-        riftco_transformer::conditional_reverse
-)
-riftco_transformer_enable_warnings(
-    riftco_transformer_conditional_reverse_learned
-)
-riftco_transformer_enable_sanitizers(
-    riftco_transformer_conditional_reverse_learned
-)
-riftco_transformer_propagate_sanitizer_runtime(
-    riftco_transformer_conditional_reverse_learned
-)
-
 if(RIFTCO_TRANSFORMER_ENABLE_METAL)
     target_link_libraries(riftco_transformer_library
         PUBLIC
@@ -503,65 +401,6 @@ endif()
 riftco_transformer_enable_warnings(riftco_transformer_c)
 riftco_transformer_enable_sanitizers(riftco_transformer_c)
 riftco_transformer_propagate_sanitizer_runtime(riftco_transformer_c)
-
-if(RIFTCO_TRANSFORMER_BUILD_CLI)
-    add_executable(riftco_transformer_cli
-        apps/pretraining/train.cpp
-    )
-
-    target_link_libraries(riftco_transformer_cli
-        PRIVATE
-            riftco_transformer::library
-    )
-
-    set_target_properties(riftco_transformer_cli
-        PROPERTIES
-            OUTPUT_NAME riftco-transformer
-    )
-
-    riftco_transformer_enable_warnings(riftco_transformer_cli)
-    riftco_transformer_enable_sanitizers(riftco_transformer_cli)
-endif()
-
-if(RIFTCO_TRANSFORMER_BUILD_EXPERIMENTS)
-    add_executable(riftco_transformer_conditional_reverse_lab
-        apps/experiments/conditional_reverse.cpp
-    )
-    target_link_libraries(riftco_transformer_conditional_reverse_lab
-        PRIVATE
-            riftco_transformer::conditional_reverse
-    )
-    set_target_properties(riftco_transformer_conditional_reverse_lab
-        PROPERTIES
-            OUTPUT_NAME riftco-conditional-reverse
-    )
-    riftco_transformer_enable_warnings(
-        riftco_transformer_conditional_reverse_lab
-    )
-    riftco_transformer_enable_sanitizers(
-        riftco_transformer_conditional_reverse_lab
-    )
-
-    add_executable(riftco_transformer_conditional_reverse_learned_lab
-        apps/experiments/conditional_reverse_learned.cpp
-    )
-    target_link_libraries(
-        riftco_transformer_conditional_reverse_learned_lab
-        PRIVATE
-            riftco_transformer::conditional_reverse_learned
-    )
-    set_target_properties(
-        riftco_transformer_conditional_reverse_learned_lab
-        PROPERTIES
-            OUTPUT_NAME riftco-conditional-reverse-learned
-    )
-    riftco_transformer_enable_warnings(
-        riftco_transformer_conditional_reverse_learned_lab
-    )
-    riftco_transformer_enable_sanitizers(
-        riftco_transformer_conditional_reverse_learned_lab
-    )
-endif()
 
 if(PROJECT_IS_TOP_LEVEL)
     include(CTest)

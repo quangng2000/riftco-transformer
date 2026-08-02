@@ -134,12 +134,12 @@ generic over `ParameterList` lets their equations remain independently
 testable with known values and usable with a full model, LoRA/QLoRA adapter
 list, or custom module. Adam can hold each parameter's two FP32 moment vectors
 contiguously or as bounded tensor pages; the latter changes allocation/update
-granularity, not the total moment payload. The training executable repeats this
-transaction across deterministically sampled batches and records one CSV
-metrics row after every successful update. Each iteration performs a new
+granularity, not the total moment payload. The Python training engine repeats
+this transaction across deterministically sampled batches and publishes an
+immutable metric after every successful update. Each iteration performs a new
 forward pass and therefore builds a fresh autograd graph from the parameters
 updated by the previous iteration. See [TRAINING.md](TRAINING.md) for the loop
-boundary and metrics schema.
+boundary and metric contract.
 
 ## Serving boundary
 

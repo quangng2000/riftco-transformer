@@ -5,6 +5,8 @@ the native BPE tokenizer by default, samples shifted next-token windows, and
 runs forward, cross-entropy, backward, and Adam updates. A deterministic
 held-out tail and rolling training-loss average make progress easier to
 interpret. It needs no NumPy, PyTorch, or other third-party Python package.
+These files are small API examples; controlled comparisons, fixed protocols,
+and report generation belong in the repository's top-level `labs/` directory.
 
 ```text
 examples/python/
@@ -13,8 +15,6 @@ examples/python/
 ├── prepare_huggingface_data.py
 ├── pretrain_stage.py
 ├── post_train_stage.py
-├── compare_fine_tuning.py
-├── compare_lora_ranks.py
 └── serve_stage.py
 ```
 
@@ -143,10 +143,10 @@ python3 examples/python/prepare_huggingface_data.py \
   --limit 2000 \
   --seed lora-v1
 
-python3 examples/python/compare_lora_ranks.py \
+PYTHONPATH=python:. python3 -m labs.lora_rank.run \
   --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
-  --output results/experiments/dolly-lora-ranks \
+  --output runs/lora-rank \
   --ranks 1,2,4,8 \
   --alpha-over-rank 2 \
   --steps 20 \
@@ -169,10 +169,10 @@ Compare a fixed Full recipe with validation-selected LoRA ranks under the same
 held-out protocol:
 
 ```bash
-python3 examples/python/compare_fine_tuning.py \
+PYTHONPATH=python:. python3 -m labs.fine_tuning.run \
   --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
-  --output results/experiments/full-vs-lora \
+  --output runs/fine-tuning \
   --methods full,lora \
   --lora-ranks 1,2,4,8 \
   --backend cpu
@@ -185,7 +185,7 @@ backend for all candidates. The final test comparison consumes that test
 split; retire it rather than tuning against the result.
 
 HH-RLHF is prepared only as `chosen`/`rejected` preference data. The current
-SFT and rank scripts do not consume it because the lab has no pairwise
+SFT workflows and rank lab do not consume it because the lab has no pairwise
 preference objective yet. See
 [the full data and experiment guide](../../docs/DATASETS_AND_LORA_EXPERIMENTS.md)
 for dataset-card and license links, sample-size guidance, and every

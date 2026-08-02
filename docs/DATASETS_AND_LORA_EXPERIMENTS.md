@@ -79,7 +79,7 @@ directory contains
 - file sizes, record counts, and SHA-256 digests.
 
 Prepared downloads belong under `data/external/`, which is ignored by Git.
-Experiment artifacts belong under `results/`, which is also ignored. Commit
+Generated lab artifacts belong under `runs/`, which is ignored. Commit
 the code and small hand-authored fixtures, not downloaded corpora or generated
 model artifacts.
 
@@ -194,10 +194,10 @@ token windows. `window_uniform` remains available as an explicit comparison.
 Run the controlled rank sweep from the same immutable pretrained artifact:
 
 ```bash
-python3 examples/python/compare_lora_ranks.py \
+PYTHONPATH=python:. python3 -m labs.lora_rank.run \
   --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
-  --output results/experiments/dolly-lora-ranks \
+  --output runs/lora-rank \
   --ranks 1,2,4,8 \
   --alpha-over-rank 2 \
   --steps 50 \
@@ -287,10 +287,10 @@ Use the same verified prepared dataset to measure both post-training methods
 with one held-out metric:
 
 ```bash
-python3 examples/python/compare_fine_tuning.py \
+PYTHONPATH=python:. python3 -m labs.fine_tuning.run \
   --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
-  --output results/experiments/dolly-full-vs-lora \
+  --output runs/fine-tuning \
   --methods full,lora \
   --lora-ranks 1,2,4,8 \
   --alpha-over-rank 2 \
@@ -322,7 +322,7 @@ Because the command reports test results for both methods, the test split is
 consumed for that final comparison. Do not adjust rank, learning rate, steps,
 or another choice from those results and rerun the same test. See
 [Post-training generalization](GENERALIZATION.md) for the metric formulas,
-native C++ API, and interpretation limits.
+Python lab API, and interpretation limits.
 
 ## Preference data is a future stage
 
@@ -338,8 +338,8 @@ python3 examples/python/prepare_huggingface_data.py \
 ```
 
 The result contains `chosen` and `rejected`, not `prompt` and `response`.
-`post_train_stage.py` and `compare_lora_ranks.py` intentionally reject that
-schema. The lab does not yet implement pairwise reward-model training, DPO,
+`post_train_stage.py` and the LoRA-rank lab intentionally reject that schema.
+The lab does not yet implement pairwise reward-model training, DPO,
 PPO, or another preference objective.
 
 ## Reproducibility checklist

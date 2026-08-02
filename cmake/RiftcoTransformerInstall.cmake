@@ -23,26 +23,8 @@ if(CMAKE_CONFIGURATION_TYPES)
         riftco_transformer_analysis
         riftco_transformer_lowering
         riftco_transformer_programmed
-        riftco_transformer_conditional_reverse
-        riftco_transformer_conditional_reverse_learned
         riftco_transformer_c
     )
-    if(TARGET riftco_transformer_cli)
-        list(APPEND riftco_transformer_installable_targets
-            riftco_transformer_cli
-        )
-    endif()
-    if(TARGET riftco_transformer_conditional_reverse_lab)
-        list(APPEND riftco_transformer_installable_targets
-            riftco_transformer_conditional_reverse_lab
-        )
-    endif()
-    if(TARGET riftco_transformer_conditional_reverse_learned_lab)
-        list(APPEND riftco_transformer_installable_targets
-            riftco_transformer_conditional_reverse_learned_lab
-        )
-    endif()
-
     foreach(configuration IN LISTS CMAKE_CONFIGURATION_TYPES)
         string(TOUPPER "${configuration}" configuration_upper)
         if(NOT configuration_upper STREQUAL "RELEASE")
@@ -80,8 +62,6 @@ install(
         riftco_transformer_analysis
         riftco_transformer_lowering
         riftco_transformer_programmed
-        riftco_transformer_conditional_reverse
-        riftco_transformer_conditional_reverse_learned
         riftco_transformer_c
     EXPORT riftco_transformerTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -89,27 +69,6 @@ install(
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
-
-if(TARGET riftco_transformer_cli)
-    install(
-        TARGETS riftco_transformer_cli
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
-endif()
-
-if(TARGET riftco_transformer_conditional_reverse_lab)
-    install(
-        TARGETS riftco_transformer_conditional_reverse_lab
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
-endif()
-
-if(TARGET riftco_transformer_conditional_reverse_learned_lab)
-    install(
-        TARGETS riftco_transformer_conditional_reverse_learned_lab
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
-endif()
 
 install(
     DIRECTORY ${PROJECT_SOURCE_DIR}/include/

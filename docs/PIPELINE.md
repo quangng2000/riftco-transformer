@@ -1,91 +1,24 @@
 # Staged Model Pipeline
 
-The lab exposes the same three-stage lifecycle through two surfaces:
+The three-stage lifecycle is orchestrated in Python with persisted, immutable
+artifacts and a local HTTP adapter. Python owns datasets, high-level training
+loops, evaluation, and stage policy; it calls reusable C++ model, loss,
+autograd, Adam, artifact, and backend primitives through the stable C ABI.
 
-- native C++ composition roots for explicit in-process wiring; and
-- a higher-level Python workflow with persisted, immutable artifacts and a
-  local HTTP adapter.
+The native C++ framework retains an in-process serving composition root. It
+does not expose separate pretraining or post-training stage orchestrators.
 
-Both surfaces use the same native model implementation; Python reaches it
-through the C ABI. Their handoff contracts are intentionally different.
-
-## Native C++ composition roots
+## Native C++ serving composition
 
 ```text
-UTF-8 corpus
-  → PretrainingStack
-  → in-memory ModelSnapshot
-  → PostTrainingStack
-  → in-memory ModelSnapshot
+in-memory ModelSnapshot
   → ServingStack
+  → native generation engine
 ```
 
-The composition roots live below
-`include/riftco_transformer/stages/{pretraining,post_training,serving}` with
-matching implementations below `src/stages/`.
-
-### Pretraining
-
-`PretrainingStack` owns the tokenizer, model, native Adam optimizer, Adam
-strategy adapter, causal-language-model trainer, and random-window batch
-source for one run. It returns metrics and a `ModelSnapshot` after performing
-the repeated forward → cross-entropy → backward → global clipping → Adam
-transaction.
-
-The `riftco-transformer` command-line executable, whose source is
-`apps/pretraining/train.cpp`, now constructs this stack rather than assembling
-the training loop itself. It can write CSV metrics, but its snapshot remains
-in memory and disappears when the process exits.
-
-### Supervised post-training
-
-`PostTrainingStack` accepts a const base snapshot, restores a separate model
-and tokenizer, formats instruction examples, and trains with a fresh Adam
-optimizer through the same stage-neutral trainer. Its sequence-window batch
-source never crosses from one formatted example into another. The returned
-snapshot contains the updated copy; the input snapshot is not mutated.
-
-`PostTrainingConfig::fine_tuning_method` selects the parameter-update policy.
-`Full` is the compatibility default and gives Adam every base-model parameter.
-`Lora` attaches low-rank factors and gives Adam only those adapter parameters.
-`Qlora` first packs every eligible Linear base weight as blockwise NF4, then
-attaches the same floating-point LoRA factors and gives Adam only those
-adapters. Quantized weights are immutable buffers rather than Parameters, so
-they have neither gradients nor Adam moments.
-QLoRA defaults to double-quantized first-level scales with scale-group width
-256 and bounded-page Adam with 4096-element pages. The config exposes legacy
-FP32 scales and contiguous Adam as explicit alternatives. CPU uses the readable
-packed reference path, Metal and CUDA decode inside kernels, and TPU uploads
-packed U8 data and dequantizes inside StableHLO. CUDA and TPU source paths are
-implemented, although actual NVIDIA/Cloud-TPU hardware validation was not
-available on this macOS host.
-
-`LoraConfig` controls rank, alpha, initialization seed, and target
-projections; its default targets are the query and value projections in every
-transformer block.
-
-At the end of a LoRA or QLoRA run, the stack releases the trainer, optimizer
-adapter, and Adam before performing the one-way merge. QLoRA also explicitly
-dequantizes every packed projection during this export step. It then captures
-the same ordinary FP32 base-parameter schema used by full training. The returned
-`ModelSnapshot` is therefore directly consumable by `ServingStack`; it
-contains merged weights, not separate adapter factors. Capturing or restoring
-model state while an unmerged adapter is active is rejected, preventing an
-accidentally incomplete handoff.
-
-The QLoRA export has a documented one-time FP32 memory spike after training.
-During forward, backward, and Adam steps, the base linear weights remain packed.
-Paged Adam bounds individual moment allocations and update requests but still
-stores two FP32 moment values per trainable adapter scalar. CUDA pages use
-managed memory; this is not an OS spill, eviction, disk-paging, or page-fault
-manager.
-
-See [QLORA.md](QLORA.md) for the storage and kernel contracts.
-
-The native objective is currently `full_sequence_causal_sft`.
-Cross-entropy applies to every shifted token in the formatted sequence,
-including the prompt and response. A response-only loss mask is not
-implemented.
+The composition root lives below
+`include/riftco_transformer/stages/serving` with its implementation below
+`src/stages/serving`.
 
 ### Serving
 
@@ -122,82 +55,8 @@ position, persistence format, checksum, artifact ID, metadata, or lineage.
 It is sufficient to initialize another native stage in the same process, but
 it is neither a native model file nor a resumable training checkpoint.
 
-CTest registers the native artifact-state, shared-training, stage-contract,
-stage-stack, and serving-generation tests. These verify the in-memory handoff
-and the three native composition paths.
-
-### Minimal native handoff
-
-This example keeps both snapshots in one process:
-
-```cpp
-#include "riftco_transformer/stages/stages.hpp"
-
-#include <iostream>
-#include <string>
-#include <vector>
-
-namespace pre = riftco_transformer::stages::pretraining;
-namespace post = riftco_transformer::stages::post_training;
-namespace serve = riftco_transformer::stages::serving;
-
-int main() {
-    pre::PretrainingConfig pre_config;
-    pre_config.steps = 2;
-    pre_config.context_size = 3;
-    pre_config.batch_size = 1;
-    pre_config.model_width = 4;
-    pre_config.head_count = 2;
-    pre_config.block_count = 1;
-    pre_config.feed_forward_width = 8;
-    pre_config.attention =
-        riftco_transformer::FullSequenceAttentionKind::Flash;
-    pre_config.tokenizer = {
-        riftco_transformer::TokenizerMethod::BytePair,
-        260,
-        2,
-    };
-
-    const std::string corpus =
-        "tensor vectors learn patterns. "
-        "tensor vectors learn patterns.";
-    pre::PretrainingStack pretraining(corpus, pre_config);
-    const auto pretrained = pretraining.run();
-
-    post::PostTrainingConfig post_config;
-    post_config.steps = 1;
-    post_config.context_size = 3;
-    post_config.batch_size = 1;
-    post_config.attention =
-        riftco_transformer::FullSequenceAttentionKind::Flash;
-    post_config.fine_tuning_method = post::FineTuningMethod::Lora;
-    post_config.lora.rank = 2;
-    post_config.lora.alpha = 4.0F;
-    post::PlainChatFormatter formatter;
-    post::PostTrainingStack post_training(
-        pretrained.snapshot,
-        std::vector<post::InstructionExample>{
-            {"What is a tensor?", "A multidimensional array."},
-        },
-        formatter,
-        post_config
-    );
-    const auto tuned = post_training.run();
-
-    serve::ServingConfig serve_config;
-    serve_config.maximum_new_tokens = 4;
-    serve_config.kv_cache_kind = serve::KvCacheKind::Paged;
-    serve_config.kv_cache_block_size = 16;
-    serve::ServingStack serving(tuned.snapshot, serve_config);
-    const auto generated =
-        serving.generate("Tensor:", serve::GenerationConfig{4});
-    std::cout << generated.text << '\n';
-}
-```
-
-`pretrained.snapshot` and `tuned.snapshot` are ordinary in-memory values here.
-The latter contains the merged LoRA update and no live adapter. This example
-does not create a native model file.
+CTest registers native artifact-state and serving-generation tests that verify
+the in-memory serving handoff.
 
 ## Native snapshot versus Python bundle
 
@@ -395,10 +254,10 @@ the formatted sequence: delimiters, user prompt, and assistant response.
 There is no response-only loss mask yet, so this is not the masked instruction
 loss commonly used by production post-training systems.
 
-### Full-versus-LoRA generalization
+### Full-versus-LoRA generalization lab
 
-`compare_fine_tuning()` applies one exhaustive metric to full fine-tuning and
-LoRA. Every candidate starts from the same immutable base, trains only on the
+Top-level `labs/fine_tuning` applies one exhaustive metric to full fine-tuning
+and LoRA. Every candidate starts from the same immutable base, trains only on the
 training split, and is scored on training and validation. The training score
 uses the same exhaustive target-token weighting as validation, so the reported
 validation generalization gap is comparable rather than a difference from one
@@ -406,27 +265,27 @@ sampled minibatch.
 
 Candidates are selected within method groups using validation loss. A fixed
 full-fine-tuning recipe and the validation-selected LoRA rank receive final
-test measurements only after all selections are frozen. The accompanying
-`compare_fine_tuning.py` command records separate learning rates, trainable
+test measurements only after all selections are frozen. The lab command
+records separate learning rates, trainable
 parameter fractions, split fingerprints, base deltas, and validation/test
 generalization gaps. Using the test result for both methods consumes that test
 split; it must not guide another tuning run.
 
-The native `PostTrainingStack` exposes the same exhaustive split metric through
-its `InstructionSplits` overload and optional `PostTrainingEvaluationMetrics`.
-That overload is for one pre-registered candidate and evaluates test on each
-run; grouped validation selection remains in `compare_fine_tuning()`. The
-legacy single-example-vector constructor remains training-only. See
+```bash
+PYTHONPATH=python:. python3 -m labs.fine_tuning.run --help
+```
+
+See
 [Post-training generalization](GENERALIZATION.md) for the command, formulas,
 and interpretation limits.
 
 ### Controlled LoRA-rank selection
 
-`python/riftco_transformer/experiments` adds a reproducible rank sweep above the
-post-training API. `load_prepared_instruction_splits()` verifies the prepared
+Top-level `labs/lora_rank` adds a reproducible rank sweep above the installed
+post-training API. Its split loader verifies the prepared
 manifest and file hashes before loading disjoint train, validation, and test
 JSONL. It rejects both exact record overlap and overlap in the formatted,
-whitespace-normalized model inputs. `compare_lora_ranks()` then:
+whitespace-normalized model inputs. The protocol then:
 
 1. instantiates every rank from the same immutable base bundle;
 2. fixes dataset fingerprints, training and adapter seeds, sampler, optimizer
@@ -440,7 +299,7 @@ in deterministic causal chunks and weights the mean by target-token count.
 Like training, this remains full-sequence causal loss; context and learned
 positions restart at each evaluation chunk.
 
-The CLI stages merged serving-ready artifacts and `comparison.json`, then
+The Python lab stages merged serving-ready artifacts and `comparison.json`, then
 atomically publishes the whole output directory without replacing an existing
 run. Failures remove staging. The summary contains configuration,
 fingerprints, baseline results, per-rank validation results, the selected test
@@ -453,6 +312,10 @@ that one rank serves faster.
 HH-RLHF is deliberately outside this path. The current lab has no DPO,
 pairwise reward-model, PPO, or other preference objective, and does not treat
 chosen/rejected pairs as SFT examples.
+
+```bash
+PYTHONPATH=python:. python3 -m labs.lora_rank.run --help
+```
 
 ### Python generation and local serving
 

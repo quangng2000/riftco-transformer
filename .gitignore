@@ -8,13 +8,9 @@
 /python/*.egg-info/
 /dist/
 /wheelhouse/
+/runs/
 /python/riftco_transformer/.libs/
 **/__pycache__/
 **/*.pyc
 /results/*
 !/results/.gitkeep
-!/results/experiments/
-/results/experiments/*
-!/results/experiments/conditional-reverse/
-!/results/experiments/conditional-reverse/README.md
-!/results/experiments/conditional-reverse/*.json

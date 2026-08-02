@@ -38,22 +38,6 @@ target_link_libraries(cpp_analysis_package_consumer
         riftco_transformer::analysis
 )
 
-add_executable(cpp_conditional_reverse_package_consumer
-    conditional_reverse_consumer.cpp
-)
-target_link_libraries(cpp_conditional_reverse_package_consumer
-    PRIVATE
-        riftco_transformer::conditional_reverse
-)
-
-add_executable(cpp_conditional_reverse_learned_package_consumer
-    conditional_reverse_learned_consumer.cpp
-)
-target_link_libraries(cpp_conditional_reverse_learned_package_consumer
-    PRIVATE
-        riftco_transformer::conditional_reverse_learned
-)
-
 add_executable(c_package_consumer
     c_consumer.c
 )
@@ -122,14 +106,6 @@ add_test(
 add_test(
     NAME cpp_analysis_package_consumer
     COMMAND cpp_analysis_package_consumer
-)
-add_test(
-    NAME cpp_conditional_reverse_package_consumer
-    COMMAND cpp_conditional_reverse_package_consumer
-)
-add_test(
-    NAME cpp_conditional_reverse_learned_package_consumer
-    COMMAND cpp_conditional_reverse_learned_package_consumer
 )
 add_test(NAME c_package_consumer COMMAND c_package_consumer)
 add_test(

@@ -11,6 +11,7 @@ from .pipeline import (
     load_instruction_jsonl_bytes,
     post_train,
     post_train_jsonl,
+    selected_post_training_backend,
 )
 from .evaluation import (
     CausalEvaluation,
@@ -42,5 +43,6 @@ __all__ = [
     "load_prepared_instruction_splits",
     "post_train",
     "post_train_jsonl",
+    "selected_post_training_backend",
     "validate_formatted_splits_disjoint",
 ]

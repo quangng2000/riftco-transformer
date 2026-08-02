@@ -127,6 +127,12 @@ def verify_wheel(
             fail(f"{wheel.name} contains the removed legacy Python package")
         if "riftco_transformer/__init__.py" not in names:
             fail(f"{wheel.name} is missing the canonical Python package")
+        if any(
+            name.startswith("riftco_transformer/experiments/")
+            or name.startswith("labs/")
+            for name in names
+        ):
+            fail(f"{wheel.name} contains repository-owned lab code")
         native_entries = [
             name
             for name in names
