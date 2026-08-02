@@ -236,8 +236,10 @@ next batch, loss, gradients, and Adam update as an uninterrupted run.
   plus installed `riftco_transformer.programmed` wrappers — complete slice
 - Python-owned F/P/T/I construction, training/evaluation, PCA, batch-roll
   ablation, steering, and quick/paper profile orchestration over the generic
-  public model — complete executable slice; fresh reviewed run evidence is a
-  separate milestone
+  public model — complete executable slice
+- clean ABI 2.5 all-variant QUICK smoke plus one clean paper-profile `F` record,
+  with commit/native-library hashes and reviewed scope — complete evidence
+  slice
 - full paper-scale multi-seed F/P/T/I runs with archived configurations,
   validation-based selection, test metrics, checkpoints, and comparison to the
   reported analysis

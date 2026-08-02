@@ -201,7 +201,8 @@ deterministic data, sparse F/P/T/I specifications, training/evaluation policy,
 PCA, ablations, steering, and reports. The generic C++/C ABI/Python path is
 implemented without creating a task-specific native library. One archived
 record under `labs/conditional_reverse/reports/` preserves the retired native
-prototype's provenance; it is not current multi-seed reproduction evidence.
+prototype's provenance, while two reviewed records cover the current ABI 2.5
+QUICK and paper-F paths. None is current multi-seed reproduction evidence.
 
 ## State handoffs
 

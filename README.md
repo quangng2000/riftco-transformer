@@ -209,12 +209,19 @@ ablations, steering, and reports, while C++ executes the generic learned and
 programmed graph through ABI 2.5. A `paper` profile is available for the full
 configuration; always inspect `--help` before launching a long run.
 
-The generic execution path is implemented and tested. Fresh quick- and
-paper-profile results are not claimed here until reviewed run records are
-inserted. The retained
+The generic execution path is implemented and tested. Reviewed clean records
+now cover a current
+[all-variant QUICK smoke](labs/conditional_reverse/reports/m4-max-metal-quick-fpti-seed-42-abi-2.5.json)
+and a current
+[paper-profile F run](labs/conditional_reverse/reports/m4-max-metal-f-seed-42-abi-2.5.json).
+The latter reached 100% target-token and exact-sequence accuracy on a
+source-disjoint 1,000-example test split; rolling its compiled-program output
+reduced token accuracy by 95.8 percentage points while rolling learned
+attention had no measured accuracy effect. These are single-seed local records,
+not a multi-seed paper reproduction or a hardware benchmark. The older
 [historical F record](labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json)
-came from the retired task-specific C++ prototype; it remains single-seed
-historical evidence, not a current multi-seed paper reproduction.
+is retained separately as historical evidence from the retired task-specific
+C++ prototype.
 
 For CUDA, use an NVIDIA GPU and compatible driver plus CUDA Toolkit 12 or
 newer:

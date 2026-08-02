@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "record_kind": "current_python_lab_quick_smoke",
+  "title": "ABI 2.5 QUICK conditional reversal, F/P/T/I, Apple Metal",
+  "recorded_at": "2026-08-02T20:55:14.118227+00:00",
+  "command": "python3 -m labs.conditional_reverse.run --profile quick --variants all --backend metal --output runs/conditional-reverse/20260802-clean-quick-all-09cf334-metal.json",
+  "scope": {
+    "paper_reproduction": false,
+    "benchmark": false,
+    "multi_seed": false,
+    "current_public_api_execution": true,
+    "claim": "This record is a bounded all-variant integration smoke through the public ABI 2.5 Python path. Its tiny task and 64-step-per-variant budget are not paper-profile research evidence."
+  },
+  "source": {
+    "project_version": "0.5.0",
+    "git_commit": "09cf334bc681c03f55c43d4d175804501ff41e4e",
+    "git_dirty_at_start_and_end": false,
+    "c_abi": "2.5",
+    "native_library": {
+      "filename": "libriftco_transformer_c.2.5.0.dylib",
+      "size_bytes": 1339600,
+      "sha256": "50cf9f533d8a93a27c566d384752c0500c2f681f8062b91584f91493d61cf0f2"
+    }
+  },
+  "host": {
+    "model": "MacBook Pro Mac16,5",
+    "chip": "Apple M4 Max",
+    "memory_gib": 128,
+    "backend": "metal",
+    "python": "3.14.6"
+  },
+  "experiment": {
+    "profile": "quick",
+    "seed": 42,
+    "sequence_length": 3,
+    "alphabet": "abcdefghij",
+    "reverse_triggers": "ae",
+    "model_width": 8,
+    "learned_attention_heads": 4,
+    "feed_forward_width": 24,
+    "training": {
+      "optimizer": "Adam",
+      "batch_size": 16,
+      "epochs": 8,
+      "learning_rate": 0.01,
+      "steps_per_variant": 64
+    },
+    "split_sizes": {
+      "train": 128,
+      "probe": 64,
+      "validation": 64,
+      "test": 64
+    },
+    "split_fingerprints": {
+      "train": "050e5dfec188ac0edd0da9a2724127395747c9ab5d1ce3dcbbbb0e390a3a06c0",
+      "probe": "dab132f592790bd747f58ea5eeb24a9797436d6e3c784352a0d37c84c513c389",
+      "validation": "41e805177f70ad0cad4212d517cddf4a2d58c184ca5487829c4aa3f09a873ed9",
+      "test": "a6dcad0510e9e14ba07a595aad36c30f2acf11987dfa25cd482698de5f8b6af9"
+    },
+    "source_disjoint": true
+  },
+  "variants": {
+    "F": {
+      "description": "exact frozen compiled conditional selector",
+      "trainable_parameters": 1491,
+      "test_loss": 0.3576602041721344,
+      "test_target_token_accuracy": 0.8854166666666666,
+      "test_exact_sequence_accuracy": 0.703125,
+      "copy_target_token_accuracy": 0.9652777777777778,
+      "reverse_target_token_accuracy": 0.6458333333333334,
+      "learned_attention_resample_delta": -0.02604166666666667,
+      "program_output_resample_delta": -0.7239583333333334
+    },
+    "P": {
+      "description": "exact frozen compiled reversal",
+      "trainable_parameters": 1491,
+      "test_loss": 0.7210883498191833,
+      "test_target_token_accuracy": 0.765625,
+      "test_exact_sequence_accuracy": 0.5,
+      "copy_target_token_accuracy": 0.8472222222222222,
+      "reverse_target_token_accuracy": 0.5208333333333334,
+      "learned_attention_resample_delta": -0.5104166666666666,
+      "program_output_resample_delta": -0.17708333333333334
+    },
+    "T": {
+      "description": "F-shaped random trainable program",
+      "trainable_parameters": 3219,
+      "test_loss": 0.5618711709976196,
+      "test_target_token_accuracy": 0.8541666666666666,
+      "test_exact_sequence_accuracy": 0.609375,
+      "copy_target_token_accuracy": 0.8888888888888888,
+      "reverse_target_token_accuracy": 0.75,
+      "learned_attention_resample_delta": -0.07291666666666667,
+      "program_output_resample_delta": -0.6979166666666666
+    },
+    "I": {
+      "description": "no compiled program branch",
+      "trainable_parameters": 1363,
+      "test_loss": 1.1669334173202515,
+      "test_target_token_accuracy": 0.6770833333333334,
+      "test_exact_sequence_accuracy": 0.328125,
+      "copy_target_token_accuracy": 0.7430555555555556,
+      "reverse_target_token_accuracy": 0.4791666666666667,
+      "learned_attention_resample_delta": -0.5260416666666666,
+      "program_output_resample_delta": null
+    }
+  },
+  "runtime": {
+    "wall_seconds": 12.74,
+    "user_seconds": 1.6,
+    "system_seconds": 2.76
+  },
+  "raw_report": {
+    "workspace_path": "runs/conditional-reverse/20260802-clean-quick-all-09cf334-metal.json",
+    "committed": false,
+    "size_bytes": 215023,
+    "sha256": "054bce89ee3aed80fa9a8db3d8322b067aa19a547f9ec2a647839cf411077207"
+  }
+}

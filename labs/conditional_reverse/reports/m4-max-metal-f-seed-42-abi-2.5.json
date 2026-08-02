@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "record_kind": "current_python_lab_single_seed_experiment",
+  "title": "ABI 2.5 paper-profile conditional reversal, F variant, Apple Metal",
+  "recorded_at": "2026-08-02T20:58:07.372144+00:00",
+  "scope": {
+    "paper_reproduction": false,
+    "benchmark": false,
+    "multi_seed": false,
+    "current_public_api_execution": true,
+    "claim": "This record demonstrates one clean, source-disjoint paper-profile F run through the public ABI 2.5 Python path. It is not a bit-for-bit reproduction of the paper artifact, a multi-seed comparison, or evidence for paper-profile P, T, and I."
+  },
+  "source": {
+    "project_version": "0.5.0",
+    "git_commit": "09cf334bc681c03f55c43d4d175804501ff41e4e",
+    "git_dirty_at_start_and_end": false,
+    "c_abi": "2.5",
+    "native_library": {
+      "filename": "libriftco_transformer_c.2.5.0.dylib",
+      "size_bytes": 1339600,
+      "sha256": "50cf9f533d8a93a27c566d384752c0500c2f681f8062b91584f91493d61cf0f2"
+    }
+  },
+  "host": {
+    "model": "MacBook Pro Mac16,5",
+    "chip": "Apple M4 Max",
+    "cpu_cores": 16,
+    "memory_gib": 128,
+    "operating_system": "macOS 26.5.2",
+    "python": "3.14.6",
+    "backend": "metal"
+  },
+  "command": "python3 -m labs.conditional_reverse.run --profile paper --variants F --backend metal --output runs/conditional-reverse/20260802-clean-paper-F-09cf334-metal.json",
+  "experiment": {
+    "variant": "F",
+    "variant_description": "exact frozen compiled conditional selector",
+    "seed": 42,
+    "sequence_length": 15,
+    "alphabet_size": 26,
+    "reverse_triggers": "aeiou",
+    "model_width": 20,
+    "learned_attention_heads": 4,
+    "program_basis_width": 10,
+    "feed_forward_width": 80,
+    "trainable_parameters": 9987,
+    "frozen_program_in_optimizer": false,
+    "splits": {
+      "source_disjoint": true,
+      "train": 10000,
+      "probe": 5000,
+      "validation": 1000,
+      "test": 1000,
+      "fingerprints": {
+        "train": "c324166438d1389aac977dcb13ac867e98c17e01d5ee81b5eb863601cc0e4d44",
+        "probe": "4c179d5829356a44f74a6a9deb3fdb60e954561bc867d93c93871f867565ea88",
+        "validation": "1a0cea26df195e2141f8d390688b16b693dcbb35e1ebdcdc08e79550feeb74f2",
+        "test": "4cc06ffb5a227fbfd1438b0c93cbc3c6bb14003edb2a29169a937eb60cbdd269"
+      }
+    },
+    "training": {
+      "optimizer": "Adam",
+      "learning_rate": 0.01,
+      "epochs": 10,
+      "batch_size": 128,
+      "steps": 790,
+      "first_step_loss": 3.3237674236297607,
+      "last_step_loss": 7.947286206899662e-8,
+      "validation_exact_after_epoch_1": 0.924,
+      "validation_exact_after_epoch_2": 1.0
+    }
+  },
+  "generalization": {
+    "validation": {
+      "loss": 1.5242258323269198e-6,
+      "target_token_accuracy": 1.0,
+      "exact_sequence_accuracy": 1.0,
+      "reverse_examples": 197,
+      "reverse_target_token_accuracy": 1.0,
+      "copy_examples": 803,
+      "copy_target_token_accuracy": 1.0
+    },
+    "test": {
+      "loss": 1.1784871721829403e-6,
+      "target_token_accuracy": 1.0,
+      "exact_sequence_accuracy": 1.0,
+      "reverse_examples": 193,
+      "reverse_target_token_accuracy": 1.0,
+      "copy_examples": 807,
+      "copy_target_token_accuracy": 1.0,
+      "copy_only_exact_sequence_accuracy": 0.807,
+      "reverse_only_exact_sequence_accuracy": 0.193
+    }
+  },
+  "interpretation": {
+    "probe_pca": {
+      "representation": "program.output.raw",
+      "observation_count": 75000,
+      "feature_count": 10,
+      "converged": true,
+      "explained_variance_ratio": [
+        0.34033669099272007,
+        0.25462701494968715,
+        0.1538636290025918
+      ],
+      "top_three_explained_variance": 0.748827334944999,
+      "evidential_scope": "Unsupervised variance diagnostic fit on the probe split. This run did not publish the paper-style labeled held-out A/R2 projections, so PCA alone is not treated as confirmation."
+    },
+    "paired_resample_batch_roll": {
+      "test_examples": 1000,
+      "batch_shift": 1,
+      "baseline_target_token_accuracy": 1.0,
+      "baseline_exact_sequence_accuracy": 1.0,
+      "learned_attention": {
+        "target_token_accuracy": 1.0,
+        "exact_sequence_accuracy": 1.0,
+        "paired_target_token_delta": 0.0,
+        "paired_target_token_standard_error": 0.0
+      },
+      "program_output": {
+        "target_token_accuracy": 0.042,
+        "exact_sequence_accuracy": 0.0,
+        "paired_target_token_delta": -0.958,
+        "paired_target_token_standard_error": 0.001613396260047847,
+        "worsened_examples": 1000
+      },
+      "combined": {
+        "target_token_accuracy": 0.042,
+        "exact_sequence_accuracy": 0.0,
+        "paired_target_token_delta": -0.958,
+        "paired_target_token_standard_error": 0.001613396260047847
+      },
+      "evidential_scope": "Deterministic within-batch resampling tests causal necessity; it is not a zero ablation."
+    },
+    "selector_basis_masking": {
+      "method": "Multiply the privileged selector coordinates by 100 and the competing coordinates by zero at source position zero.",
+      "held_out_balanced_subset_examples": 386,
+      "reverse_examples": 193,
+      "copy_examples": 193,
+      "baseline_conditional_target_token_accuracy": 1.0,
+      "only_reverse_basis": {
+        "reverse_branch_conditional_target_token_accuracy": 1.0,
+        "copy_branch_conditional_target_token_accuracy": 0.06770293609671849,
+        "reverse_hypothesis_target_token_accuracy": 0.7953367875647669,
+        "copy_hypothesis_target_token_accuracy": 0.08825561312607945
+      },
+      "only_copy_basis": {
+        "copy_branch_conditional_target_token_accuracy": 1.0,
+        "reverse_branch_conditional_target_token_accuracy": 0.05768566493955095,
+        "copy_hypothesis_target_token_accuracy": 0.6062176165803109,
+        "reverse_hypothesis_target_token_accuracy": 0.07599309153713299
+      },
+      "evidential_scope": "This is multiplicative masking and amplification, not coordinate assignment. It strongly shifts behavior in the intended direction but does not guarantee perfect copy/reverse behavior for every input. The 386 examples are a balanced subset of the held-out test split, not the retired prototype's separate 5,000-example steering set."
+    }
+  },
+  "runtime": {
+    "wall_seconds": 159.0,
+    "user_seconds": 29.15,
+    "system_seconds": 31.94
+  },
+  "raw_report": {
+    "workspace_path": "runs/conditional-reverse/20260802-clean-paper-F-09cf334-metal.json",
+    "committed": false,
+    "size_bytes": 714866,
+    "sha256": "1671a58fb7d0abe77078e4bd3e5ee5b68f84b97e6d9b03a91c9f578c6681709c"
+  },
+  "verification": {
+    "debug_ctest_passed": 40,
+    "python_api_tests_passed": 34,
+    "python_lab_tests_passed": 46,
+    "documentation_checks_passed": true
+  }
+}

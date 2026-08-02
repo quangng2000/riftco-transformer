@@ -311,23 +311,23 @@ ctest --preset debug</code></pre>
 
         <article class="result-card" data-reveal data-delay="1">
           <div class="result-header">
-            <div><span class="status-dot"></span><strong>Archived local Metal run</strong></div>
-            <span>seed 42 · F</span>
+            <div><span class="status-dot"></span><strong>Current ABI 2.5 Metal run</strong></div>
+            <span>seed 42 · paper F</span>
           </div>
           <div class="result-primary"><strong>100<span>%</span></strong><small>held-out exact sequences</small></div>
           <div class="result-metrics">
             <div><strong>790</strong><span>Adam steps</span></div>
-            <div><strong>4m 38s</strong><span>M4 Max runtime</span></div>
-            <div><strong>96.15pp</strong><span>program ablation</span></div>
+            <div><strong>2m 39s</strong><span>M4 Max runtime</span></div>
+            <div><strong>95.80pp</strong><span>program resample</span></div>
           </div>
           <div class="result-steering">
-            <div class="steering-label"><span>only copy basis</span><strong>89.56%</strong></div>
-            <div class="meter"><i style="--value:89.56%"></i></div>
-            <div class="steering-label"><span>only reverse basis</span><strong>86.28%</strong></div>
-            <div class="meter reverse"><i style="--value:86.28%"></i></div>
+            <div class="steering-label"><span>copy-hypothesis agreement</span><strong>60.62%</strong></div>
+            <div class="meter"><i style="--value:60.62%"></i></div>
+            <div class="steering-label"><span>reverse-hypothesis agreement</span><strong>79.53%</strong></div>
+            <div class="meter reverse"><i style="--value:79.53%"></i></div>
           </div>
-          <p><strong>Historical scope:</strong> one local paper-scale configuration from the retired pre-boundary C++ prototype. It is not a fresh result from the ABI-2.5 Python path, evidence for every variant, a multi-seed paper reproduction, or a hardware benchmark.</p>
-          <a href="https://github.com/quangng2000/riftco-transformer/blob/main/labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json">Archived run record <span>↗</span></a>
+          <p><strong>Scope:</strong> one clean, source-disjoint, current Python-lab run. Program resampling was causal; PCA was descriptive. Selector values come from multiplicative basis masking on a 386-example balanced held-out subset. This is not a multi-seed paper reproduction or a hardware benchmark.</p>
+          <a href="https://github.com/quangng2000/riftco-transformer/blob/main/labs/conditional_reverse/reports/m4-max-metal-f-seed-42-abi-2.5.json">Reviewed run record <span>↗</span></a>
         </article>
       </div>
     </section>

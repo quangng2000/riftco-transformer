@@ -392,7 +392,7 @@ labs/conditional_reverse/
   analysis.py       PCA, ablation, and steering policy
   protocol.py       deterministic splits, controls, and metrics
   run.py            source-only learned-study orchestration and JSON report
-  reports/          reviewed historical evidence with provenance
+  reports/          reviewed current and historical evidence with provenance
   tests/            task, program, analysis, and orchestration contracts
 
 tests/compiler/cajal/test_cajal.cpp
@@ -519,15 +519,19 @@ owns training, validation-based decisions, one-time test evaluation, PCA,
 ablations, steering, and report publication; C++ owns only reusable numerical
 execution and state.
 
-One complete local seed-42 `F` run is archived as a machine-readable record at
-[`labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json`](../labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json).
-On an Apple M4 Max through Metal, 790 Adam steps completed in 277.68 seconds
-and reached 100% target-token and exact-sequence accuracy on the 1,000-example
-held-out test split. Batch-rolling the program output reduced paired token
-accuracy by 96.15 percentage points, while batch-rolling learned attention had
-no measured effect. This is a dirty-worktree, single-seed execution record—not
-a benchmark, evidence for fresh ABI-2.5 execution, or a multi-seed paper
-reproduction. Fresh quick/paper metrics must come from reviewed new run records.
+Two clean current-path records are archived: the
+[all-variant QUICK smoke](../labs/conditional_reverse/reports/m4-max-metal-quick-fpti-seed-42-abi-2.5.json)
+and the
+[paper-profile `F` run](../labs/conditional_reverse/reports/m4-max-metal-f-seed-42-abi-2.5.json).
+The paper-profile run used the public ABI 2.5 Python path on an Apple M4 Max
+through Metal. Its 790 Adam steps completed in 159 seconds and reached 100%
+target-token and exact-sequence accuracy on the source-disjoint 1,000-example
+test split. Batch-rolling the program output reduced paired token accuracy by
+95.8 percentage points, while batch-rolling learned attention had no measured
+accuracy effect. The record pins a clean commit and the native dylib hash.
+These are single-seed local results, not a hardware benchmark or a multi-seed
+paper reproduction. The older `m4-max-metal-f-seed-42.json` record remains
+separate evidence from the retired pre-boundary C++ prototype.
 
 ## Interpretation is a separate analysis stage
 
@@ -568,17 +572,16 @@ conditional-reversal lab owns the task and executes F/P/T/I over that generic
 surface; no conditional-reversal type or training/evaluation loop moved into
 C++.
 
-The archived M4 Max record establishes only that one paper-scale `F`
-configuration ran end to end on the retired native Metal prototype. It does
-not establish current executability, variance across seeds, or the relative
-behavior of `P`, `T`, and `I`.
+The clean QUICK record establishes current end-to-end executability for all
+four variants, and the clean paper-profile record establishes one current `F`
+configuration. Neither establishes variance across seeds or paper-profile
+relative behavior for `P`, `T`, and `I`.
 
-The next milestone is evidence: archive a fresh quick-profile smoke record,
-then run every paper-profile variant across predeclared seeds, select only with
-validation, evaluate test once, and compare PCA/ablation/steering effects with
-the paper. Until those records exist, describe F/P/T/I execution as implemented
-but not yet reproduced; do not reuse the historical metrics as current-path
-results.
+The next evidence milestone is to run every paper-profile variant across
+predeclared seeds, select only with validation, evaluate test once, and compare
+the labeled held-out PCA, ablation, and steering effects with the paper. Until
+then, describe these results as a current single-seed implementation check, not
+a reproduced aggregate finding.
 
 ## Deliberate omissions
 

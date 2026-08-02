@@ -11,7 +11,7 @@ training supervises only logits positions `[L, 2L)`.
 
 ## Run the learned study
 
-From the repository root, run the historical quick smoke profile on all four
+From the repository root, run the bounded quick smoke profile on all four
 variants:
 
 ```bash
@@ -23,8 +23,9 @@ python3 -m labs.conditional_reverse.run \
 ```
 
 The quick profile uses `L=3`, alphabet `abcdefghij`, reverse triggers `ae`,
-model width 8, two heads, feed-forward width 24, 128/64/64/64 examples,
-batch size 16, learning rate 0.01, and 8 epochs (64 Adam steps).
+model width 8, two heads in each of two parallel attention branches (four
+learned heads total), feed-forward width 24, 128/64/64/64 examples, batch size
+16, learning rate 0.01, and 8 epochs (64 Adam steps per variant).
 
 Select individual controls with a comma-separated list and optionally cap the
 run at a different number of steps:
@@ -103,5 +104,6 @@ empirical rather than a guaranteed coordinate assignment.
 - `run.py`: CLI orchestration only.
 - `tests/`: pure unit tests plus a native-gated QUICK F integration test.
 
-The historical record under `reports/` remains provenance from the retired
-prototype; new executable reports belong under `runs/conditional-reverse/`.
+Full generated reports belong under ignored `runs/conditional-reverse/`.
+`reports/` contains compact reviewed records for the current ABI 2.5 QUICK and
+paper-F runs alongside the clearly separated retired-prototype record.
