@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -59,6 +60,14 @@ Tensor initialized_linear_weight(
 
 }  // namespace
 
+Linear::Linear(Tensor weight)
+    : weight_(std::in_place, checked_linear_weight(std::move(weight))),
+      bias_(Tensor::zeros({weight_->value().shape()[0]},
+                          weight_->value().backend())),
+      has_bias_(false) {
+  register_parameter("weight", *weight_);
+}
+
 Linear::Linear(Tensor weight, Tensor bias)
     : weight_(
           std::in_place,
@@ -72,22 +81,20 @@ Linear::Linear(Tensor weight, Tensor bias)
     register_parameter("bias", bias_);
 }
 
-Linear::Linear(
-    std::size_t input_width,
-    std::size_t output_width,
-    std::mt19937& random
-)
-    : weight_(
-          std::in_place,
-          initialized_linear_weight(
-              input_width,
-              output_width,
-              random
-          )
-      ),
-      bias_(Tensor::zeros({output_width})) {
-    register_parameter("weight", *weight_);
+Linear::Linear(std::size_t input_width, std::size_t output_width,
+               std::mt19937 &random)
+    : Linear(input_width, output_width, random, true) {}
+
+Linear::Linear(std::size_t input_width, std::size_t output_width,
+               std::mt19937 &random, bool use_bias)
+    : weight_(std::in_place,
+              initialized_linear_weight(input_width, output_width, random)),
+      bias_(Tensor::zeros({output_width}, weight_->value().backend())),
+      has_bias_(use_bias) {
+  register_parameter("weight", *weight_);
+  if (has_bias()) {
     register_parameter("bias", bias_);
+  }
 }
 
 std::size_t Linear::input_width() const noexcept {
@@ -101,6 +108,8 @@ std::size_t Linear::output_width() const noexcept {
                ? quantized_weight_->shape()[0]
                : weight_->value().shape()[0];
 }
+
+bool Linear::has_bias() const noexcept { return has_bias_; }
 
 Variable Linear::forward(const Variable& input) const {
     if (input.value().rank() == 0 ||
@@ -129,10 +138,10 @@ Variable Linear::forward(const Variable& input) const {
             output_shape
         );
     }();
-    const Variable base_output = projected + broadcast_to(
-        bias_.variable(),
-        std::move(output_shape)
-    );
+    const Variable base_output =
+        has_bias() ? projected +
+                         broadcast_to(bias_.variable(), std::move(output_shape))
+                   : projected;
     if (!has_lora()) {
         return base_output;
     }
@@ -248,10 +257,17 @@ ParameterList Linear::parameters() {
 }
 
 ParameterList Linear::extra_parameters_for_transfer() {
-    if (lora_ == nullptr) {
-        return {};
-    }
-    return lora_->parameters();
+  ParameterList result;
+  if (!has_bias()) {
+    result.push_back({"bias", bias_.handle()});
+  }
+  if (lora_ != nullptr) {
+    ParameterList adapter_parameters = lora_->parameters();
+    result.insert(result.end(),
+                  std::make_move_iterator(adapter_parameters.begin()),
+                  std::make_move_iterator(adapter_parameters.end()));
+  }
+  return result;
 }
 
 Linear::PreparedMaterializedWeight

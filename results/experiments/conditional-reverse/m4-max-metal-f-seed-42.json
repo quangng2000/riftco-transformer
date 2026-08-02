@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "record_kind": "local_single_seed_experiment",
+  "title": "Paper-scale conditional reversal, F variant, Apple Metal",
+  "recorded_at": "2026-08-01T19:54:00-07:00",
+  "scope": {
+    "paper_reproduction": false,
+    "benchmark": false,
+    "claim": "This record demonstrates one complete local execution of the paper-scale configuration. It is not a multi-seed F/P/T/I comparison or a reproduction of the paper's reported result."
+  },
+  "source": {
+    "project_version": "0.5.0",
+    "base_commit": "08c69ecb3a2797b2841111df0fe6a3524059c287",
+    "working_tree_dirty": true,
+    "note": "The learned conditional-reversal implementation was present as uncommitted work above the recorded base commit when this run was executed."
+  },
+  "host": {
+    "architecture": "arm64",
+    "operating_system": "macOS 26.5.2 (25F84)",
+    "chip": "Apple M4 Max",
+    "cpu_cores": 16,
+    "gpu_cores": 40,
+    "memory_bytes": 137438953472,
+    "metal_support": "Metal 4"
+  },
+  "build": {
+    "configuration": "Release",
+    "metal_enabled": true,
+    "cuda_enabled": false,
+    "tpu_enabled": false,
+    "executable": "build/learned-hybrid-release/riftco-conditional-reverse-learned"
+  },
+  "command": "./build/learned-hybrid-release/riftco-conditional-reverse-learned --variant F --backend metal --paper",
+  "experiment": {
+    "variant": "F",
+    "variant_description": "frozen compiled conditional program",
+    "backend": "metal",
+    "seed": 42,
+    "sequence_length": 15,
+    "model_width": 20,
+    "learned_attention_heads": 4,
+    "feed_forward_width": 80,
+    "split_sampling": "artifact random stream",
+    "splits": {
+      "train": 10000,
+      "probe": 5000,
+      "validation": 1000,
+      "test": 1000
+    },
+    "training": {
+      "optimizer": "Adam",
+      "learning_rate": 0.01,
+      "epochs": 10,
+      "batch_size": 128,
+      "evaluation_batch_size": 256,
+      "steps": 790
+    }
+  },
+  "generalization": {
+    "validation_before": {
+      "loss": 3.32,
+      "target_token_accuracy": 0.039,
+      "exact_sequence_accuracy": 0.0,
+      "reverse_token_accuracy": 0.0496,
+      "copy_token_accuracy": 0.0353
+    },
+    "validation_after": {
+      "loss_displayed": 0.0,
+      "target_token_accuracy": 1.0,
+      "exact_sequence_accuracy": 1.0,
+      "reverse_token_accuracy": 1.0,
+      "copy_token_accuracy": 1.0
+    },
+    "held_out_test": {
+      "loss_displayed": 0.0,
+      "target_token_accuracy": 1.0,
+      "exact_sequence_accuracy": 1.0,
+      "reverse_token_accuracy": 1.0,
+      "copy_token_accuracy": 1.0
+    }
+  },
+  "interpretation": {
+    "representation": "program.program_output",
+    "probe_matrix_shape": [75000, 10],
+    "validation_score_shape": [15000, 2],
+    "test_score_shape": [15000, 2],
+    "pca_explained_variance": {
+      "pc1": 0.3023,
+      "pc2": 0.1757
+    },
+    "paired_token_degradation_percentage_points": {
+      "learned_attention_batch_roll": 0.0,
+      "program_output_batch_roll": 96.15,
+      "combined_batch_roll": 96.15
+    },
+    "balanced_selector_steering": {
+      "example_count": 5000,
+      "baseline_copy_token_accuracy": 0.5512,
+      "baseline_reverse_token_accuracy": 0.551,
+      "force_copy_copy_token_accuracy": 0.8956,
+      "force_copy_reverse_token_accuracy": 0.0948,
+      "force_reverse_copy_token_accuracy": 0.0937,
+      "force_reverse_reverse_token_accuracy": 0.8628
+    }
+  },
+  "runtime": {
+    "wall_seconds": 277.68,
+    "user_seconds": 47.81,
+    "system_seconds": 67.31,
+    "maximum_resident_set_bytes": 567508992,
+    "peak_memory_footprint_bytes": 725730408
+  },
+  "execution_notes": [
+    "Tensor storage and the main numerical path used the Apple Metal backend.",
+    "Matmul, attention, backward tensor operations, and ordinary Adam updates submitted Metal command buffers.",
+    "Autograd graph scheduling, metrics, representation analysis, and PCA remained host-controlled.",
+    "The displayed loss was rounded to two decimal places by the experiment application."
+  ]
+}

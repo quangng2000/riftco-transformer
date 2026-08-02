@@ -3,6 +3,7 @@
 #include "riftco_transformer/core/quantized_weight.hpp"
 #include "riftco_transformer/core/tensor.hpp"
 #include "riftco_transformer/core/tensor_ops.hpp"
+#include "riftco_transformer/lowering/lowering.hpp"
 #include "riftco_transformer/model/activation_checkpointing.hpp"
 #include "riftco_transformer/model/lora.hpp"
 #include "riftco_transformer/nn/module.hpp"
@@ -165,6 +166,17 @@ int main() {
         );
     if (packed_output.value().shape() != Tensor::Shape({1, 1}) ||
         packed_output.value().flat(0) != 0.0F) {
+        return EXIT_FAILURE;
+    }
+
+    const auto lowering_analysis =
+        riftco_transformer::lowering::analyze_neural_lowering(
+            riftco_transformer::compiler::cajal::MultilinearMap::identity(2)
+        );
+    if (!lowering_analysis.supported ||
+        lowering_analysis.selected_strategy !=
+            riftco_transformer::lowering::kLinearStrategy ||
+        !lowering_analysis.exact) {
         return EXIT_FAILURE;
     }
 

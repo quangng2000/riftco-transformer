@@ -19,12 +19,52 @@ Adam adapter ─────→ optim ──→ nn
 artifacts ────────→ model + data
 model ────────────→ nn ─────→ core
 
+lowering ──→ compiler/cajal + nn + core
+compiler/cajal finite compiler ───────→ C++ standard library only
+analysis interpretation algorithms ──→ C++ standard library only
+programmed sequence placement ───────→ lowering + analysis
+conditional-reverse experiment ──────→ programmed sequence placement
+learned conditional-reverse ─────────→ conditional-reverse + model/nn/Adam
+
 Python pretraining/post-training ──→ Python shared training ──→ C ABI
 Python dataset preparation ────────→ stdlib HTTP/JSON + prepared files
 Python tuning experiments ─────────→ artifacts + post_training + evaluation
 Python serving ──→ Python ModelBundle + generation ──────────→ C ABI
 ```
 
+- `compiler/cajal` owns the backend-independent symbolic language and finite
+  compiler: types, immutable expressions and values, linear usage checking,
+  deterministic reference interpretation, coordinate encodings, dense
+  multilinear maps, and recursive checked-AST lowering. The whole layer uses
+  only the C++ standard library and deliberately has no tensor, autograd,
+  neural-network, or backend dependency.
+- `lowering` is the optional one-way bridge from a dense Cajal multilinear map
+  to a differentiable programmed module. It owns configuration, inspectable
+  metadata, strategy discovery/selection/fallback, exact FP32 policy, seeded
+  randomized ablations, and backend placement. Adding a lowering strategy does
+  not change the symbolic compiler, `nn`, or `model`.
+- `analysis` owns model-neutral representation matrices, named captures,
+  deterministic PCA, row-wise interventions, and paired ablation summaries.
+  It uses only the C++ standard library and has no tensor, autograd, compiler,
+  or model dependency.
+- `programmed` owns the reusable integration seam: learned projections,
+  source-input arrangement, execution of a lowered program, disjoint target
+  placement, representation capture, batch-roll ablation, and privileged-basis
+  steering. Core `nn` and `model` do not depend on it.
+- `experiments/conditional_reverse` owns task-specific syntax, data, exact
+  projection initialization, compiled/random controls, learned F/P/T/I data,
+  training, interpretation hooks, and evaluation rather than adding
+  conditional-reversal policy to the generic compiler.
+- The exported CMake targets encode that separation:
+  `riftco_transformer::compiler` has no runtime dependency,
+  `riftco_transformer::analysis` has no runtime dependency,
+  `riftco_transformer::library` has no compiler dependency,
+  `riftco_transformer::lowering` links compiler to runtime one way,
+  `riftco_transformer::programmed` adds sequence integration, and
+  `riftco_transformer::conditional_reverse` adds the compact experiment.
+  `riftco_transformer::conditional_reverse_learned` is a separate target for
+  the paper-style learned dataset/model/trainer, so compact consumers do not
+  acquire it.
 - `core` owns float tensor storage, immutable packed NF4 weight storage,
   numerical operations, backend dispatch, and autograd. Its
   public `custom_gradient` seam connects an externally computed tensor result
@@ -61,7 +101,10 @@ Python serving ──→ Python ModelBundle + generation ───────�
   `training` or `optim`.
 - `apps` owns command-line concerns.
   `apps/pretraining/train.cpp` delegates the native training run to
-  `PretrainingStack`.
+  `PretrainingStack`; `apps/experiments/conditional_reverse.cpp` is the
+  deterministic compiled-attention interpretation lab; and
+  `apps/experiments/conditional_reverse_learned.cpp` trains/configures the
+  learned F/P/T/I lab and runs held-out interpretation.
 - `c_api.h` and `src/c_api.cpp` expose opaque C handles over selected tensor,
   model, LoRA/QLoRA, packed-memory diagnostics, incremental decode, autograd,
   loss, and optimizer operations
@@ -111,6 +154,75 @@ Every public interface lives below `include/riftco_transformer/`. Its
 implementation uses the corresponding path below `src/`:
 
 ```text
+include/riftco_transformer/compiler/cajal/
+  cajal.hpp
+  type.hpp
+  expression.hpp
+  value.hpp
+  checker.hpp
+  interpreter.hpp
+  encoding.hpp
+  multilinear_map.hpp
+  compiler.hpp
+src/compiler/cajal/
+  type.cpp
+  expression.cpp
+  value.cpp
+  checker.cpp
+  interpreter.cpp
+  encoding.cpp
+  multilinear_map.cpp
+  compiler.cpp
+
+include/riftco_transformer/lowering/
+  lowering.hpp
+  config.hpp
+  module.hpp
+  strategy.hpp
+  cajal.hpp
+src/lowering/
+  config.cpp
+  module.cpp
+  strategy.cpp
+  cajal.cpp
+
+include/riftco_transformer/analysis/
+  analysis.hpp
+  matrix.hpp
+  representation.hpp
+  pca.hpp
+  intervention.hpp
+  ablation.hpp
+src/analysis/
+  matrix.cpp
+  representation.cpp
+  pca.cpp
+  intervention.cpp
+  ablation.cpp
+
+include/riftco_transformer/programmed/
+  programmed.hpp
+  sequence_placement.hpp
+src/programmed/
+  sequence_placement.cpp
+
+include/riftco_transformer/experiments/conditional_reverse/
+  conditional_reverse.hpp
+  learned.hpp
+  program.hpp
+  task.hpp
+  circuit.hpp
+  learned_dataset.hpp
+  learned_hybrid.hpp
+  learned_training.hpp
+src/experiments/conditional_reverse/
+  program.cpp
+  task.cpp
+  circuit.cpp
+  learned_dataset.cpp
+  learned_hybrid.cpp
+  learned_training.cpp
+
 include/riftco_transformer/core/tensor.hpp
 src/core/tensor/
   storage.cpp
@@ -176,6 +288,39 @@ contract, implementation, and verification easy to locate.
 ## Component map
 
 ```text
+Cajal-lite symbolic frontend and finite multilinear compiler
+  include/riftco_transformer/compiler/cajal/
+  src/compiler/cajal/
+  tests/compiler/cajal/test_cajal.cpp
+  tests/compiler/cajal/test_multilinear_compiler.cpp
+  docs/COMPILING_TO_TRANSFORMERS.md
+
+Cajal neural lowering bridge
+  include/riftco_transformer/lowering/
+  src/lowering/
+  tests/lowering/test_cajal_neural_lowering.cpp
+  docs/COMPILING_TO_TRANSFORMERS.md
+
+model-neutral interpretation analysis
+  include/riftco_transformer/analysis/
+  src/analysis/
+  tests/analysis/
+  docs/COMPILING_TO_TRANSFORMERS.md
+
+programmed sequence integration
+  include/riftco_transformer/programmed/
+  src/programmed/
+  tests/experiments/test_conditional_reverse_circuit.cpp
+  docs/COMPILING_TO_TRANSFORMERS.md
+
+conditional-reverse compiled-attention and learned hybrid labs
+  include/riftco_transformer/experiments/conditional_reverse/
+  src/experiments/conditional_reverse/
+  apps/experiments/conditional_reverse.cpp
+  apps/experiments/conditional_reverse_learned.cpp
+  tests/experiments/
+  docs/COMPILING_TO_TRANSFORMERS.md
+
 module and parameter lifecycle
   include/riftco_transformer/nn/module.hpp
   include/riftco_transformer/nn/parameter.hpp

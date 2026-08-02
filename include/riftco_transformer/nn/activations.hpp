@@ -7,6 +7,8 @@
 namespace riftco_transformer {
 
 [[nodiscard]] Variable gelu(const Variable& input);
+// Exact rectified linear unit, max(0, x), with derivative zero at x == 0.
+[[nodiscard]] Variable relu(const Variable &input);
 [[nodiscard]] Variable softmax(
     const Variable& input,
     std::size_t axis

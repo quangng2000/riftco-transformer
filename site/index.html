@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d0c">
+  <meta name="description" content="Riftco Transformer is an auditable C++20 framework for learning, training, fine-tuning, interpreting, and serving decoder-only transformers from first principles.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Riftco Transformer — Build the stack. See every layer.">
+  <meta property="og:description" content="Tensors, autograd, attention, LoRA, QLoRA, serving, hardware backends, and programs compiled into transformers—built to be read.">
+  <meta property="og:url" content="https://quangng2000.github.io/riftco-transformer/">
+  <meta property="og:image" content="https://quangng2000.github.io/riftco-transformer/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Riftco Transformer">
+  <meta name="twitter:description" content="Build the transformer stack. See every layer.">
+  <meta name="twitter:image" content="https://quangng2000.github.io/riftco-transformer/og.png">
+  <link rel="canonical" href="https://quangng2000.github.io/riftco-transformer/">
+  <link rel="stylesheet" href="assets/styles.css">
+  <title>Riftco Transformer — Auditable C++20 Transformer Framework</title>
+</head>
+<body data-site-root=".">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="reading-progress" aria-hidden="true"><span></span></div>
+
+  <header class="site-header" data-header>
+    <div class="shell header-inner">
+      <a class="brand" href="./" aria-label="Riftco Transformer home">
+        <span class="brand-mark" aria-hidden="true">R</span>
+        <span class="brand-name">riftco<span>/transformer</span></span>
+      </a>
+      <button class="mobile-nav-toggle icon-button" type="button" aria-label="Open navigation" aria-expanded="false" data-nav-toggle>
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="Primary navigation" data-site-nav>
+        <a href="#framework">Framework</a>
+        <a href="#backends">Backends</a>
+        <a href="#experiment">Experiment</a>
+        <a href="#documentation">Docs</a>
+      </nav>
+      <div class="header-actions">
+        <button class="search-trigger" type="button" data-search-open aria-label="Search documentation">
+          <span aria-hidden="true">⌕</span>
+          <span>Search</span>
+          <kbd>⌘ K</kbd>
+        </button>
+        <button class="icon-button theme-toggle" type="button" data-theme-toggle aria-label="Switch color theme">
+          <span class="theme-icon" aria-hidden="true">◐</span>
+        </button>
+        <a class="github-link" href="https://github.com/quangng2000/riftco-transformer" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero shell">
+      <div class="hero-copy" data-reveal>
+        <div class="eyebrow"><span class="status-dot"></span> Version 0.5.0 · C++20 · Apache-2.0</div>
+        <h1>Build the transformer stack.<br><span>See every layer.</span></h1>
+        <p class="hero-lede">An auditable decoder-only Transformer framework built from first principles in C++—from tensor strides and reverse-mode autograd to QLoRA, paged serving, native accelerators, and programs compiled into attention.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#quickstart">Start building <span aria-hidden="true">→</span></a>
+          <a class="button button-secondary" href="guides/architecture.html">Read the architecture</a>
+        </div>
+        <div class="hero-proof" aria-label="Framework highlights">
+          <div><strong>0</strong><span>Python runtime dependencies</span></div>
+          <div><strong>39/39</strong><span>Release tests passing</span></div>
+          <div><strong>4</strong><span>backend contracts</span></div>
+        </div>
+      </div>
+
+      <div class="hero-system" data-reveal data-delay="1" aria-label="Transformer execution trace">
+        <div class="system-window">
+          <div class="window-bar">
+            <span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>execution.trace</span>
+            <span class="live-label"><i></i> LIVE</span>
+          </div>
+          <div class="trace-stack">
+            <div class="trace-row active">
+              <span class="trace-index">01</span>
+              <div><strong>Tokenize</strong><small>UTF-8 → byte / BPE ids</small></div>
+              <span class="trace-shape">[B,T]</span>
+            </div>
+            <div class="trace-connector"></div>
+            <div class="trace-row active">
+              <span class="trace-index">02</span>
+              <div><strong>Embed</strong><small>token + absolute position</small></div>
+              <span class="trace-shape">[B,T,D]</span>
+            </div>
+            <div class="trace-connector"></div>
+            <div class="trace-row active accent-row">
+              <span class="trace-index">03</span>
+              <div><strong>Attend</strong><small>causal multi-head attention</small></div>
+              <span class="trace-shape">[B,H,T,T]</span>
+            </div>
+            <div class="trace-connector"></div>
+            <div class="trace-row active">
+              <span class="trace-index">04</span>
+              <div><strong>Differentiate</strong><small>reverse graph + custom VJPs</small></div>
+              <span class="trace-shape">∂L/∂θ</span>
+            </div>
+            <div class="trace-connector"></div>
+            <div class="trace-row active">
+              <span class="trace-index">05</span>
+              <div><strong>Update</strong><small>Adam · clipped · paged</small></div>
+              <span class="trace-shape">θₜ₊₁</span>
+            </div>
+          </div>
+          <div class="system-footer">
+            <span><i class="metal-dot"></i> backend: metal</span>
+            <span>storage: MTLBuffer</span>
+          </div>
+        </div>
+        <div class="system-orbit orbit-one" aria-hidden="true"></div>
+        <div class="system-orbit orbit-two" aria-hidden="true"></div>
+      </div>
+    </section>
+
+    <section class="principle-strip" aria-label="Framework principles">
+      <div class="shell principle-track">
+        <span>Readable reference math</span><i>×</i>
+        <span>Strict shape contracts</span><i>×</i>
+        <span>Backend-neutral APIs</span><i>×</i>
+        <span>Measured generalization</span><i>×</i>
+        <span>Inspectable representations</span>
+      </div>
+    </section>
+
+    <section class="section shell" id="framework">
+      <div class="section-heading" data-reveal>
+        <div><span class="section-kicker">The framework</span><h2>One stack, separated by responsibility.</h2></div>
+        <p>The readable CPU path defines the contract. Accelerated backends implement the same focused capabilities. Training, serving, compilation, and analysis stay separate so each can evolve without dragging the others with it.</p>
+      </div>
+
+      <div class="stack-map" data-reveal>
+        <a class="stack-node" href="guides/tokenization.html">
+          <span class="node-number">01</span><strong>Data</strong><small>Byte/BPE tokenization<br>next-token batches</small>
+        </a>
+        <span class="stack-arrow" aria-hidden="true">→</span>
+        <a class="stack-node" href="guides/tensor.html">
+          <span class="node-number">02</span><strong>Core</strong><small>Tensors · operations<br>autograd · NF4</small>
+        </a>
+        <span class="stack-arrow" aria-hidden="true">→</span>
+        <a class="stack-node featured" href="guides/transformer.html">
+          <span class="node-number">03</span><strong>Model</strong><small>Attention · FFN<br>decoder blocks</small>
+        </a>
+        <span class="stack-arrow" aria-hidden="true">→</span>
+        <a class="stack-node" href="guides/training.html">
+          <span class="node-number">04</span><strong>Train</strong><small>Full · LoRA · QLoRA<br>Adam · checkpoints</small>
+        </a>
+        <span class="stack-arrow" aria-hidden="true">→</span>
+        <a class="stack-node" href="guides/serving.html">
+          <span class="node-number">05</span><strong>Serve</strong><small>Generation<br>paged KV cache</small>
+        </a>
+      </div>
+
+      <div class="capability-grid">
+        <article class="capability-card card-core" data-reveal>
+          <span class="card-label">Core runtime</span>
+          <h3>Linear algebra you can step through.</h3>
+          <p>Contiguous row-major tensors, explicit shapes and strides, checked broadcasting, batched matmul, reductions, indexing, and backend-owned storage.</p>
+          <div class="code-line"><span>Tensor</span> [batch, time, feature]</div>
+          <a href="guides/tensor.html">Tensor contract <span>→</span></a>
+        </article>
+
+        <article class="capability-card card-autograd" data-reveal data-delay="1">
+          <span class="card-label">Autograd</span>
+          <h3>Reverse mode without magic.</h3>
+          <p>Fresh operation graphs, reverse-topological traversal, gradient accumulation, finite-difference checks, custom VJPs, and activation checkpoint replay.</p>
+          <div class="gradient-visual" aria-hidden="true">
+            <span>x</span><i></i><span>matmul</span><i></i><span>loss</span><b>↶ ∂</b>
+          </div>
+          <a href="guides/autograd.html">Follow backward <span>→</span></a>
+        </article>
+
+        <article class="capability-card card-model" data-reveal>
+          <span class="card-label">Decoder-only Transformer</span>
+          <h3>Every residual path exposed.</h3>
+          <p>Pre-normalized blocks, materialized or exact memory-linear Flash attention, GELU/ReLU feed-forwards, and a causal language-model head.</p>
+          <div class="mini-blocks" aria-hidden="true"><span>LN</span><span>MHA</span><span>+</span><span>LN</span><span>FFN</span><span>+</span></div>
+          <a href="guides/transformer.html">Model anatomy <span>→</span></a>
+        </article>
+
+        <article class="capability-card card-tuning" data-reveal data-delay="1">
+          <span class="card-label">Post-training</span>
+          <h3>Choose the memory contract.</h3>
+          <p>Full fine-tuning, low-rank adapters, or QLoRA with frozen blockwise NF4 weights, double-quantized scales, and bounded-page Adam state.</p>
+          <div class="tuning-bars" aria-label="Conceptual relative trainable parameters">
+            <span><i style="--w:100%"></i><small>Full</small></span>
+            <span><i style="--w:30%"></i><small>LoRA</small></span>
+            <span><i style="--w:13%"></i><small>QLoRA</small></span>
+          </div>
+          <a href="guides/qlora.html">Packed-weight training <span>→</span></a>
+        </article>
+
+        <article class="capability-card card-compiler" data-reveal>
+          <span class="card-label">Programs → Transformers</span>
+          <h3>Compile finite programs into attention.</h3>
+          <p>A standard-library-only Cajal-lite checker, interpreter, encoder, and multilinear compiler feed a configurable one-way neural lowering bridge.</p>
+          <div class="compiler-flow"><code>program</code><span>→</span><code>map</code><span>→</span><code>head</code></div>
+          <a href="guides/compiling_to_transformers.html">Explore the compiler <span>→</span></a>
+        </article>
+
+        <article class="capability-card card-analysis" data-reveal data-delay="1">
+          <span class="card-label">Interpretation</span>
+          <h3>Observe, intervene, verify.</h3>
+          <p>Model-neutral representation capture, deterministic PCA, paired batch-roll ablations, and privileged-basis steering live outside the model.</p>
+          <div class="scatter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <a href="guides/compiling_to_transformers.html#interpretation-is-a-separate-analysis-stage">Analysis stage <span>→</span></a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section section-dark" id="quickstart">
+      <div class="shell quickstart-layout">
+        <div class="quickstart-copy" data-reveal>
+          <span class="section-kicker">Quick start</span>
+          <h2>From install to first gradient.</h2>
+          <p>Use the dependency-free Python surface, link the native CMake target, or build the entire stack from source. Both Python and C++ reach the same runtime.</p>
+          <ul class="check-list">
+            <li>Python 3.10+ with no runtime packages</li>
+            <li>C++20 and CMake 3.24+</li>
+            <li>CPU everywhere; Metal in macOS builds</li>
+          </ul>
+          <a class="text-link" href="guides/readme.html#setup">Complete setup guide <span>→</span></a>
+        </div>
+        <div class="code-console" data-code-tabs data-reveal data-delay="1">
+          <div class="code-tabs" role="tablist" aria-label="Installation method">
+            <button role="tab" aria-selected="true" data-code-tab="python">Python</button>
+            <button role="tab" aria-selected="false" data-code-tab="source">Source</button>
+            <button role="tab" aria-selected="false" data-code-tab="metal">Metal lab</button>
+          </div>
+          <div class="code-panel active" role="tabpanel" data-code-panel="python">
+            <pre><code>python3 -m pip install riftco-transformer
+
+python3 -c \
+  "from riftco_transformer import Context; \
+   print(Context().backend)"</code></pre>
+          </div>
+          <div class="code-panel" role="tabpanel" data-code-panel="source" hidden>
+            <pre><code>git clone https://github.com/quangng2000/riftco-transformer.git
+cd riftco-transformer
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug</code></pre>
+          </div>
+          <div class="code-panel" role="tabpanel" data-code-panel="metal" hidden>
+            <pre><code>cmake --preset release
+cmake --build --preset release
+
+./build/release/riftco-conditional-reverse-learned \
+  --variant F --backend metal --paper</code></pre>
+          </div>
+          <div class="console-footer"><span>C ABI 2.4</span><span>C++ package · Python ctypes</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell" id="backends">
+      <div class="section-heading" data-reveal>
+        <div><span class="section-kicker">Execution backends</span><h2>One contract. Different hardware.</h2></div>
+        <p>Backend identity belongs to tensor storage. Operations validate shapes and placement, then dispatch through focused storage, math, attention, quantized-linear, and optimizer capabilities.</p>
+      </div>
+
+      <div class="backend-grid" data-reveal>
+        <article class="backend-card ready">
+          <div class="backend-top"><span class="backend-icon">CPU</span><span class="status-pill">Reference</span></div>
+          <h3>Portable CPU</h3>
+          <p>The complete readable oracle, available in every build.</p>
+          <ul><li>FP32 + packed NF4</li><li>Materialized + Flash attention</li><li>Paged decode + Adam</li></ul>
+        </article>
+        <article class="backend-card ready featured-backend">
+          <div class="backend-top"><span class="backend-icon">M</span><span class="status-pill">Native</span></div>
+          <h3>Apple Metal</h3>
+          <p>Persistent shared buffers and native compute kernels on compatible Macs.</p>
+          <ul><li>Matmul + neural operations</li><li>Attention forward/VJPs</li><li>NF4 + fused Adam update</li></ul>
+        </article>
+        <article class="backend-card optional">
+          <div class="backend-top"><span class="backend-icon">CU</span><span class="status-pill">Optional</span></div>
+          <h3>NVIDIA CUDA</h3>
+          <p>Toolkit 12+ source build with managed storage and native kernels.</p>
+          <ul><li>Source-integrated path</li><li>Hardware acceptance pending</li><li>Unavailable wheel stub</li></ul>
+        </article>
+        <article class="backend-card experimental">
+          <div class="backend-top"><span class="backend-icon">TPU</span><span class="status-pill">Experimental</span></div>
+          <h3>Cloud TPU</h3>
+          <p>Linux x86-64 PJRT/StableHLO adapter requiring external <code>libtpu</code>.</p>
+          <ul><li>Host-mirrored storage</li><li>Fake-PJRT CI coverage</li><li>Real-device validation pending</li></ul>
+        </article>
+      </div>
+      <p class="honesty-note"><strong>Honest boundary:</strong> accelerator selection does not imply every operation is device-resident or faster. Autograd scheduling, safety checks, and some reference paths remain host-controlled. <a href="guides/backends_and_python.html">Capability matrix →</a></p>
+    </section>
+
+    <section class="section experiment-section" id="experiment">
+      <div class="shell experiment-grid">
+        <div class="experiment-copy" data-reveal>
+          <span class="section-kicker">Compiled attention lab</span>
+          <h2>Can a program become a Transformer head?</h2>
+          <p>The conditional-reversal experiment compiles a finite Cajal-lite program into a frozen attention-shaped branch, trains the surrounding network, then tests the representation with PCA, ablation, and steering.</p>
+          <div class="variant-row" aria-label="Experiment variants">
+            <span><b>F</b> frozen compiled</span>
+            <span><b>P</b> partial control</span>
+            <span><b>T</b> trainable random</span>
+            <span><b>I</b> no program</span>
+          </div>
+          <a class="button button-primary" href="guides/compiling_to_transformers.html#learned-fpti-hybrid">Read the experiment</a>
+        </div>
+
+        <article class="result-card" data-reveal data-delay="1">
+          <div class="result-header">
+            <div><span class="status-dot"></span><strong>Local Metal run</strong></div>
+            <span>seed 42 · F</span>
+          </div>
+          <div class="result-primary"><strong>100<span>%</span></strong><small>held-out exact sequences</small></div>
+          <div class="result-metrics">
+            <div><strong>790</strong><span>Adam steps</span></div>
+            <div><strong>4m 38s</strong><span>M4 Max runtime</span></div>
+            <div><strong>96.15pp</strong><span>program ablation</span></div>
+          </div>
+          <div class="result-steering">
+            <div class="steering-label"><span>force copy</span><strong>89.56%</strong></div>
+            <div class="meter"><i style="--value:89.56%"></i></div>
+            <div class="steering-label"><span>force reverse</span><strong>86.28%</strong></div>
+            <div class="meter reverse"><i style="--value:86.28%"></i></div>
+          </div>
+          <p><strong>Scope:</strong> one local paper-scale configuration on Apple Metal. This is evidence that the implementation runs and uses the compiled branch—not a multi-seed paper reproduction or hardware benchmark.</p>
+          <a href="https://github.com/quangng2000/riftco-transformer/blob/main/results/experiments/conditional-reverse/m4-max-metal-f-seed-42.json">Run record <span>↗</span></a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section shell" id="interfaces">
+      <div class="section-heading compact-heading" data-reveal>
+        <div><span class="section-kicker">Composition</span><h2>Link only what you use.</h2></div>
+        <p>Exported targets encode the dependency direction, keeping the compiler and interpretation algorithms independent from the tensor runtime.</p>
+      </div>
+      <div class="target-terminal" data-reveal>
+        <div class="target-column">
+          <span>runtime</span>
+          <code>riftco_transformer::library</code>
+          <code>riftco_transformer::c_api</code>
+        </div>
+        <div class="target-column">
+          <span>programming</span>
+          <code>riftco_transformer::compiler</code>
+          <code>riftco_transformer::lowering</code>
+          <code>riftco_transformer::programmed</code>
+        </div>
+        <div class="target-column">
+          <span>analysis + labs</span>
+          <code>riftco_transformer::analysis</code>
+          <code>riftco_transformer::conditional_reverse</code>
+          <code>riftco_transformer::conditional_reverse_learned</code>
+        </div>
+      </div>
+    </section>
+
+    <section class="section docs-section" id="documentation">
+      <div class="shell">
+        <div class="section-heading" data-reveal>
+          <div><span class="section-kicker">Documentation</span><h2>Start with a question. Follow it to the code.</h2></div>
+          <p>Every guide is generated from the repository’s maintained Markdown, with source links, section navigation, rendered math, and full-site search.</p>
+        </div>
+
+        <div class="docs-groups">
+          <section class="docs-group" data-reveal>
+            <div class="docs-group-heading"><span>01</span><div><h3>Foundations</h3><p>Storage, math, gradients, and reusable layers.</p></div></div>
+            <div class="docs-links">
+              <a href="guides/tensor.html"><strong>Tensor</strong><span>shape · stride · storage</span></a>
+              <a href="guides/tensor_ops.html"><strong>Tensor operations</strong><span>broadcast · matmul · reduction</span></a>
+              <a href="guides/autograd.html"><strong>Autograd</strong><span>graph · VJP · backward</span></a>
+              <a href="guides/modules.html"><strong>Modules</strong><span>parameters · registration · transfer</span></a>
+              <a href="guides/neural_network.html"><strong>Neural primitives</strong><span>embedding · linear · norm · loss</span></a>
+            </div>
+          </section>
+
+          <section class="docs-group" data-reveal>
+            <div class="docs-group-heading"><span>02</span><div><h3>The Transformer</h3><p>Shapes and algorithms across the decoder stack.</p></div></div>
+            <div class="docs-links">
+              <a href="guides/architecture.html"><strong>Architecture</strong><span>end-to-end boundaries</span></a>
+              <a href="guides/attention.html"><strong>Attention</strong><span>causal · materialized · Flash</span></a>
+              <a href="guides/transformer.html"><strong>Decoder model</strong><span>embeddings · residuals · logits</span></a>
+              <a href="guides/activation_checkpointing.html"><strong>Checkpointing</strong><span>replay · memory · VJPs</span></a>
+            </div>
+          </section>
+
+          <section class="docs-group" data-reveal>
+            <div class="docs-group-heading"><span>03</span><div><h3>Train & adapt</h3><p>Data, optimization, fine-tuning, and evaluation.</p></div></div>
+            <div class="docs-links">
+              <a href="guides/tokenization.html"><strong>Tokenization</strong><span>byte · BPE · batches</span></a>
+              <a href="guides/training.html"><strong>Training loop</strong><span>sampling · metrics · graphs</span></a>
+              <a href="guides/adam.html"><strong>Adam</strong><span>clipping · pages · backends</span></a>
+              <a href="guides/lora.html"><strong>LoRA</strong><span>targets · lifecycle · merge</span></a>
+              <a href="guides/qlora.html"><strong>QLoRA</strong><span>NF4 · scales · packed linear</span></a>
+              <a href="guides/generalization.html"><strong>Generalization</strong><span>splits · selection · held-out tests</span></a>
+            </div>
+          </section>
+
+          <section class="docs-group" data-reveal>
+            <div class="docs-group-heading"><span>04</span><div><h3>Ship & extend</h3><p>Stage boundaries, hardware, serving, and internals.</p></div></div>
+            <div class="docs-links">
+              <a href="guides/pipeline.html"><strong>Staged pipeline</strong><span>pretrain · post-train · artifact</span></a>
+              <a href="guides/serving.html"><strong>Serving</strong><span>generation · paged KV cache</span></a>
+              <a href="guides/backends_and_python.html"><strong>Backends & Python</strong><span>CPU · Metal · CUDA · TPU · ABI</span></a>
+              <a href="guides/project_structure.html"><strong>Project structure</strong><span>ownership · dependencies · seams</span></a>
+              <a href="guides/datasets_and_lora_experiments.html"><strong>Dataset experiments</strong><span>TinyStories · Dolly · selection</span></a>
+              <a href="guides/roadmap.html"><strong>Roadmap</strong><span>complete · active · future</span></a>
+            </div>
+          </section>
+
+          <section class="docs-group docs-group-wide" data-reveal>
+            <div class="docs-group-heading"><span>05</span><div><h3>Compile & interpret</h3><p>A separate path from finite programs to inspectable neural computation.</p></div></div>
+            <div class="docs-links">
+              <a href="guides/compiling_to_transformers.html"><strong>Compiling programs to Transformers</strong><span>Cajal-lite · multilinear maps · neural lowering · conditional reversal · PCA · ablations · steering</span></a>
+            </div>
+          </section>
+        </div>
+
+        <button class="search-cta" type="button" data-search-open>
+          <span><b>⌕</b><span><strong>Search all documentation</strong><small>Titles, sections, equations, and guide text</small></span></span>
+          <kbd>⌘ K</kbd>
+        </button>
+      </div>
+    </section>
+
+    <section class="section shell limits-section">
+      <div class="limits-card" data-reveal>
+        <div><span class="section-kicker">Designed to stay honest</span><h2>What it does not claim.</h2></div>
+        <ul>
+          <li><strong>No PyTorch or JAX underneath.</strong> Python is a typed <code>ctypes</code> surface over this native runtime.</li>
+          <li><strong>No production-scale serving claim.</strong> Continuous batching, shared-prefix caching, and async scheduling remain future work.</li>
+          <li><strong>No general lambda calculus.</strong> Cajal-lite is finite, first-order, and deliberately bounded.</li>
+          <li><strong>No broad generalization proof.</strong> The framework enforces leakage-safe evaluation; it cannot establish factuality, safety, or OOD robustness by itself.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell footer-grid">
+      <div>
+        <a class="brand footer-brand" href="./"><span class="brand-mark">R</span><span class="brand-name">riftco<span>/transformer</span></span></a>
+        <p>Build it from first principles.<br>Keep every boundary visible.</p>
+      </div>
+      <div class="footer-links"><strong>Learn</strong><a href="guides/readme.html#setup">Get started</a><a href="guides/architecture.html">Architecture</a><a href="guides/roadmap.html">Roadmap</a></div>
+      <div class="footer-links"><strong>Build</strong><a href="guides/training.html">Training</a><a href="guides/qlora.html">QLoRA</a><a href="guides/serving.html">Serving</a></div>
+      <div class="footer-links"><strong>Project</strong><a href="https://github.com/quangng2000/riftco-transformer">GitHub</a><a href="https://pypi.org/project/riftco-transformer/">PyPI</a><a href="https://github.com/quangng2000/riftco-transformer/blob/main/LICENSE">Apache-2.0</a></div>
+    </div>
+    <div class="shell footer-bottom"><span>© 2026 Quang T Nguyen</span><span>Version 0.5.0 · C ABI 2.4</span></div>
+  </footer>
+
+  <dialog class="search-dialog" data-search-dialog aria-label="Search documentation">
+    <div class="search-box">
+      <div class="search-input-row">
+        <span aria-hidden="true">⌕</span>
+        <input type="search" placeholder="Search tensors, QLoRA, attention…" autocomplete="off" data-search-input aria-label="Search documentation">
+        <button type="button" data-search-close aria-label="Close search">Esc</button>
+      </div>
+      <div class="search-results" data-search-results>
+        <div class="search-empty"><strong>Search the complete framework</strong><span>Try “strides”, “paged Adam”, “Metal”, or “compiled attention”.</span></div>
+      </div>
+      <div class="search-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span></div>
+    </div>
+  </dialog>
+
+  <script src="assets/app.js" defer></script>
+</body>
+</html>

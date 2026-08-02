@@ -3,11 +3,78 @@
 #include "core/backend/adapter.hpp"
 #include "core/backend/nn/dispatch.hpp"
 
+#include <algorithm>
+#include <array>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 
 namespace riftco_transformer::tensor_ops {
+namespace {
+
+Tensor concatenate_last_axis_impl(std::span<const Tensor *const> inputs) {
+  if (inputs.empty()) {
+    throw std::invalid_argument(
+        "concatenate_last_axis requires at least one tensor");
+  }
+  if (inputs.front() == nullptr) {
+    throw std::invalid_argument(
+        "concatenate_last_axis received an empty tensor reference");
+  }
+  const Tensor &first = *inputs.front();
+  if (first.rank() == 0) {
+    throw std::invalid_argument(
+        "concatenate_last_axis does not accept scalar tensors");
+  }
+
+  Tensor::Shape output_shape = first.shape();
+  std::size_t output_width = 0;
+  for (const Tensor *input : inputs) {
+    if (input == nullptr) {
+      throw std::invalid_argument(
+          "concatenate_last_axis received an empty tensor reference");
+    }
+    if (input->rank() != first.rank()) {
+      throw std::invalid_argument(
+          "concatenated tensors must have the same rank");
+    }
+    if (input->backend() != first.backend()) {
+      throw std::invalid_argument(
+          "concatenated tensors must use the same backend");
+    }
+    for (std::size_t axis = 0; axis + 1 < first.rank(); ++axis) {
+      if (input->shape()[axis] != first.shape()[axis]) {
+        throw std::invalid_argument(
+            "concatenated tensor prefix dimensions must match");
+      }
+    }
+    const std::size_t input_width = input->shape().back();
+    if (output_width > std::numeric_limits<std::size_t>::max() - input_width) {
+      throw std::overflow_error(
+          "concatenated final dimension exceeds addressable size");
+    }
+    output_width += input_width;
+  }
+
+  output_shape.back() = output_width;
+  Tensor result(std::move(output_shape), first.backend());
+  const std::size_t row_count = first.numel() / first.shape().back();
+  for (std::size_t row = 0; row < row_count; ++row) {
+    std::size_t output_column = 0;
+    for (const Tensor *input : inputs) {
+      const std::size_t input_width = input->shape().back();
+      const auto source = input->data().subspan(row * input_width, input_width);
+      auto destination = result.data().subspan(
+          row * output_width + output_column, input_width);
+      std::copy(source.begin(), source.end(), destination.begin());
+      output_column += input_width;
+    }
+  }
+  return result;
+}
+
+} // namespace
 
 Tensor permute(const Tensor& value, Tensor::Shape axes) {
     if (axes.size() != value.rank()) {
@@ -48,6 +115,20 @@ Tensor transpose_2d(const Tensor& value) {
         throw std::invalid_argument("transpose_2d requires a rank-2 tensor");
     }
     return permute(value, {1, 0});
+}
+
+Tensor concatenate_last_axis(std::span<const Tensor> inputs) {
+  std::vector<const Tensor *> input_references;
+  input_references.reserve(inputs.size());
+  for (const Tensor &input : inputs) {
+    input_references.push_back(&input);
+  }
+  return concatenate_last_axis_impl(input_references);
+}
+
+Tensor concatenate_last_axis(const Tensor &left, const Tensor &right) {
+  const std::array<const Tensor *, 2> inputs{&left, &right};
+  return concatenate_last_axis_impl(inputs);
 }
 
 Tensor broadcast_to(const Tensor& value, Tensor::Shape output_shape) {

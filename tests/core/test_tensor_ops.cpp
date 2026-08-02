@@ -1,5 +1,6 @@
 #include "riftco_transformer/core/tensor_ops.hpp"
 
+#include <array>
 #include <cmath>
 #include <exception>
 #include <iostream>
@@ -260,6 +261,57 @@ void test_permutation_and_batched_matrix_multiplication() {
         },
         "batched matmul inner-dimension mismatch should throw"
     );
+}
+
+void test_concatenate_last_axis() {
+  const std::array inputs{
+      Tensor({2, 1}, {1.0F, 2.0F}),
+      Tensor({2, 2}, {3.0F, 4.0F, 5.0F, 6.0F}),
+      Tensor({2, 1}, {7.0F, 8.0F}),
+  };
+  require_tensor_close(tensor_ops::concatenate_last_axis(inputs), {2, 4},
+                       {1.0F, 3.0F, 4.0F, 7.0F, 2.0F, 5.0F, 6.0F, 8.0F},
+                       "last-axis concatenate");
+  require_tensor_close(
+      tensor_ops::concatenate_last_axis(Tensor({2}, {1.0F, 2.0F}),
+                                        Tensor({3}, {3.0F, 4.0F, 5.0F})),
+      {5}, {1.0F, 2.0F, 3.0F, 4.0F, 5.0F}, "rank-one binary concatenate");
+
+  require_throws(
+      [] {
+        static_cast<void>(
+            tensor_ops::concatenate_last_axis(std::span<const Tensor>{}));
+      },
+      "concatenate should reject an empty input list");
+  require_throws(
+      [] {
+        static_cast<void>(tensor_ops::concatenate_last_axis(Tensor({}, 1.0F),
+                                                            Tensor({}, 2.0F)));
+      },
+      "concatenate should reject scalars");
+  require_throws(
+      [] {
+        static_cast<void>(tensor_ops::concatenate_last_axis(
+            Tensor({2, 1}, 1.0F), Tensor({3, 1}, 2.0F)));
+      },
+      "concatenate should reject mismatched prefix dimensions");
+  require_throws(
+      [] {
+        static_cast<void>(tensor_ops::concatenate_last_axis(
+            Tensor({2}, 1.0F), Tensor({1, 2}, 2.0F)));
+      },
+      "concatenate should reject mismatched ranks");
+
+  if (riftco_transformer::execution_backend_available(
+          riftco_transformer::ExecutionBackend::Metal)) {
+    require_throws(
+        [] {
+          static_cast<void>(tensor_ops::concatenate_last_axis(
+              Tensor({1}, 1.0F, riftco_transformer::ExecutionBackend::Cpu),
+              Tensor({1}, 2.0F, riftco_transformer::ExecutionBackend::Metal)));
+        },
+        "concatenate should reject mixed backends");
+  }
 }
 
 void test_broadcasting() {
@@ -727,6 +779,7 @@ int main() {
         test_elementwise_operations();
         test_matrix_multiplication_and_transpose();
         test_permutation_and_batched_matrix_multiplication();
+        test_concatenate_last_axis();
         test_broadcasting();
         test_sum_to_shape_and_gather();
         test_reductions();

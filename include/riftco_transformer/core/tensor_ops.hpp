@@ -25,6 +25,11 @@ namespace riftco_transformer::tensor_ops {
 matmul(const Tensor& left, const Tensor& right, ExecutionBackend backend);
 [[nodiscard]] Tensor permute(const Tensor& value, Tensor::Shape axes);
 [[nodiscard]] Tensor transpose_2d(const Tensor& value);
+// Concatenates rank-one-or-greater tensors along their final axis. Prefix
+// dimensions and storage backends must match exactly.
+[[nodiscard]] Tensor concatenate_last_axis(std::span<const Tensor> inputs);
+[[nodiscard]] Tensor concatenate_last_axis(const Tensor &left,
+                                           const Tensor &right);
 [[nodiscard]] Tensor
 broadcast_to(const Tensor& value, Tensor::Shape output_shape);
 [[nodiscard]] Tensor

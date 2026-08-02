@@ -13,3 +13,8 @@
 **/*.pyc
 /results/*
 !/results/.gitkeep
+!/results/experiments/
+/results/experiments/*
+!/results/experiments/conditional-reverse/
+!/results/experiments/conditional-reverse/README.md
+!/results/experiments/conditional-reverse/*.json

@@ -47,6 +47,7 @@ The namespace `riftco_transformer::tensor_ops` contains:
 - elementwise `add`, `subtract`, `multiply`, and `divide`;
 - `negate` and scalar `scale`;
 - strict batched `matmul`, general `permute`, and `transpose_2d`;
+- checked final-axis concatenation for two tensors or a span of tensors;
 - explicit `broadcast_to` and its inverse reduction `sum_to_shape`;
 - checked row gathering for embedding lookup;
 - full-tensor and axis-based `sum` and `mean`;
@@ -96,6 +97,17 @@ any valid shape.
 
 Keeping broadcasting explicit makes shape changes visible while the project is
 still focused on learning correctness.
+
+Final-axis concatenation preserves every leading dimension:
+
+```text
+[B, T, D1] + [B, T, D2] --concatenate_last_axis--> [B, T, D1 + D2]
+```
+
+Inputs must have the same rank, leading shape, and backend. Scalars, an empty
+input list, mixed backends, and final-axis overflow are rejected. The
+differentiable overload slices the upstream gradient back into the original
+width of every input.
 
 ## Relationship to autograd
 

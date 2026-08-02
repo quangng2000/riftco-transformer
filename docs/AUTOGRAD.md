@@ -202,6 +202,19 @@ saved `[B,H,T]` row statistics during backward. Thus a Metal
 graph keeps its numerical backward work on Metal even though graph scheduling
 and node accumulation remain host-controlled.
 
+`concatenate_last_axis` is also a graph operation. If
+$Y=[X_1;\ldots;X_n]$ along the feature axis, its VJP partitions the upstream
+gradient into the same feature ranges:
+
+```math
+\nabla_{X_i}L
+= \nabla_YL[...,\,o_i:o_i+d_i],
+\qquad o_i=\sum_{j<i}d_j.
+```
+
+This lets attention and program branches merge activations without introducing
+a special layer or duplicating gradient logic.
+
 ## Public custom gradients
 
 `custom_gradient(output, inputs, vjp)` connects an externally computed

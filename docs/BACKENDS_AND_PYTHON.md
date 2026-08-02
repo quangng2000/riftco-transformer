@@ -602,7 +602,7 @@ flight. Python uses one shared reentrant lock for a model and its derived
 objects, which is why its concurrent `close()` behavior is stronger than the
 raw C contract.
 
-ABI version `0x00020003` represents the current version 2.3: the upper 16 bits
+ABI version `0x00020004` represents the current version 2.4: the upper 16 bits
 are the major and the lower 16 bits are the minor. Version 2.0 was the
 intentional breaking namespace reset. It exports only the `rt_` function/type
 prefix and `RT_` constants; no legacy symbol-prefix aliases are provided.
@@ -610,8 +610,9 @@ Version 2.1 additively appends the stable `RT_BACKEND_CUDA = 2` value without
 renumbering CPU (`0`) or Metal (`1`). Version 2.2 additively appends
 `RT_BACKEND_TPU = 3` without changing those values. Version 2.3 additively
 exposes NF4 model conversion and exact packed-memory
-statistics without changing existing structures or numeric values. Future
-major changes may
+statistics without changing existing structures or numeric values. Version
+2.4 extends `rt_adam_options` with bounded-page moment-state selection while
+continuing to accept the original 2.3 structure prefix. Future major changes may
 break callers, while a minor change may only add compatible API. Clients accept
 the same major and an equal or newer minor. Published status and backend
 integer values must never be renumbered. CMake checks the public header's

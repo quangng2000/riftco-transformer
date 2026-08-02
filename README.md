@@ -3,6 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/riftco-transformer.svg)](https://pypi.org/project/riftco-transformer/)
 [![Python](https://img.shields.io/pypi/pyversions/riftco-transformer.svg)](https://pypi.org/project/riftco-transformer/)
 [![Release](https://github.com/quangng2000/riftco-transformer/actions/workflows/release.yml/badge.svg)](https://github.com/quangng2000/riftco-transformer/actions/workflows/release.yml)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-c7ff4a.svg)](https://quangng2000.github.io/riftco-transformer/)
 [![License](https://img.shields.io/github/license/quangng2000/riftco-transformer.svg)](LICENSE)
 
 A small, auditable decoder-only Transformer built directly in C++20, with a
@@ -11,6 +12,8 @@ optional source-built NVIDIA CUDA and Google Cloud TPU backends; post-train
 with full fine-tuning, LoRA, or packed-weight QLoRA, measure held-out
 generalization, save portable
 artifacts, and serve through paged attention.
+
+**[Explore the complete framework documentation →](https://quangng2000.github.io/riftco-transformer/)**
 
 | Install | Import | Third-party Python dependencies |
 | --- | --- | --- |
@@ -162,6 +165,51 @@ cmake --install build/debug --prefix "$PWD/install"
 
 Source builds require CMake 3.24+, Ninja, and a C++20 compiler.
 
+The installed C++ package separates concerns into
+`riftco_transformer::library` (tensor/model runtime),
+`riftco_transformer::compiler` (standard-library-only Cajal compiler), and
+`riftco_transformer::analysis` (standard-library-only PCA, interventions, and
+ablation statistics). `riftco_transformer::lowering` is the configurable
+one-way neural bridge, `riftco_transformer::programmed` adds sequence placement
+and representation capture, and `riftco_transformer::conditional_reverse` is
+the compact exact circuit. The separate
+`riftco_transformer::conditional_reverse_learned` target adds the learned
+F/P/T/I experiment, its dataset, Adam trainer, and held-out evaluation. Link
+only the concern you use; transitive dependencies are supplied by the exported
+targets.
+
+Run the deterministic compiled-attention interpretation lab after a source
+build:
+
+```bash
+./build/debug/riftco-conditional-reverse
+```
+
+It solves balanced conditional reversal with the compiled head on deterministic
+disjoint train/validation/test splits, fits PCA only on the training captures,
+and transforms the held-out captures. It also reports a same-shape randomized
+control, held-out batch-roll ablation degradation, and
+force-copy/force-reverse steering. PCA is observational; the ablation and
+steering checks provide the causal tests.
+
+Run the learned hybrid with the quick deterministic configuration:
+
+```bash
+./build/debug/riftco-conditional-reverse-learned --variant F
+```
+
+`F` freezes the compiled conditional program, `P` freezes an unconditional
+reverse program, `T` trains a randomized program with F's shape, and `I` omits
+the program. The lab trains the surrounding embeddings, ReLU MLP, four learned
+causal heads, merges, and output projection; reports overall plus reverse/copy
+held-out metrics; fits PCA on raw, unpadded program outputs from the dedicated
+probe split; and runs paired attention/program/combined ablations plus balanced
+F-selector steering. The quick mode samples source-disjoint splits. Use
+`--paper` for the
+paper-scale $L=15$, $d_{model}=20$, 10k/5k/1k/1k protocol. That mode is an
+explicit long-running experiment, not a claim that this repository has already
+reproduced the paper's reported numbers.
+
 For CUDA, use an NVIDIA GPU and compatible driver plus CUDA Toolkit 12 or
 newer:
 
@@ -286,6 +334,7 @@ Open `http://127.0.0.1:8000/`. The stages exchange immutable `.rift` bundles in
 | Run all three stages | [Pipeline](docs/PIPELINE.md) · [LoRA](docs/LORA.md) · [Serving](docs/SERVING.md) |
 | Compare full tuning and LoRA | [Post-training generalization](docs/GENERALIZATION.md) |
 | Fine-tune with packed NF4 base weights | [QLoRA](docs/QLORA.md) |
+| Compile programs and analyze exact or learned conditional reversal | [Compiling programs to Transformers](docs/COMPILING_TO_TRANSFORMERS.md) |
 | Prepare Hugging Face data | [Datasets and LoRA experiments](docs/DATASETS_AND_LORA_EXPERIMENTS.md) |
 | Navigate or contribute | [Project structure](docs/PROJECT_STRUCTURE.md) · [Roadmap](docs/ROADMAP.md) · [Release automation](python/README.md#release-automation) |
 | See feature superposition | [3D vector lab source](visualizations/vector-distribution.html) · [Run the visualization](visualizations/README.md) |

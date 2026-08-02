@@ -19,11 +19,27 @@ include(CMakePackageConfigHelpers)
 if(CMAKE_CONFIGURATION_TYPES)
     set(riftco_transformer_installable_targets
         riftco_transformer_library
+        riftco_transformer_compiler
+        riftco_transformer_analysis
+        riftco_transformer_lowering
+        riftco_transformer_programmed
+        riftco_transformer_conditional_reverse
+        riftco_transformer_conditional_reverse_learned
         riftco_transformer_c
     )
     if(TARGET riftco_transformer_cli)
         list(APPEND riftco_transformer_installable_targets
             riftco_transformer_cli
+        )
+    endif()
+    if(TARGET riftco_transformer_conditional_reverse_lab)
+        list(APPEND riftco_transformer_installable_targets
+            riftco_transformer_conditional_reverse_lab
+        )
+    endif()
+    if(TARGET riftco_transformer_conditional_reverse_learned_lab)
+        list(APPEND riftco_transformer_installable_targets
+            riftco_transformer_conditional_reverse_learned_lab
         )
     endif()
 
@@ -60,6 +76,12 @@ write_basic_package_version_file(
 install(
     TARGETS
         riftco_transformer_library
+        riftco_transformer_compiler
+        riftco_transformer_analysis
+        riftco_transformer_lowering
+        riftco_transformer_programmed
+        riftco_transformer_conditional_reverse
+        riftco_transformer_conditional_reverse_learned
         riftco_transformer_c
     EXPORT riftco_transformerTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -71,6 +93,20 @@ install(
 if(TARGET riftco_transformer_cli)
     install(
         TARGETS riftco_transformer_cli
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
+
+if(TARGET riftco_transformer_conditional_reverse_lab)
+    install(
+        TARGETS riftco_transformer_conditional_reverse_lab
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
+
+if(TARGET riftco_transformer_conditional_reverse_learned_lab)
+    install(
+        TARGETS riftco_transformer_conditional_reverse_learned_lab
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
 endif()

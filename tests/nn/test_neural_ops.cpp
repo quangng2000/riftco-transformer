@@ -3,6 +3,7 @@
 #include "riftco_transformer/nn/loss.hpp"
 #include "riftco_transformer/core/tensor_ops.hpp"
 
+#include <array>
 #include <cmath>
 #include <exception>
 #include <iostream>
@@ -141,6 +142,49 @@ void test_gelu_forward_and_gradients() {
             2.0e-3F
         );
     }
+}
+
+void test_relu_forward_and_gradients() {
+  const Variable input(Tensor({5}, {-2.0F, -0.0F, 0.0F, 1.5F, 3.0F}));
+  const Variable output = riftco_transformer::relu(input);
+  require_tensor_close(output.value(), {5}, {0.0F, 0.0F, 0.0F, 1.5F, 3.0F},
+                       "ReLU forward");
+  riftco_transformer::sum(
+      output * Variable(Tensor({5}, {5.0F, 4.0F, 3.0F, 2.0F, -1.0F}), false))
+      .backward();
+  require_tensor_close(input.gradient(), {5}, {0.0F, 0.0F, 0.0F, 2.0F, -1.0F},
+                       "ReLU gradient uses zero derivative at zero");
+}
+
+void test_concatenate_last_axis_gradients() {
+  const std::array inputs{
+      Variable(Tensor({2, 1}, {1.0F, 2.0F})),
+      Variable(Tensor({2, 2}, {3.0F, 4.0F, 5.0F, 6.0F})),
+      Variable(Tensor({2, 1}, {7.0F, 8.0F})),
+  };
+  const Variable output = riftco_transformer::concatenate_last_axis(inputs);
+  require_tensor_close(output.value(), {2, 4},
+                       {1.0F, 3.0F, 4.0F, 7.0F, 2.0F, 5.0F, 6.0F, 8.0F},
+                       "autograd last-axis concatenate");
+
+  riftco_transformer::sum(output *
+                          Variable(Tensor({2, 4}, {0.5F, 1.0F, 1.5F, 2.0F,
+                                                   -0.5F, -1.0F, -1.5F, -2.0F}),
+                                   false))
+      .backward();
+  require_tensor_close(inputs[0].gradient(), {2, 1}, {0.5F, -0.5F},
+                       "concatenate first-input VJP");
+  require_tensor_close(inputs[1].gradient(), {2, 2}, {1.0F, 1.5F, -1.0F, -1.5F},
+                       "concatenate middle-input VJP");
+  require_tensor_close(inputs[2].gradient(), {2, 1}, {2.0F, -2.0F},
+                       "concatenate final-input VJP");
+
+  require_throws(
+      [] {
+        static_cast<void>(riftco_transformer::concatenate_last_axis(
+            std::span<const Variable>{}));
+      },
+      "autograd concatenate should reject an empty input list");
 }
 
 void test_layer_norm_forward_and_parameters() {
@@ -582,6 +626,8 @@ void test_cross_entropy_forward_and_gradients() {
 int main() {
     try {
         test_gelu_forward_and_gradients();
+        test_relu_forward_and_gradients();
+        test_concatenate_last_axis_gradients();
         test_layer_norm_forward_and_parameters();
         test_layer_norm_finite_differences();
         test_softmax_forward_and_gradients();

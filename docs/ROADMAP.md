@@ -192,7 +192,98 @@ native-artifact acceptance criteria remain future work.
 Checkpoint acceptance check: a resumed `TrainingCheckpoint` produces the same
 next batch, loss, gradients, and Adam update as an uninterrupted run.
 
-## 10. Optional performance work
+## 10. Cajal-lite program compiler — active
+
+- immutable finite `Unit`, `Sum`, `Product`, and `Dictionary` types — complete
+  slice
+- programmatically constructed expression AST and finite runtime values —
+  complete slice
+- Cajal-style linear context checker with additive products and multiplicative
+  context splitting — complete slice
+- deterministic reference interpreter with unique-key dictionary lookup —
+  complete slice
+- dense encodings for finite values, with discrete decoding and bounded
+  enumeration for `Unit`, `Sum`, and `Product` — complete slice
+- backend-neutral dense `MultilinearMap` for arbitrary arity, including
+  constant, linear, and higher-arity contractions — complete slice
+- recursive `compile(expression, ordered_context)` lowering from checked
+  expressions to explicitly ordered multilinear maps — complete slice
+- exhaustive compiler-versus-interpreter tests over every finite input to the
+  current representative program suite, plus non-discrete multilinearity
+  checks — complete slice
+- optional, separately linked neural-lowering target with configurable strategy
+  registry, analysis, explicit fallback, resource limits, coefficient precision,
+  seeded initialization, trainability, and backend placement — complete slice
+- differentiable constant, unary-linear, bilinear identity-kernel
+  linear-attention, and arbitrary-arity dense modules with inspectable
+  coefficient metadata — complete slice
+- three-way interpreter/map/module equivalence plus input/coefficient gradient,
+  leading-shape, configuration, and package-consumer tests — complete slice
+- exact MLP or other factored lowering strategy (the current GELU feed-forward
+  is deliberately not presented as an exact arbitrary-map lowering)
+- sequence-placement adapter that composes a programmed module with learned
+  projections, source/target spans, capture sites, batch-roll ablation, and
+  privileged-basis steering — complete slice
+- raw programmed-sequence core with explicit shared projection groups,
+  biasless projections, logical-input interventions, and pre-merge output —
+  complete slice
+- exact conditional-reverse finite program with checked
+  $[NL,2,NL]$ resources and exhaustive interpreter/compiler semantics —
+  complete slice
+- exact unary reverse and full two-sequence conditional programs, including
+  exhaustive discrete/off-basis semantics and resource preflight — complete
+  slice
+- conditional-reverse circuit whose frozen compiled coefficients lower through
+  `linear_attention`, whose projections use the ordinary Module/Adam lifecycle,
+  and whose target-half placement solves deterministic reverse/copy examples —
+  complete slice
+- separately linked, standard-library-only interpretation analysis with named
+  representation matrices, deterministic covariance/Jacobi PCA,
+  fit/transform/reconstruct, row-wise interventions, and paired ablation
+  statistics — complete slice
+- deterministic disjoint train/validation/test splits, compiled/random
+  controls, train-fit/held-out-transform PCA, held-out resample ablation, and
+  force-copy/force-reverse steering lab executable — complete slice
+- paper-style teacher-forced conditional-reversal data with deterministic
+  10k/5k/1k/1k train/probe/validation/test defaults and strict semantic
+  validation — complete slice
+- learned F/P/T/I hybrid with token/position embeddings, ReLU residual MLP,
+  four causal heads, shared biasless program projection, biasless merge,
+  target-half cross entropy, and ordinary Adam training — complete slice
+- overall plus reverse/copy-stratified held-out evaluation, stable activation
+  captures aggregated across bounded batches, raw-output probe-fit PCA with
+  branch/token/position associations, separate and combined paired ablations,
+  and balanced F-selector steering lab — complete slice
+- full paper-scale multi-seed F/P/T/I runs with archived configurations,
+  validation-based selection, test metrics, checkpoints, and comparison to the
+  reported analysis
+- full Cajal conformance work: nondeterminism and relation-based lookup
+
+Frontend acceptance check: malformed programs are rejected with useful
+diagnostics; every accepted test program evaluates to a value whose runtime
+type equals its checked type; variables cannot be dropped or duplicated by the
+same multiplicative path, while additive product components share one context.
+
+Compiler acceptance check — complete for the current finite compiler suite:
+for every exhaustively enumerated input to each accepted fixture, the compiled
+multilinear-map coordinates match the encoded reference-interpreter result.
+Non-dictionary outputs also decode to the same source value. Dictionary
+coefficients remain explicit key/value outer products.
+
+Program-integration acceptance check — complete for the compact and learned
+slices:
+strategy analysis is inspectable before allocation; exact mode rejects lossy
+FP32 materialization; automatic lowering selects bilinear linear attention;
+frozen coefficients stay out of Adam while Adam-compatible projections receive
+gradients and T's randomized coefficients enter Adam; source and target spans
+remain disjoint; F/T share a full program signature; target loss excludes the
+source half; branch metrics expose copy-class imbalance; fit-only captures train
+the runtime-independent PCA model while held-out captures only transform
+through it; and paired batch-roll/steering interventions report behavioral
+changes. The next acceptance boundary is archived full-scale experimental
+evidence, not another implementation label.
+
+## 11. Optional performance work
 
 Only after correctness:
 

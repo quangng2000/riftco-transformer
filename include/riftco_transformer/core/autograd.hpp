@@ -90,6 +90,7 @@ private:
   friend Variable erf(const Variable &);
   friend Variable reshape(const Variable &, Tensor::Shape);
   friend Variable transpose_2d(const Variable &);
+  friend Variable concatenate_last_axis(std::span<const Variable>);
   friend Variable broadcast_to(const Variable &, Tensor::Shape);
   friend Variable gather_rows(const Variable &, std::span<const std::size_t>,
                               Tensor::Shape);
@@ -100,6 +101,7 @@ private:
       std::function<Variable(const Variable &)>);
   friend Variable softmax(const Variable &, std::size_t);
   friend Variable gelu(const Variable &);
+  friend Variable relu(const Variable &);
   friend Variable layer_norm(const Variable &, const Variable &,
                              const Variable &, float);
   friend Variable cross_entropy(const Variable &,
@@ -139,6 +141,11 @@ private:
 [[nodiscard]] Variable erf(const Variable &value);
 [[nodiscard]] Variable reshape(const Variable &value, Tensor::Shape new_shape);
 [[nodiscard]] Variable transpose_2d(const Variable &value);
+// Concatenates rank-one-or-greater Variables along their final axis. Backward
+// slices the arriving gradient back into each input's original width.
+[[nodiscard]] Variable concatenate_last_axis(std::span<const Variable> inputs);
+[[nodiscard]] Variable concatenate_last_axis(const Variable &left,
+                                             const Variable &right);
 [[nodiscard]] Variable broadcast_to(const Variable &value,
                                     Tensor::Shape output_shape);
 [[nodiscard]] Variable gather_rows(const Variable &table,

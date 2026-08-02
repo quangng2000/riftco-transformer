@@ -3,7 +3,9 @@
 #include "riftco_transformer/core/tensor_ops.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <stdexcept>
 #include <utility>
@@ -36,6 +38,93 @@ Tensor::Shape swap_last_two_axes(std::size_t rank) {
     }
     std::swap(axes[rank - 2], axes[rank - 1]);
     return axes;
+}
+
+struct ConcatenateLayout {
+  Tensor::Shape output_shape;
+  std::vector<std::size_t> input_widths;
+};
+
+ConcatenateLayout checked_concatenate_layout(std::span<const Variable> inputs) {
+  if (inputs.empty()) {
+    throw std::invalid_argument(
+        "concatenate_last_axis requires at least one variable");
+  }
+  const Tensor &first = inputs.front().value();
+  if (first.rank() == 0) {
+    throw std::invalid_argument(
+        "concatenate_last_axis does not accept scalar variables");
+  }
+
+  ConcatenateLayout layout{first.shape(), {}};
+  layout.input_widths.reserve(inputs.size());
+  std::size_t output_width = 0;
+  for (const Variable &input : inputs) {
+    const Tensor &value = input.value();
+    if (value.rank() != first.rank()) {
+      throw std::invalid_argument(
+          "concatenated variables must have the same rank");
+    }
+    if (value.backend() != first.backend()) {
+      throw std::invalid_argument(
+          "concatenated variables must use the same backend");
+    }
+    for (std::size_t axis = 0; axis + 1 < first.rank(); ++axis) {
+      if (value.shape()[axis] != first.shape()[axis]) {
+        throw std::invalid_argument(
+            "concatenated variable prefix dimensions must match");
+      }
+    }
+    const std::size_t input_width = value.shape().back();
+    if (output_width > std::numeric_limits<std::size_t>::max() - input_width) {
+      throw std::overflow_error(
+          "concatenated final dimension exceeds addressable size");
+    }
+    output_width += input_width;
+    layout.input_widths.push_back(input_width);
+  }
+  layout.output_shape.back() = output_width;
+  return layout;
+}
+
+Tensor concatenate_values(std::span<const Variable> inputs,
+                          const ConcatenateLayout &layout) {
+  Tensor result(layout.output_shape, inputs.front().value().backend());
+  const std::size_t output_width = layout.output_shape.back();
+  const std::size_t row_count =
+      inputs.front().value().numel() / inputs.front().value().shape().back();
+  for (std::size_t row = 0; row < row_count; ++row) {
+    std::size_t output_column = 0;
+    for (std::size_t index = 0; index < inputs.size(); ++index) {
+      const std::size_t input_width = layout.input_widths[index];
+      const auto source =
+          inputs[index].value().data().subspan(row * input_width, input_width);
+      auto destination = result.data().subspan(
+          row * output_width + output_column, input_width);
+      std::copy(source.begin(), source.end(), destination.begin());
+      output_column += input_width;
+    }
+  }
+  return result;
+}
+
+Tensor slice_last_axis(const Tensor &input, std::size_t offset,
+                       std::size_t width) {
+  if (input.rank() == 0 || offset > input.shape().back() ||
+      width > input.shape().back() - offset) {
+    throw std::invalid_argument("last-axis slice is outside the tensor");
+  }
+  Tensor::Shape output_shape = input.shape();
+  output_shape.back() = width;
+  Tensor result(std::move(output_shape), input.backend());
+  const std::size_t input_width = input.shape().back();
+  const std::size_t row_count = input.numel() / input_width;
+  for (std::size_t row = 0; row < row_count; ++row) {
+    const auto source = input.data().subspan(row * input_width + offset, width);
+    auto destination = result.data().subspan(row * width, width);
+    std::copy(source.begin(), source.end(), destination.begin());
+  }
+  return result;
 }
 
 }  // namespace
@@ -400,6 +489,35 @@ Variable transpose_2d(const Variable& value) {
             );
         }
     );
+}
+
+Variable concatenate_last_axis(std::span<const Variable> inputs) {
+  const ConcatenateLayout layout = checked_concatenate_layout(inputs);
+  std::vector<std::shared_ptr<Variable::Node>> input_nodes;
+  input_nodes.reserve(inputs.size());
+  for (const Variable &input : inputs) {
+    input_nodes.push_back(input.node_);
+  }
+
+  return Variable::from_operation(
+      concatenate_values(inputs, layout), input_nodes,
+      [input_nodes,
+       input_widths = layout.input_widths](const Tensor &upstream) {
+        std::size_t offset = 0;
+        for (std::size_t index = 0; index < input_nodes.size(); ++index) {
+          const std::size_t width = input_widths[index];
+          if (input_nodes[index]->requires_gradient) {
+            Variable::accumulate_gradient(
+                input_nodes[index], slice_last_axis(upstream, offset, width));
+          }
+          offset += width;
+        }
+      });
+}
+
+Variable concatenate_last_axis(const Variable &left, const Variable &right) {
+  const std::array<Variable, 2> inputs{left, right};
+  return concatenate_last_axis(std::span<const Variable>(inputs));
 }
 
 Variable broadcast_to(const Variable& value, Tensor::Shape output_shape) {

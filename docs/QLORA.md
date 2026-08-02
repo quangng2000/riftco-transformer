@@ -48,8 +48,8 @@ unsigned-byte code per first-level scale:
 \[
 t_g = \max_{b\in g}|s_b-\mu|,
 \qquad
-q_b = 128 + \operatorname{clamp}\!\left(
-\operatorname{round}\!\left(127\frac{s_b-\mu}{t_g}\right),
+q_b = 128 + \mathrm{clamp}\!\left(
+\mathrm{round}\!\left(127\frac{s_b-\mu}{t_g}\right),
 -127, 127
 \right).
 \]
@@ -57,7 +57,7 @@ q_b = 128 + \operatorname{clamp}\!\left(
 The zero-range case uses code 128. Decoding reconstructs
 
 \[
-\widehat{s}_b = \operatorname{clamp}\!\left(
+\widehat{s}_b = \mathrm{clamp}\!\left(
 \mu + t_g\frac{q_b-128}{127},
 0,
 \mathrm{FLT\_MAX}
@@ -86,7 +86,7 @@ For input $X\in\mathbb{R}^{R\times I}$ and packed base weight
 $W_q\in\mathbb{R}^{O\times I}$, the fused operation computes
 
 \[
-Y_{r,o}=\sum_{i=0}^{I-1} X_{r,i}\,\operatorname{NF4}(W_{q,o,i}).
+Y_{r,o}=\sum_{i=0}^{I-1} X_{r,i}\,\mathrm{NF4}(W_{q,o,i}).
 \]
 
 The autograd node has exactly one parent: `input`. Its vector-Jacobian product
@@ -96,7 +96,7 @@ computes
 \frac{\partial L}{\partial X_{r,i}}
 =\sum_{o=0}^{O-1}
 \frac{\partial L}{\partial Y_{r,o}}
-\operatorname{NF4}(W_{q,o,i}).
+\mathrm{NF4}(W_{q,o,i}).
 \]
 
 There is no weight `Variable`, weight gradient, or first/second Adam moment.

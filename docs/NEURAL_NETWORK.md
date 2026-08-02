@@ -130,6 +130,14 @@ where $W$ is the weight matrix and $\mathbf{b}$ is the bias vector.
 Weights use Xavier-uniform initialization and biases start at zero. A shared
 standard-library random generator is passed through layer construction.
 
+`Linear(weight)` and `Linear(input, output, random, false)` construct a
+biasless projection, $\mathbf{y}=W\mathbf{x}$. `has_bias()` distinguishes the
+two contracts. For source compatibility, `bias()` still returns an inert zero
+parameter for a biasless layer, but that object is excluded from forward,
+`parameters()`, and Adam state. Code must check `has_bias()` before treating a
+bias as trainable. This form is used for the paper's shared program projection
+and residual merge.
+
 ### Packed quantized linear
 
 For QLoRA, `Linear` replaces its dense weight `Parameter` with an immutable
@@ -172,7 +180,7 @@ back to the original parameter shape.
 The implementation uses population variance and keeps epsilon inside the square
 root. A constant feature slice therefore remains finite and returns the bias.
 
-## GELU and feed-forward
+## GELU, ReLU, and feed-forward
 
 The exact Gaussian Error Linear Unit is:
 
@@ -187,13 +195,27 @@ one GELU forward request and one local derivative request through the backend;
 CPU uses the readable reference formula, Metal and CUDA use focused kernels,
 and TPU uses the host reference path over its mirror.
 
-The feed-forward layer requested for the transformer is now implemented:
+The learned program experiment also exposes rectified linear activation:
+
+```math
+\mathrm{ReLU}(x)=\max(0,x),
+\qquad
+\frac{\partial\mathrm{ReLU}}{\partial x}=
+\begin{cases}1,&x>0,\\0,&x\le0.\end{cases}
+```
+
+The derivative at zero is deliberately chosen as zero. NaNs remain NaN in
+both forward and backward rather than being silently converted to zero.
+
+`FeedForward` accepts `FeedForwardActivation::Gelu` or
+`FeedForwardActivation::Relu`; GELU remains the default used by ordinary
+decoder blocks. Its shape is:
 
 ```text
 input [..., d_model]
     ↓ Linear(d_model, d_ff)
 hidden [..., d_ff]
-    ↓ GELU
+    ↓ configured GELU or ReLU
 activated [..., d_ff]
     ↓ Linear(d_ff, d_model)
 output [..., d_model]

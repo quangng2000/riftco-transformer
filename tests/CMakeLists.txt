@@ -1,11 +1,12 @@
-function(add_riftco_transformer_test target test_name source)
+function(add_riftco_transformer_component_test
+         target test_name source component)
     add_executable(${target}
         ${source}
     )
 
     target_link_libraries(${target}
         PRIVATE
-            riftco_transformer::library
+            ${component}
     )
 
     riftco_transformer_enable_warnings(${target})
@@ -14,6 +15,16 @@ function(add_riftco_transformer_test target test_name source)
     add_test(
         NAME ${test_name}
         COMMAND ${target} ${ARGN}
+    )
+endfunction()
+
+function(add_riftco_transformer_test target test_name source)
+    add_riftco_transformer_component_test(
+        ${target}
+        ${test_name}
+        ${source}
+        riftco_transformer::library
+        ${ARGN}
     )
 endfunction()
 
@@ -446,6 +457,105 @@ add_riftco_transformer_test(
     autograd_tests
     autograd
     core/test_autograd.cpp
+)
+
+add_riftco_transformer_component_test(
+    cajal_compiler_tests
+    cajal_compiler
+    compiler/cajal/test_cajal.cpp
+    riftco_transformer::compiler
+)
+set_tests_properties(cajal_compiler
+    PROPERTIES
+        LABELS "compiler;cajal"
+)
+
+add_riftco_transformer_component_test(
+    cajal_multilinear_compiler_tests
+    cajal_multilinear_compiler
+    compiler/cajal/test_multilinear_compiler.cpp
+    riftco_transformer::compiler
+)
+set_tests_properties(cajal_multilinear_compiler
+    PROPERTIES
+        LABELS "compiler;cajal;multilinear"
+)
+
+add_riftco_transformer_component_test(
+    cajal_neural_lowering_tests
+    cajal_neural_lowering
+    lowering/test_cajal_neural_lowering.cpp
+    riftco_transformer::lowering
+)
+set_tests_properties(cajal_neural_lowering
+    PROPERTIES
+        LABELS "compiler;cajal;neural-lowering"
+)
+
+add_riftco_transformer_component_test(
+    analysis_pca_tests
+    analysis_pca
+    analysis/test_pca.cpp
+    riftco_transformer::analysis
+)
+set_tests_properties(analysis_pca
+    PROPERTIES
+        LABELS "analysis;interpretability;pca"
+)
+
+add_riftco_transformer_component_test(
+    analysis_intervention_ablation_tests
+    analysis_intervention_ablation
+    analysis/test_intervention_ablation.cpp
+    riftco_transformer::analysis
+)
+set_tests_properties(analysis_intervention_ablation
+    PROPERTIES
+        LABELS "analysis;interpretability;intervention;ablation"
+)
+
+add_riftco_transformer_component_test(
+    analysis_representation_tests
+    analysis_representation
+    analysis/test_representation.cpp
+    riftco_transformer::analysis
+)
+set_tests_properties(analysis_representation
+    PROPERTIES
+        LABELS "analysis;interpretability;representation"
+)
+
+add_riftco_transformer_component_test(
+    conditional_reverse_task_tests
+    conditional_reverse_task
+    experiments/test_conditional_reverse_task.cpp
+    riftco_transformer::conditional_reverse
+)
+add_riftco_transformer_component_test(
+    conditional_reverse_program_tests
+    conditional_reverse_program
+    experiments/test_conditional_reverse_program.cpp
+    riftco_transformer::conditional_reverse
+)
+add_riftco_transformer_component_test(
+    conditional_reverse_circuit_tests
+    conditional_reverse_circuit
+    experiments/test_conditional_reverse_circuit.cpp
+    riftco_transformer::conditional_reverse
+)
+add_riftco_transformer_component_test(
+    conditional_reverse_learned_tests
+    conditional_reverse_learned
+    experiments/learned_hybrid_test.cpp
+    riftco_transformer::conditional_reverse_learned
+)
+set_tests_properties(
+    conditional_reverse_task
+    conditional_reverse_program
+    conditional_reverse_circuit
+    conditional_reverse_learned
+    PROPERTIES
+        LABELS "compiler;cajal;analysis;conditional-reverse;learned"
 )
 
 add_riftco_transformer_test(

@@ -1,10 +1,11 @@
 #include "riftco_transformer/core/backend.hpp"
-#include "riftco_transformer/nn/embedding.hpp"
+#include "riftco_transformer/core/tensor_ops.hpp"
 #include "riftco_transformer/model/feed_forward.hpp"
+#include "riftco_transformer/nn/embedding.hpp"
 #include "riftco_transformer/nn/layer_norm.hpp"
 #include "riftco_transformer/nn/linear.hpp"
 #include "riftco_transformer/nn/parameter.hpp"
-#include "riftco_transformer/core/tensor_ops.hpp"
+#include "riftco_transformer/optim/adam.hpp"
 
 #include <cmath>
 #include <exception>
@@ -23,6 +24,7 @@ namespace {
 using riftco_transformer::Embedding;
 using riftco_transformer::ExecutionBackend;
 using riftco_transformer::FeedForward;
+using riftco_transformer::FeedForwardActivation;
 using riftco_transformer::LayerNorm;
 using riftco_transformer::Linear;
 using riftco_transformer::Parameter;
@@ -396,6 +398,72 @@ void test_linear_forward_shapes() {
     );
 }
 
+void test_bias_free_linear() {
+  const Tensor weight({2, 3}, {1.0F, 2.0F, 3.0F, -1.0F, 0.0F, 2.0F});
+  Linear linear(weight);
+  require(!linear.has_bias(), "explicit bias-free Linear state");
+  require_tensor_close(
+      linear.forward(Variable(Tensor({3}, {1.0F, 2.0F, 3.0F}), false)).value(),
+      {2}, {14.0F, 5.0F}, "bias-free Linear forward");
+  const auto parameters = linear.parameters();
+  require(parameters.size() == 1 && parameters.front().name == "weight",
+          "bias-free Linear registers only its weight");
+  require_tensor_close(
+      linear.bias().value(), {2}, {0.0F, 0.0F},
+      "legacy bias accessor remains safe for bias-free Linear");
+  {
+    riftco_transformer::Adam optimizer(linear.parameters());
+    require(optimizer.parameter_tensor_count() == 1 &&
+                optimizer.state_payload_bytes() ==
+                    2 * weight.numel() * sizeof(float),
+            "bias-free Linear allocates Adam state only for its weight");
+  }
+  linear.to(ExecutionBackend::Cpu);
+  require(linear.bias().value().backend() == ExecutionBackend::Cpu,
+          "inert Linear bias follows an explicit CPU transfer");
+  if (riftco_transformer::execution_backend_available(
+          ExecutionBackend::Metal)) {
+    linear.to(ExecutionBackend::Metal);
+    require(linear.parameters().size() == 1 &&
+                linear.parameters().front().parameter->value().backend() ==
+                    ExecutionBackend::Metal &&
+                linear.bias().value().backend() == ExecutionBackend::Metal,
+            "bias-free Linear transfers weight and inert bias to Metal");
+    linear.to(ExecutionBackend::Cpu);
+  }
+
+  std::mt19937 no_bias_random(91U);
+  Linear initialized_without_bias(3, 2, no_bias_random, false);
+  require(!initialized_without_bias.has_bias() &&
+              initialized_without_bias.parameters().size() == 1,
+          "initialized bias-free Linear schema");
+  std::mt19937 legacy_random(91U);
+  Linear legacy(3, 2, legacy_random);
+  require(legacy.has_bias() && legacy.parameters().size() == 2,
+          "legacy Linear constructor remains biased");
+
+  Linear quantized_without_bias(Tensor::zeros({1, 32}));
+  quantized_without_bias.quantize_weight_nf4(32);
+  require(quantized_without_bias.has_quantized_weight() &&
+              !quantized_without_bias.has_bias() &&
+              quantized_without_bias.parameters().empty(),
+          "bias-free quantized Linear has no floating-point base parameter");
+  std::mt19937 adapter_random(92U);
+  quantized_without_bias.attach_lora(1, 2.0F, adapter_random);
+  {
+    riftco_transformer::Adam adapter_optimizer(
+        quantized_without_bias.lora_parameters());
+    require(adapter_optimizer.parameter_tensor_count() == 2,
+            "bias-free QLoRA Adam state contains only adapter tensors");
+  }
+  quantized_without_bias.merge_lora();
+  require(!quantized_without_bias.has_quantized_weight() &&
+              !quantized_without_bias.has_bias() &&
+              quantized_without_bias.parameters().size() == 1 &&
+              quantized_without_bias.parameters().front().name == "weight",
+          "bias-free Linear preserves its schema across LoRA merge");
+}
+
 void test_linear_finite_differences() {
     const Tensor input_values(
         {2, 2, 3},
@@ -625,6 +693,43 @@ void test_initialization_and_feed_forward() {
     }
 }
 
+void test_relu_feed_forward() {
+  std::mt19937 random(123U);
+  FeedForward feed_forward(2, 2, random, FeedForwardActivation::Relu);
+  require(feed_forward.activation() == FeedForwardActivation::Relu,
+          "feed-forward ReLU configuration");
+  auto parameters = feed_forward.parameters();
+  for (const auto &named_parameter : parameters) {
+    if (named_parameter.name == "expand.weight" ||
+        named_parameter.name == "project.weight") {
+      named_parameter.parameter->set_value(
+          Tensor({2, 2}, {1.0F, 0.0F, 0.0F, 1.0F}));
+    } else {
+      named_parameter.parameter->set_value(Tensor({2}, 0.0F));
+    }
+  }
+
+  const Variable input(Tensor({1, 2}, {-1.0F, 2.0F}));
+  const Variable output = feed_forward.forward(input);
+  require_tensor_close(output.value(), {1, 2}, {0.0F, 2.0F},
+                       "feed-forward exact ReLU output");
+  riftco_transformer::sum(output).backward();
+  require_tensor_close(input.gradient(), {1, 2}, {0.0F, 1.0F},
+                       "feed-forward exact ReLU gradient");
+
+  std::mt19937 default_random(456U);
+  FeedForward default_feed_forward(2, 3, default_random);
+  require(default_feed_forward.activation() == FeedForwardActivation::Gelu,
+          "legacy feed-forward constructor defaults to GELU");
+  require_throws(
+      [] {
+        std::mt19937 invalid_random(789U);
+        static_cast<void>(FeedForward(2, 3, invalid_random,
+                                      static_cast<FeedForwardActivation>(255)));
+      },
+      "feed-forward should reject an unknown activation");
+}
+
 void test_module_device_transfer() {
     const riftco_transformer::ScopedExecutionBackend cpu_backend(
         ExecutionBackend::Cpu
@@ -678,8 +783,10 @@ int main() {
         test_parameter_handle_lifetime_move_and_identity();
         test_embedding_forward_and_gradients();
         test_linear_forward_shapes();
+        test_bias_free_linear();
         test_linear_finite_differences();
         test_initialization_and_feed_forward();
+        test_relu_feed_forward();
         test_module_device_transfer();
         std::cout << "layer tests passed\n";
         return 0;
