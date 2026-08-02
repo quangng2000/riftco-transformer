@@ -129,7 +129,7 @@ sequenceDiagram
         M->>O: Full/LoRA/QLoRA selected gradients
         O-->>M: update selected weights
     end
-    M->>A: merge adapters; save FP32 child
+    M->>A: merge adapters and save FP32 child
     A->>S: load once
     U->>S: prompt
     loop Each new token
