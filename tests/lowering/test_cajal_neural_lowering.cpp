@@ -916,7 +916,8 @@ void test_randomized_initialization() {
   for (const double coordinate : value.coordinates()) {
     coordinates.push_back(static_cast<float>(coordinate));
   }
-  return Tensor({coordinates.size()}, std::move(coordinates));
+  const std::size_t coordinate_count = coordinates.size();
+  return Tensor({coordinate_count}, std::move(coordinates));
 }
 
 void test_compiled_program_three_way_equivalence() {

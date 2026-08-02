@@ -163,10 +163,11 @@ void test_double_quantized_scale_packing_and_memory() {
     std::fill_n(begin,
                 first_level_block_size, static_cast<float>(block));
   }
+  const std::size_t value_count = values.size();
 
   const QuantizedWeight weight =
       QuantizedWeight::quantize_nf4_double_quantized(
-          Tensor({values.size()}, std::move(values), ExecutionBackend::Cpu),
+          Tensor({value_count}, std::move(values), ExecutionBackend::Cpu),
           first_level_block_size, scale_block_size);
   require(weight.uses_double_quantized_scales(),
           "double quantization should be observable without materialization");
