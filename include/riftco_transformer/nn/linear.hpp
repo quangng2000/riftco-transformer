@@ -61,6 +61,8 @@ public:
   [[nodiscard]] ParameterList parameters();
 
 private:
+    class PreparedQuantizedWeightTransfer;
+
     struct PreparedMaterializedWeight {
         std::optional<Tensor> dense_value;
         std::optional<Parameter> replacement_parameter;
@@ -68,6 +70,8 @@ private:
 
     [[nodiscard]] ParameterList
     extra_parameters_for_transfer() override;
+    [[nodiscard]] PreparedBackendTransferList
+    prepare_extra_backend_transfers(ExecutionBackend backend) override;
     [[nodiscard]] PreparedMaterializedWeight
     prepare_lora_merge() const;
     void commit_prepared_lora_merge(

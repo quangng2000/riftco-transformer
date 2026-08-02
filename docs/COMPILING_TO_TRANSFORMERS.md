@@ -14,19 +14,21 @@ compiler then encodes finite values and recursively lowers a checked expression
 to one dense multilinear map. An optional neural-lowering target now
 materializes that map as a differentiable frozen or trainable module using an
 exact dense contraction, unary linear map, or bilinear identity-kernel
-linear-attention construction. A reusable sequence adapter now surrounds a
-program with learned projections, places its result into target positions, and
-captures named representations. Keeping the symbolic and analysis paths
-independent of tensors gives both execution and interpretation trustworthy,
-reusable boundaries.
+linear-attention construction. A reusable sequence adapter surrounds a program
+with learned projections, places its result into target positions, and captures
+named representations. `ProgramAugmentedModel` now composes that core with
+residual ReLU feed-forward and parallel learned causal-attention paths, and ABI
+2.5 exposes it through the installed `riftco_transformer.programmed` Python
+package. Keeping symbolic, execution, and analysis policy at explicit
+boundaries makes the pieces auditable and reusable.
 
-The former exact conditional-reverse target and learned F/P/T/I target were
-task-specific C++ experiment code. They were retired from the installed
-framework when high-level training and labs moved to Python. Top-level
-`labs/conditional_reverse` now owns the task and deterministic protocol, while
-one historical F record remains explicitly labelled as evidence from the
-retired prototype. The current lab does not execute or claim to reproduce the
-learned variants.
+The former exact conditional-reverse target and learned F/P/T/I model were
+task-specific C++ experiment code and remain retired. Their reusable mechanics
+are now generic framework APIs; top-level `labs/conditional_reverse` owns the
+task, sparse F/P/T/I program specifications, deterministic data, training and
+evaluation, PCA/ablation/steering policy, and reports. One historical F record
+remains explicitly labelled as evidence from the retired prototype, not as a
+fresh multi-seed reproduction of the new path.
 
 ## Why this is not a general lambda calculus
 
@@ -51,16 +53,17 @@ flowchart LR
     E --> F["Configurable lowering registry"]
     F --> G["Differentiable programmed module"]
     G --> H["Learned projections + sequence placement"]
-    H --> J["Named representation capture"]
+    H --> I["Generic ProgramAugmentedModel"]
+    I --> J["Stable named representation capture"]
     J --> K["PCA"]
-    H --> L["Ablation + steering"]
-    H -. "future public Python composition" .-> M["Program-augmented research lab"]
+    I --> L["Ablation + steering"]
+    I --> M["ABI 2.5 + riftco_transformer.programmed"]
+    M --> N["Python-owned F/P/T/I lab"]
 ```
 
-Every solid arrow above is implemented as reusable framework functionality.
-The dotted arrow is the missing boundary: Python needs a public, task-neutral
-way to compose a programmed module into a trainable model before rebuilding
-the F/P/T/I study and collecting multi-seed evidence.
+Every arrow through the generic Python surface is implemented. What remains is
+evidence work rather than a composition gap: archive fresh smoke results, then
+run validation-controlled, paper-scale multi-seed F/P/T/I comparisons.
 
 ## Finite types
 
@@ -110,6 +113,14 @@ $y_o=T_o$. `compile(expression, ordered_context)` type-checks the expression,
 preserves that context as the input-axis order, and recursively constructs the
 map for constants, variables, sums, additive products, sequencing, `let`,
 `case`, dictionaries, and lookup.
+
+ABI 2.5 and Python also accept sparse import by output-major flat index:
+`MultilinearMap.from_sparse(input_dimensions, output_dimension, indices,
+values)`. This avoids constructing a coefficient-sized Python list and is how
+the conditional-reversal lab describes its mostly-zero F/P/T maps. It is an
+import boundary, not a claim of sparse execution: the current C++ map and
+lowering strategies still materialize a dense native coefficient tensor after
+checking the configured element limit.
 
 ## Modular neural lowering
 
@@ -357,20 +368,37 @@ src/analysis/
   ablation.cpp
 
 include/riftco_transformer/programmed/
+  programmed.hpp     aggregate public include
+  program_augmented_model.hpp generic learned/programmed composition
   sequence_placement.hpp learned projections, placement, capture, interventions
 
 src/programmed/
+  program_augmented_model.cpp
   sequence_placement.cpp
 
+include/riftco_transformer/nn/loss.hpp
+src/nn/loss.cpp             all-position and contiguous time-range objectives
+
+include/riftco_transformer/c_api.h
+src/c_api.cpp               ABI 2.5 map/model/trace/loss bridge
+
+python/riftco_transformer/programmed/
+  __init__.py        ABI-backed task-neutral Python composition surface
+
 labs/conditional_reverse/
-  protocol.py       task, deterministic splits, controls, and metrics
-  run.py            source-only protocol audit and JSON report
+  config.py         quick/paper profiles and F/P/T/I experiment policy
+  data.py           task encoding and deterministic batches
+  programs.py       sparse task-owned program specifications
+  analysis.py       PCA, ablation, and steering policy
+  protocol.py       deterministic splits, controls, and metrics
+  run.py            source-only learned-study orchestration and JSON report
   reports/          reviewed historical evidence with provenance
-  tests/            task semantics, disjointness, determinism, and metrics
+  tests/            task, program, analysis, and orchestration contracts
 
 tests/compiler/cajal/test_cajal.cpp
 tests/compiler/cajal/test_multilinear_compiler.cpp
 tests/lowering/test_cajal_neural_lowering.cpp
+tests/programmed/test_program_augmented_model.cpp
 tests/analysis/
 ```
 
@@ -398,52 +426,37 @@ constant/linear/bilinear/higher-arity execution, input and coefficient
 gradients, seeded randomization, precision policy, fallback diagnostics,
 parameter registration, backend transfer, and the installed CMake target.
 
-## Historical conditional-reversal circuit design
+## Conditional-reversal program specifications
 
-The retired task-specific C++ prototype compiled two explicit inputs for
-sequence length $L$ and alphabet size $N$:
+The current Python lab describes the programs sparsely while the framework
+remains task-neutral. For source length $L$, program width $K$, and
+$D=LK$, P is a unary reversal map with logical shape $[D,D]$ and exactly $D$
+unit coefficients. F is a bilinear conditional map with logical shape
+$[D,D,D]$: one shared projected source input supplies a selector coordinate at
+position zero and the other supplies the selected source symbol. Coordinate
+zero selects reversal and the other selector coordinates select copy, giving
+exactly $KD$ unit coefficients. Both logical inputs use projection group zero,
+so they share one learned projection and parameter identity.
 
-- a two-coordinate condition, `Reverse` or `Copy`, projected from the first
-  source symbol;
-- the complete source sequence encoded in $NL$ coordinates.
+`MultilinearMap.from_sparse` copies those output-major nonzero indices through
+ABI 2.5 without constructing a dense Python list. The current native map and
+lowerer then materialize the checked dense representation. Automatic lowering
+selects unary `linear` for P and bilinear `linear_attention` for F. F and P use
+compiled frozen coefficients; T reuses F's shape with seeded random-uniform,
+trainable coefficients; I passes no program branch at all.
 
-The program returns the sequence in reverse order for the left sum injection
-and unchanged for the right injection. Its exact bilinear coefficient tensor
-has shape
+| Variant | Python-owned program policy | Native parameter ownership |
+| --- | --- | --- |
+| F | sparse exact conditional copy/reverse map, two shared-projection inputs | compiled coefficients frozen |
+| P | sparse exact unary unconditional reverse map | compiled coefficients frozen |
+| T | F-shaped map lowered with seeded random initialization | coefficients included in ordinary Adam parameters |
+| I | `ProgramAugmentedModel(..., program=None)` | no core, coefficients, or program merge |
 
-```math
-[NL, 2, NL]
-```
+These are lab definitions, not C++ enums or task-specific native classes.
 
-and therefore $2(NL)^2$ dense elements, of which only $2NL$ are nonzero. All
-coefficients are exactly 0 or 1. Automatic neural lowering selects
-`linear_attention`, with the source sequence as the query. The adapter owns
-Adam-compatible condition, symbol, and output projections, which this exact
-circuit initializes to their known solution. It flattens the completed source prefix,
-executes the compiled circuit, and places the output only in the target half.
-With frozen compilation, Adam sees the six projection weight/bias tensors but
-no coefficient parameter. `RandomUniform` supplies a seeded same-shape control;
-`trainable=true` deliberately adds the coefficient tensor to the normal
-parameter tree.
+## Generic learned F/P/T/I composition
 
-That exact circuit and its C++ executable are no longer installed framework
-surfaces. The current Python-owned lab preserves the task, source-disjoint
-splits, exact oracle, and copy/reverse controls:
-
-```bash
-PYTHONPATH=python:. python3 -m labs.conditional_reverse.run \
-  --output runs/conditional-reverse/protocol.json
-```
-
-This command audits protocol contracts; it does not train a model or run PCA,
-ablation, and steering on learned representations.
-
-## Retired learned F/P/T/I hybrid design
-
-The retired prototype followed the paper artifact's learned architecture
-without changing the compact circuit. The following equations document that
-historical design; they do not describe a current installed target.
-For a source $s$ and conditional target $f(s)$, the protocol forms
+For a source $s$ and conditional target $f(s)$, the Python protocol forms
 
 ```math
 z=[s_1,\ldots,s_L,\mathtt{|},f(s)_1,\ldots,f(s)_L].
@@ -473,23 +486,38 @@ and T project the first $L$ residual positions through a biasless
 $20\to10$ map, pad the program result into positions $[L,2L)$, and use a
 biasless $30\to20$ residual merge. I omits that branch and uses $r_2=h_1+r_1$.
 
-| Variant | Program | Coefficient ownership |
-| --- | --- | --- |
-| F | full conditional copy/reverse map over two shared-projection inputs | compiled and frozen |
-| P | unary unconditional reverse map | compiled and frozen |
-| T | F-shaped full map with seeded random coefficients | trainable through ordinary Adam parameters |
-| I | no program branch | no program coefficients or merge |
+This is now implemented by generic `ProgramAugmentedModel`, not by attaching
+task behavior to `DecoderOnlyTransformer`. Its configurable attention branch
+count is at least one; the branches are graph-parallel but evaluated in
+deterministic construction order. Arbitrary in-range source and target offsets
+make placement reusable beyond the target-half protocol. Placement is a
+backend-native differentiable permute/concatenate graph, so gradients reach
+the program inputs and trainable T coefficients.
 
-In the prototype, one seed controlled learned initialization and T's randomized
-coefficients. F/P used compiled frozen coefficients, while T used randomized
-trainable coefficients so the controls retained distinct scientific meanings.
+`cross_entropy_time_range(logits, targets, L, L)` implements the target-half
+loss above. Captured traces use stable names including `embedding.sum`,
+`residual.pre_attention`, `learned_attention.merged`, `program.source`,
+`program.input.N`, `program.input.N.projected`, `program.output.raw`,
+`program.output.placed`, `residual.post_merge`, and `logits`. Forward options
+support learned-attention batch roll, selected program-input or output batch
+roll, and affine projected-input steering.
 
-The prototype used the artifact dimensions ($L=15$, 26 letters plus delimiter,
-$d_{model}=20$, two two-head causal attention modules, and 10k/5k/1k/1k
-train/probe/validation/test splits). Rebuilding it now requires a public,
-task-neutral program-augmented model API that a Python lab can compose. A clean
-paper reproduction would additionally require completed multi-seed runs,
-archived configs and outputs, and comparison against the reported results.
+The `paper` profile retains the artifact dimensions ($L=15$, 26 letters plus
+delimiter, $d_{model}=20$, two two-head causal-attention modules, and
+10k/5k/1k/1k train/probe/validation/test splits). The smaller `quick` profile
+is the intended smoke path:
+
+```bash
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run --help
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run \
+  --profile quick --variants F --backend cpu \
+  --output runs/conditional-reverse/quick.json
+```
+
+Verify the current CLI with `--help` before starting either profile. Python
+owns training, validation-based decisions, one-time test evaluation, PCA,
+ablations, steering, and report publication; C++ owns only reusable numerical
+execution and state.
 
 One complete local seed-42 `F` run is archived as a machine-readable record at
 [`labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json`](../labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json).
@@ -498,7 +526,8 @@ and reached 100% target-token and exact-sequence accuracy on the 1,000-example
 held-out test split. Batch-rolling the program output reduced paired token
 accuracy by 96.15 percentage points, while batch-rolling learned attention had
 no measured effect. This is a dirty-worktree, single-seed execution record—not
-a benchmark or a paper reproduction.
+a benchmark, evidence for fresh ABI-2.5 execution, or a multi-seed paper
+reproduction. Fresh quick/paper metrics must come from reviewed new run records.
 
 ## Interpretation is a separate analysis stage
 
@@ -514,40 +543,42 @@ not in the compiler or optimizer. They answer different questions:
 The standard-library-only `riftco_transformer::analysis` target owns matrices,
 named traces, deterministic covariance/Jacobi PCA, offline interventions, and
 paired ablation statistics. It has no tensor or model dependency. The
-programmed adapter owns the model-specific execution sites and converts a
-captured tensor into the generic `[observation, feature]` representation. This
-lets the same analysis component later consume ordinary attention, MLP,
-residual-stream, GNN, or other model activations.
+generic programmed model owns the execution capture sites and ABI 2.5 copies
+each capture into an owning Python `RepresentationTrace`. The Python lab then
+converts selected captures into the model-neutral `[observation, feature]`
+analysis representation. The same C++ analysis algorithms can consume ordinary
+attention, MLP, residual-stream, GNN, or other model activations.
 
-PCA must be fit on a fit-only analysis split and only transformed on held-out
-examples. The retired learned prototype used its dedicated probe split for the
-fit, raw $L$-position program output rather than padded zeros, and separate
-attention/program/combined batch-roll controls. Those details remain useful as
-requirements for a future Python reconstruction, but they are not executed by
-the current protocol-only lab. PCA plus matched ablation and steering evidence
-would be much stronger than a PCA plot alone.
+PCA should be fit on a fit-only analysis split and transformed on held-out
+examples before making a representation claim. The current Python lab reserves
+its probe split and fits raw $L$-position `program.output.raw` rather than padded
+zeros, but does not yet publish labeled held-out projections comparable to the
+paper's $A$/$R2$ plots. Its PCA output is therefore an unsupervised variance
+diagnostic. Separate attention/program/combined batch-roll controls and
+selector-basis masking run through generic forward options. Matched ablation
+and steering evidence is causal evidence; implemented PCA plumbing alone is
+not a result claim. Fresh effect sizes require reviewed run records.
 
 ## Current status and next evidence milestone
 
-The installed framework currently stops at reusable compiler, lowering,
-programmed-sequence, and analysis primitives. The Python conditional-reversal
-lab specifies the task, creates source-disjoint train/probe/validation/test
-splits, and audits the exact oracle plus copy/reverse controls. It does not
-attach a program to `DecoderOnlyTransformer`, train F/P/T/I, or capture learned
-representations.
+The installed framework now includes reusable compiler, lowering, analysis,
+`ProgramAugmentedModel`, ABI 2.5, `riftco_transformer.programmed`, sparse map
+import, owning traces, interventions, and time-range loss. The Python
+conditional-reversal lab owns the task and executes F/P/T/I over that generic
+surface; no conditional-reversal type or training/evaluation loop moved into
+C++.
 
 The archived M4 Max record establishes only that one paper-scale `F`
 configuration ran end to end on the retired native Metal prototype. It does
 not establish current executability, variance across seeds, or the relative
 behavior of `P`, `T`, and `I`.
 
-The next framework milestone is a task-neutral program-augmented model API
-that Python can compose. After that boundary exists, the lab can rebuild every
-variant, select using validation, evaluate test once, archive
-metrics/checkpoints, and compare PCA/ablation/steering effects with the paper.
-Until then, the repository should describe the F/P/T/I work as historical
-prototype evidence rather than current experiment support or a reproduced
-result.
+The next milestone is evidence: archive a fresh quick-profile smoke record,
+then run every paper-profile variant across predeclared seeds, select only with
+validation, evaluate test once, and compare PCA/ablation/steering effects with
+the paper. Until those records exist, describe F/P/T/I execution as implemented
+but not yet reproduced; do not reuse the historical metrics as current-path
+results.
 
 ## Deliberate omissions
 
@@ -555,11 +586,10 @@ result.
 - no general functions or closures
 - no nondeterministic choice or relation-valued lookup
 - no generic dictionary decoding or exhaustive dictionary enumeration
-- no sparse or factored multilinear-map representation
+- no persistent sparse or factored multilinear-map execution representation;
+  sparse ABI/Python import currently materializes the checked dense map
 - no generic exact GELU-MLP lowering
 - no attachment to the production `DecoderOnlyTransformer` or KV-cached decode
-- no current learned F/P/T/I implementation; the task-specific native
-  prototype was retired when lab ownership moved to Python
 - no archived full-scale multi-seed reproduction, checkpoint, or
   hyperparameter-sweep result yet; only one local seed-42 `F` execution record
   is archived

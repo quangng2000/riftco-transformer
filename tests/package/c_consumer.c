@@ -5,7 +5,7 @@
 
 int main(void) {
     if (rt_abi_version() != RT_ABI_VERSION ||
-        RT_ABI_VERSION_MINOR != UINT32_C(4) ||
+        RT_ABI_VERSION_MINOR != UINT32_C(5) ||
         RT_BACKEND_CUDA != (rt_backend)2 ||
         RT_BACKEND_TPU != (rt_backend)3 ||
         RT_ADAM_STATE_PAGED != (rt_adam_state_storage_kind)1) {

@@ -145,6 +145,36 @@ configured policy permits a dense fallback.
 
 See [Compiling to transformers](COMPILING_TO_TRANSFORMERS.md).
 
+## Program-augmented model settings
+
+The C++ `ProgramAugmentedModelConfig` and installed Python
+`programmed.ProgramAugmentedModelConfig` describe only generic model shape and
+initialization:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `vocabulary_size` | required in Python | Token embedding and logit width. |
+| `context_length` | required in Python | Exact fixed input time dimension. |
+| `model_width` / `head_count` | required in Python | Residual width and heads per causal-attention branch; width must divide evenly. |
+| `feed_forward_width` | required in Python | ReLU feed-forward hidden width. |
+| `attention_branch_count` | `2` | Number of independent causal-attention modules concatenated before the learned merge; must be at least one. |
+| `attention` | `"materialized"` | Full-sequence `materialized` or exact memory-linear `flash` implementation. |
+| `random_seed` | `42` | Deterministic learned-parameter initialization. |
+
+An optional Python `ProgramBranch` adds `map`, source and target offsets and
+lengths, logical `ProgramInputLayout` records, lowering policy,
+`input_projection_bias`, and `merge_bias`. Each layout selects
+`whole_source` or one `source_position`; equal `projection_group` values share
+one learned projection and parameter identity. Source and target spans must fit
+the fixed context, but their offsets are otherwise task-neutral.
+
+`ProgramAugmentedForwardOptions` controls `capture_representations`, learned
+attention batch roll, affine `steering`, selected program-input batch rolls,
+program-output batch roll, and their shared positive `batch_roll_shift`.
+`MultilinearMap.from_sparse` accepts output-major nonzero indices and values;
+the current lowerer still applies `max_coefficient_elements` before allocating
+its dense native representation.
+
 ## Research-lab settings
 
 Top-level `labs/` owns experiment configuration, fixed seeds, candidate
@@ -158,8 +188,20 @@ PYTHONPATH=python:. python3 -m labs.fine_tuning.run --help
 PYTHONPATH=python:. python3 -m labs.conditional_reverse.run --help
 ```
 
-The current conditional-reversal lab configures only data/protocol controls.
-The retired learned F/P/T/I prototype is not a current executable surface.
+The conditional-reversal lab owns named `quick` and `paper` profiles, F/P/T/I
+variant selection, backend, seeds, data sizes, optimization, validation/test
+policy, interpretation, and report paths. A short explicit invocation is:
+
+```bash
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run \
+  --profile quick --variants F --backend cpu \
+  --output runs/conditional-reverse/quick.json
+```
+
+Run `--help` to verify exact current flags and defaults before launching a
+profile. These settings are lab policy layered over
+`riftco_transformer.programmed`; they are not fields added to the C++ generic
+model.
 
 ## Environment variables
 

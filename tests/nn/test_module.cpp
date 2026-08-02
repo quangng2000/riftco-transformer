@@ -53,6 +53,54 @@ public:
     }
 };
 
+class ProbeTransferModule final : public Module {
+public:
+    explicit ProbeTransferModule(bool fail_preparation = false)
+        : fail_preparation_(fail_preparation) {}
+
+    [[nodiscard]] bool prepared() const noexcept {
+        return prepared_;
+    }
+
+    [[nodiscard]] bool committed() const noexcept {
+        return committed_;
+    }
+
+private:
+    class PreparedProbeTransfer final
+        : public PreparedBackendTransfer {
+    public:
+        explicit PreparedProbeTransfer(bool& committed)
+            : committed_(&committed) {}
+
+        void commit() noexcept override {
+            *committed_ = true;
+        }
+
+    private:
+        bool* committed_;
+    };
+
+    [[nodiscard]] PreparedBackendTransferList
+    prepare_extra_backend_transfers(ExecutionBackend) override {
+        prepared_ = true;
+        if (fail_preparation_) {
+            throw std::runtime_error(
+                "injected non-parameter transfer failure"
+            );
+        }
+        PreparedBackendTransferList result;
+        result.push_back(
+            std::make_unique<PreparedProbeTransfer>(committed_)
+        );
+        return result;
+    }
+
+    bool fail_preparation_;
+    bool prepared_ = false;
+    bool committed_ = false;
+};
+
 void require_parameter_order(
     const ParameterList& actual,
     const std::vector<std::string>& expected_names,
@@ -329,6 +377,36 @@ void test_recursive_backend_transfer() {
     }
 }
 
+void test_non_parameter_transfer_prepares_before_any_commit() {
+    ProbeTransferModule prepared_child;
+    ProbeTransferModule failing_child(true);
+    TestModule root;
+    root.add_module("prepared", prepared_child);
+    root.add_module("failing", failing_child);
+
+    require_throws(
+        [&] { root.to(ExecutionBackend::Cpu); },
+        "a failed extra-state preparation must reject the transfer"
+    );
+    require(
+        prepared_child.prepared() && failing_child.prepared(),
+        "registered extra state must be prepared in tree order"
+    );
+    require(
+        !prepared_child.committed(),
+        "no extra state may commit when a later preparation fails"
+    );
+
+    ProbeTransferModule successful_child;
+    TestModule successful_root;
+    successful_root.add_module("child", successful_child);
+    successful_root.to(ExecutionBackend::Cpu);
+    require(
+        successful_child.prepared() && successful_child.committed(),
+        "prepared extra state must commit after a successful transaction"
+    );
+}
+
 }  // namespace
 
 int main() {
@@ -337,6 +415,7 @@ int main() {
         test_module_list_numeric_registration();
         test_invalid_duplicate_and_cyclic_registration();
         test_recursive_backend_transfer();
+        test_non_parameter_transfer_prepares_before_any_commit();
         std::cout << "module tests passed\n";
         return 0;
     } catch (const std::exception& error) {

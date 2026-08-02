@@ -4,10 +4,12 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <random>
 #include <span>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -198,19 +200,39 @@ public:
   }
 
   void to(ExecutionBackend target_backend) override {
-    if (metadata_.trainable) {
-      Module::to(target_backend);
-      return;
-    }
-    if (target_backend == backend()) {
-      return;
-    }
-    Variable transferred(frozen_coefficients_->value().to(target_backend),
-                         false);
-    *frozen_coefficients_ = std::move(transferred);
+    Module::to(target_backend);
   }
 
 private:
+  class PreparedFrozenCoefficientTransfer final
+      : public PreparedBackendTransfer {
+  public:
+    PreparedFrozenCoefficientTransfer(Variable &destination,
+                                      Variable transferred)
+        : destination_(&destination), transferred_(std::move(transferred)) {}
+
+    void commit() noexcept override {
+      *destination_ = std::move(transferred_);
+    }
+
+  private:
+    Variable *destination_;
+    Variable transferred_;
+  };
+
+  [[nodiscard]] PreparedBackendTransferList
+  prepare_extra_backend_transfers(ExecutionBackend target_backend) override {
+    PreparedBackendTransferList result;
+    if (!metadata_.trainable && target_backend != backend()) {
+      result.push_back(
+          std::make_unique<PreparedFrozenCoefficientTransfer>(
+              *frozen_coefficients_,
+              Variable(frozen_coefficients_->value().to(target_backend),
+                       false)));
+    }
+    return result;
+  }
+
   [[nodiscard]] const Tensor &coefficient_tensor() const noexcept {
     return metadata_.trainable ? trainable_coefficients_->value()
                                : frozen_coefficients_->value();
@@ -358,6 +380,9 @@ private:
   std::optional<Variable> frozen_coefficients_;
   std::optional<Parameter> trainable_coefficients_;
 };
+
+static_assert(std::is_nothrow_move_assignable_v<Variable>,
+              "frozen backend-transfer commit must not throw");
 
 void validate_analysis(const compiler::cajal::MultilinearMap &map,
                        const NeuralLoweringConfig &config,

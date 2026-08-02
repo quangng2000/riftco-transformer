@@ -20,7 +20,7 @@ extern "C" {
 #endif
 
 #define RT_ABI_VERSION_MAJOR UINT32_C(2)
-#define RT_ABI_VERSION_MINOR UINT32_C(4)
+#define RT_ABI_VERSION_MINOR UINT32_C(5)
 #define RT_ABI_VERSION \
     ((RT_ABI_VERSION_MAJOR << 16) | RT_ABI_VERSION_MINOR)
 
@@ -32,6 +32,9 @@ typedef struct rt_decode_session rt_decode_session;
 typedef struct rt_parameter_list rt_parameter_list;
 typedef struct rt_variable rt_variable;
 typedef struct rt_adam rt_adam;
+typedef struct rt_multilinear_map rt_multilinear_map;
+typedef struct rt_program_augmented_model rt_program_augmented_model;
+typedef struct rt_representation_trace rt_representation_trace;
 
 // Fixed-width integer constants keep the ABI independent of C enum layout.
 typedef int32_t rt_status;
@@ -73,6 +76,26 @@ typedef int32_t rt_kv_cache_kind;
 typedef int32_t rt_adam_state_storage_kind;
 #define RT_ADAM_STATE_CONTIGUOUS ((rt_adam_state_storage_kind)0)
 #define RT_ADAM_STATE_PAGED ((rt_adam_state_storage_kind)1)
+
+typedef int32_t rt_program_input_source;
+#define RT_PROGRAM_INPUT_WHOLE_SOURCE ((rt_program_input_source)0)
+#define RT_PROGRAM_INPUT_SOURCE_POSITION ((rt_program_input_source)1)
+
+typedef int32_t rt_lowering_strategy;
+#define RT_LOWERING_STRATEGY_AUTO ((rt_lowering_strategy)0)
+#define RT_LOWERING_STRATEGY_DENSE ((rt_lowering_strategy)1)
+#define RT_LOWERING_STRATEGY_LINEAR ((rt_lowering_strategy)2)
+#define RT_LOWERING_STRATEGY_LINEAR_ATTENTION ((rt_lowering_strategy)3)
+
+typedef int32_t rt_coefficient_precision;
+#define RT_COEFFICIENT_REQUIRE_EXACT_F32 ((rt_coefficient_precision)0)
+#define RT_COEFFICIENT_ALLOW_ROUNDED_F32 ((rt_coefficient_precision)1)
+
+typedef int32_t rt_coefficient_initialization;
+#define RT_COEFFICIENT_INITIALIZATION_COMPILED \
+    ((rt_coefficient_initialization)0)
+#define RT_COEFFICIENT_INITIALIZATION_RANDOM_UNIFORM \
+    ((rt_coefficient_initialization)1)
 
 typedef uint64_t rt_lora_target_mask;
 #define RT_LORA_TARGET_ATTENTION_QUERY \
@@ -180,6 +203,85 @@ typedef struct rt_adam_step_stats {
     double gradient_norm;
     double clip_scale;
 } rt_adam_step_stats;
+
+// A fixed-context learned sequence model surrounding an optional lowered
+// multilinear program. The attention branches are independent modules whose
+// outputs are concatenated and merged before the optional program branch.
+typedef struct rt_program_augmented_model_config {
+    uint64_t struct_size;
+    uint64_t vocabulary_size;
+    uint64_t context_length;
+    uint64_t model_width;
+    uint64_t head_count;
+    uint64_t attention_branch_count;
+    uint64_t feed_forward_width;
+    uint32_t random_seed;
+    rt_full_sequence_attention_kind attention_kind;
+} rt_program_augmented_model_config;
+
+// Each logical program input selects either the complete projected source span
+// or one projected source position. Repeated projection_group values share one
+// learned projection and therefore one parameter object.
+typedef struct rt_program_input_layout {
+    rt_program_input_source source;
+    uint32_t reserved;
+    uint64_t position;
+    uint64_t projection_group;
+} rt_program_input_layout;
+
+typedef struct rt_program_branch_config {
+    uint64_t struct_size;
+    uint64_t source_offset;
+    uint64_t source_length;
+    uint64_t target_offset;
+    uint64_t output_length;
+    const rt_program_input_layout* inputs;
+    uint64_t input_count;
+    int32_t input_projection_bias;
+    int32_t merge_bias;
+} rt_program_branch_config;
+
+// attention_query_axis is -1 to use the linear-attention strategy's default
+// logical input axis (axis 1). A nonnegative value selects a logical input
+// index explicitly.
+typedef struct rt_neural_lowering_options {
+    uint64_t struct_size;
+    rt_lowering_strategy strategy;
+    rt_coefficient_precision precision;
+    rt_coefficient_initialization initialization;
+    int32_t trainable;
+    uint32_t random_seed;
+    uint32_t reserved;
+    float random_scale;
+    uint32_t reserved2;
+    uint64_t max_coefficient_elements;
+    int64_t attention_query_axis;
+} rt_neural_lowering_options;
+
+// One affine edit of one logical program input at one source position. Empty
+// scale/offset arrays select identity/zero defaults; nonempty arrays must match
+// that input projection's feature width.
+typedef struct rt_program_input_steering {
+    uint64_t input_index;
+    uint64_t position;
+    const float* scales;
+    uint64_t scale_count;
+    const float* offsets;
+    uint64_t offset_count;
+} rt_program_input_steering;
+
+typedef struct rt_program_augmented_forward_options {
+    uint64_t struct_size;
+    int32_t capture_representations;
+    int32_t batch_roll_learned_attention;
+    uint64_t batch_roll_shift;
+    const rt_program_input_steering* steering;
+    uint64_t steering_count;
+    const uint64_t* ablated_program_inputs;
+    uint64_t ablated_program_input_count;
+    int32_t ablate_program_output;
+    uint32_t reserved;
+} rt_program_augmented_forward_options;
 
 // Raw handles do not provide lifetime synchronization. A caller must not
 // release a handle while any call using that handle is in flight and must
@@ -375,6 +477,146 @@ RT_API rt_status RT_CALL rt_tensor_matmul(
     const rt_tensor* left,
     const rt_tensor* right,
     rt_tensor** output
+);
+
+// Creates an immutable dense multilinear map. Coefficients are copied in
+// output-major order with logical shape [output, input_0, ..., input_n].
+RT_API rt_status RT_CALL rt_multilinear_map_create_dense(
+    const uint64_t* input_dimensions,
+    uint64_t input_count,
+    uint64_t output_dimension,
+    const double* coefficients,
+    uint64_t coefficient_count,
+    rt_multilinear_map** output
+);
+
+// Materializes the same map from sorted or unsorted output-major flat indices.
+// Duplicate indices, explicit zero values, and out-of-range indices are
+// rejected. Empty sparse input represents the all-zero map.
+RT_API rt_status RT_CALL rt_multilinear_map_create_sparse(
+    const uint64_t* input_dimensions,
+    uint64_t input_count,
+    uint64_t output_dimension,
+    const uint64_t* flat_indices,
+    const double* values,
+    uint64_t nonzero_count,
+    rt_multilinear_map** output
+);
+
+RT_API void RT_CALL rt_multilinear_map_release(rt_multilinear_map* map);
+
+RT_API rt_status RT_CALL rt_program_augmented_model_config_init(
+    rt_program_augmented_model_config* config,
+    uint64_t config_size
+);
+
+RT_API rt_status RT_CALL rt_program_branch_config_init(
+    rt_program_branch_config* config,
+    uint64_t config_size
+);
+
+RT_API rt_status RT_CALL rt_neural_lowering_options_init(
+    rt_neural_lowering_options* options,
+    uint64_t options_size
+);
+
+RT_API rt_status RT_CALL rt_program_augmented_forward_options_init(
+    rt_program_augmented_forward_options* options,
+    uint64_t options_size
+);
+
+// A null map, branch, and lowering triplet constructs the learned-only path.
+// Otherwise all three pointers are required. Inputs and maps are copied during
+// this call and may be released immediately afterward.
+RT_API rt_status RT_CALL rt_program_augmented_model_create(
+    const rt_program_augmented_model_config* config,
+    const rt_multilinear_map* map,
+    const rt_program_branch_config* branch,
+    const rt_neural_lowering_options* lowering,
+    rt_program_augmented_model** output
+);
+
+RT_API void RT_CALL rt_program_augmented_model_release(
+    rt_program_augmented_model* model
+);
+
+RT_API rt_status RT_CALL rt_program_augmented_model_to(
+    rt_program_augmented_model* model,
+    rt_backend backend
+);
+
+RT_API rt_status RT_CALL rt_program_augmented_model_backend(
+    const rt_program_augmented_model* model,
+    rt_backend* output
+);
+
+RT_API rt_status RT_CALL rt_program_augmented_model_has_program(
+    const rt_program_augmented_model* model,
+    int32_t* output
+);
+
+RT_API rt_status RT_CALL rt_program_augmented_model_parameters(
+    rt_program_augmented_model* model,
+    rt_parameter_list** output
+);
+
+// Token shape is [batch_size, context_length]. When capture is disabled,
+// output_trace may be null; when enabled it must be nonnull and receives an
+// owning CPU representation trace independent of the returned graph.
+RT_API rt_status RT_CALL rt_program_augmented_model_forward(
+    const rt_program_augmented_model* model,
+    const uint32_t* token_ids,
+    uint64_t token_count,
+    uint64_t batch_size,
+    uint64_t context_length,
+    const rt_program_augmented_forward_options* options,
+    rt_variable** output_logits,
+    rt_representation_trace** output_trace
+);
+
+RT_API void RT_CALL rt_representation_trace_release(
+    rt_representation_trace* trace
+);
+
+RT_API rt_status RT_CALL rt_representation_trace_count(
+    const rt_representation_trace* trace,
+    uint64_t* output
+);
+
+// required_capacity includes the trailing null byte. A null output_name with
+// zero capacity is a supported size query.
+RT_API rt_status RT_CALL rt_representation_trace_name(
+    const rt_representation_trace* trace,
+    uint64_t index,
+    char* output_name,
+    uint64_t name_capacity,
+    uint64_t* required_capacity
+);
+
+RT_API rt_status RT_CALL rt_representation_trace_rank(
+    const rt_representation_trace* trace,
+    uint64_t index,
+    uint64_t* output
+);
+
+RT_API rt_status RT_CALL rt_representation_trace_shape(
+    const rt_representation_trace* trace,
+    uint64_t index,
+    uint64_t* output_dimensions,
+    uint64_t dimension_capacity
+);
+
+RT_API rt_status RT_CALL rt_representation_trace_numel(
+    const rt_representation_trace* trace,
+    uint64_t index,
+    uint64_t* output
+);
+
+RT_API rt_status RT_CALL rt_representation_trace_copy_to_host_f32(
+    const rt_representation_trace* trace,
+    uint64_t index,
+    float* output_values,
+    uint64_t value_capacity
 );
 
 RT_API rt_status RT_CALL rt_transformer_config_init(
@@ -689,6 +931,18 @@ RT_API rt_status RT_CALL rt_cross_entropy(
     const rt_variable* logits,
     const uint32_t* targets,
     uint64_t target_count,
+    rt_variable** output
+);
+
+// Selects the same contiguous time range from every [batch,time,vocabulary]
+// logit row and its flattened [batch,time] targets before taking mean cross
+// entropy. This keeps task-specific supervision masks in the caller.
+RT_API rt_status RT_CALL rt_cross_entropy_time_range(
+    const rt_variable* logits,
+    const uint32_t* targets,
+    uint64_t target_count,
+    uint64_t time_offset,
+    uint64_t time_count,
     rt_variable** output
 );
 

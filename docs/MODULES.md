@@ -17,7 +17,8 @@ typed forward methods ───────────────→ Variable 
 
 The implemented module types are `Linear`, `Embedding`, `LayerNorm`,
 `LowRankAdapter`, `FeedForward`, `CausalSelfAttention`, `TransformerBlock`,
-and `DecoderOnlyTransformer`.
+`DecoderOnlyTransformer`, `ProgrammedSequenceCore`, and the task-neutral
+`ProgramAugmentedModel`.
 
 ## Registration
 

@@ -378,9 +378,11 @@ void Module::to(ExecutionBackend backend) {
         std::string prefix;
     };
     std::vector<PendingModule> pending{{this, {}}};
+    std::vector<Module*> transfer_modules;
     while (!pending.empty()) {
         PendingModule current = std::move(pending.back());
         pending.pop_back();
+        transfer_modules.push_back(current.module);
 
         ParameterList extras =
             current.module->extra_parameters_for_transfer();
@@ -431,10 +433,81 @@ void Module::to(ExecutionBackend backend) {
         }
     }
 
-    move_parameters_to(transfer_parameters, backend);
+    std::unordered_set<Parameter*> seen_parameters;
+    seen_parameters.reserve(transfer_parameters.size());
+    for (const auto& named_parameter : transfer_parameters) {
+        if (named_parameter.parameter == nullptr) {
+            throw std::invalid_argument(
+                "parameter list contains a null parameter"
+            );
+        }
+        if (!seen_parameters.insert(
+                named_parameter.parameter
+            ).second) {
+            throw std::invalid_argument(
+                "parameter list contains a duplicate parameter"
+            );
+        }
+    }
+
+    struct ParameterTransferCandidate {
+        Parameter* parameter;
+        Tensor value;
+        Tensor gradient;
+    };
+    std::vector<ParameterTransferCandidate> parameter_candidates;
+    parameter_candidates.reserve(transfer_parameters.size());
+    for (const auto& named_parameter : transfer_parameters) {
+        if (named_parameter.parameter->value().backend() == backend) {
+            continue;
+        }
+        Tensor next_value =
+            named_parameter.parameter->value().to(backend);
+        Tensor next_gradient = Tensor::zeros(
+            next_value.shape(),
+            backend
+        );
+        parameter_candidates.push_back({
+            named_parameter.parameter,
+            std::move(next_value),
+            std::move(next_gradient),
+        });
+    }
+
+    PreparedBackendTransferList extra_candidates;
+    for (Module* module : transfer_modules) {
+        PreparedBackendTransferList prepared =
+            module->prepare_extra_backend_transfers(backend);
+        for (auto& candidate : prepared) {
+            if (candidate == nullptr) {
+                throw std::logic_error(
+                    "prepared backend transfer must not be null"
+                );
+            }
+            extra_candidates.push_back(std::move(candidate));
+        }
+    }
+
+    // Everything that can allocate or throw has completed. Both commit paths
+    // are deliberately non-throwing, so no live state can be left halfway
+    // across backends.
+    for (auto& candidate : parameter_candidates) {
+        candidate.parameter->replace_state(
+            std::move(candidate.value),
+            std::move(candidate.gradient)
+        );
+    }
+    for (auto& candidate : extra_candidates) {
+        candidate->commit();
+    }
 }
 
 ParameterList Module::extra_parameters_for_transfer() {
+    return {};
+}
+
+Module::PreparedBackendTransferList
+Module::prepare_extra_backend_transfers(ExecutionBackend) {
     return {};
 }
 

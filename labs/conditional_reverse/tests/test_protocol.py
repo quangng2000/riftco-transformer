@@ -93,7 +93,7 @@ class ConditionalReverseProtocolTests(unittest.TestCase):
         self.assertEqual(copy.copy_target_token_accuracy, 1.0)
         self.assertLess(copy.reverse_target_token_accuracy, 1.0)
 
-    def test_report_is_explicit_about_missing_learned_variant(self) -> None:
+    def test_protocol_report_points_to_the_separate_learned_path(self) -> None:
         report = build_report(
             ProtocolConfig(
                 sequence_length=4,
@@ -106,7 +106,7 @@ class ConditionalReverseProtocolTests(unittest.TestCase):
         self.assertTrue(report["source_disjoint"])
         self.assertEqual(
             report["ownership"]["learned_fpti_status"],
-            "not_implemented_in_current_python_lab",
+            "available_via_learned_cli",
         )
 
     def test_report_writer_never_overwrites(self) -> None:

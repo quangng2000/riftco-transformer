@@ -23,6 +23,15 @@ public:
                  std::size_t output_dimension,
                  std::vector<double> coefficients);
 
+  // Materializes a dense map from output-major flat nonzero entries. Sparse
+  // indices must be unique and in range, and values must be finite and
+  // nonzero. Empty sparse arrays construct an all-zero map.
+  [[nodiscard]] static MultilinearMap
+  from_sparse(std::vector<std::size_t> input_dimensions,
+              std::size_t output_dimension,
+              std::span<const std::size_t> flat_indices,
+              std::span<const double> values);
+
   [[nodiscard]] static MultilinearMap constant(const EncodedValue &value);
   [[nodiscard]] static MultilinearMap identity(std::size_t dimension);
 

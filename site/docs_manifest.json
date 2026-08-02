@@ -146,7 +146,7 @@
       "section": "learn",
       "type": "Concept",
       "order": 8,
-      "summary": "Understand how Python orchestrates seeded batches and metrics while C++ executes fresh graphs, cross-entropy, backward, and Adam.",
+      "summary": "Understand how Python orchestrates seeded batches and metrics while C++ executes fresh graphs, all-position or time-range cross-entropy, backward, and Adam.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Learners", "Framework users"]
@@ -216,7 +216,7 @@
       "section": "concepts",
       "type": "Overview",
       "order": 1,
-      "summary": "Map the Python orchestration and C++ runtime boundary across model, autograd, training, serving, and execution backends.",
+      "summary": "Map Python orchestration and the C++ runtime from model/autograd through compiler, lowering, generic programmed composition, serving, and backends.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Framework users", "Contributors"]
@@ -256,7 +256,7 @@
       "section": "reference",
       "type": "Reference",
       "order": 1,
-      "summary": "Look up the supported C++, stable C ABI, and Python public surfaces by subsystem and lifecycle.",
+      "summary": "Look up C++ APIs, ABI 2.5 sparse maps/programmed models/traces/time-range loss, and the installed Python programmed surface.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["API consumers", "C++ developers", "Python developers"]
@@ -266,7 +266,7 @@
       "section": "reference",
       "type": "Reference",
       "order": 2,
-      "summary": "Look up CMake backend options plus Python training, post-training, and serving configuration contracts.",
+      "summary": "Look up CMake backends plus model, program branch, lowering, intervention, training, post-training, and serving configuration contracts.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Framework users", "API consumers"]
@@ -276,7 +276,7 @@
       "section": "reference",
       "type": "Reference",
       "order": 3,
-      "summary": "Look up the Python training, lab, data preparation, fine-tuning, and serving commands and their options.",
+      "summary": "Look up Python training, conditional-reversal quick/paper labs, data preparation, fine-tuning, and serving commands and evidence boundaries.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Framework users", "Researchers"]
@@ -296,7 +296,7 @@
       "section": "internals",
       "type": "Explanation",
       "order": 1,
-      "summary": "Understand dependency direction, interface and implementation pairing, component ownership, and extension seams.",
+      "summary": "Understand ProgramAugmentedModel ownership, ABI/Python composition, repository-lab policy, dependency direction, and extension seams.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Contributors", "Framework contributors"]
@@ -306,7 +306,7 @@
       "section": "internals",
       "type": "Explanation",
       "order": 2,
-      "summary": "Inspect backend selection, adapter contracts, accelerator scope, stable C ABI behavior, and the dependency-free Python client.",
+      "summary": "Inspect backend selection, adapter contracts, ABI 2.5 programmed handles, accelerator scope, and the dependency-free Python client.",
       "stability": "Experimental",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Backend authors", "C++ developers", "Python developers"]
@@ -316,7 +316,7 @@
       "section": "internals",
       "type": "Explanation",
       "order": 3,
-      "summary": "Follow reusable Cajal compilation and neural lowering, then understand the boundary around the Python-owned conditional-reversal lab.",
+      "summary": "Follow Cajal, sparse map import, neural lowering, public ProgramAugmentedModel composition, and the Python-owned F/P/T/I evidence boundary.",
       "stability": "Active",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Researchers", "Compiler contributors", "Framework contributors"]
@@ -346,7 +346,7 @@
       "section": "contribute",
       "type": "Overview",
       "order": 1,
-      "summary": "Track completed learning milestones, active slices, acceptance checks, and explicitly deferred work.",
+      "summary": "Track the completed generic programmed/ABI/Python slice, active evidence milestones, acceptance checks, and deferred work.",
       "stability": "Active",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Contributors", "Learners"]

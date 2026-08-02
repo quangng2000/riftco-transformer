@@ -26,6 +26,12 @@ The model calculates logits, cross-entropy creates the scalar objective,
 autograd calculates parameter gradients, and Adam consumes those gradients to
 replace the parameter values.
 
+The default workflows use all-position `cross_entropy`. A task-owned loop may
+instead call `cross_entropy_time_range` to supervise one contiguous interval in
+every batch row. The conditional-reversal lab uses this generic operation for
+its target half; the choice of interval remains Python experiment policy rather
+than model behavior.
+
 ## Seeded sampling with replacement
 
 For a corpus with $N$ tokens and context length $T$, a training window needs

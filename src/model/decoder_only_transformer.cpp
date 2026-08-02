@@ -460,25 +460,7 @@ Tensor DecoderOnlyTransformer::decode_token(
 }
 
 void DecoderOnlyTransformer::to(ExecutionBackend backend) {
-    struct QuantizedTransfer {
-        Linear* projection;
-        QuantizedWeight weight;
-    };
-    std::vector<QuantizedTransfer> transfers;
-    for (Linear* projection : all_linear_projections()) {
-        if (projection->has_quantized_weight() &&
-            projection->quantized_weight().backend() != backend) {
-            transfers.push_back({
-                projection,
-                projection->quantized_weight().to(backend),
-            });
-        }
-    }
     Module::to(backend);
-    for (auto& transfer : transfers) {
-        transfer.projection->quantized_weight_ =
-            std::move(transfer.weight);
-    }
 }
 
 void DecoderOnlyTransformer::quantize_linear_weights_nf4(

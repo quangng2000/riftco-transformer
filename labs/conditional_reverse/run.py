@@ -1,29 +1,36 @@
-"""Generate and audit the Python-owned conditional-reversal protocol."""
+"""Run protocol-only audits or the executable learned F/P/T/I study."""
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
-import json
-import os
+from dataclasses import replace
+import math
 from pathlib import Path
-from typing import Sequence, cast
+import sys
+from typing import Mapping, Sequence
 
+from .config import ExperimentConfig, Profile, Variant, make_profile
 from .protocol import (
     Example,
     ProtocolConfig,
     SplitSizes,
-    evaluate,
     generate_disjoint_splits,
-    predict_copy,
-    predict_oracle,
-    predict_reverse,
-    split_fingerprint,
     verify_disjoint,
+)
+from .reporting import (
+    PROTOCOL_REPORT_FORMAT,
+    VariantReport,
+    build_learned_report,
+    build_protocol_report,
+    collect_provenance,
+    complete_provenance,
+    write_new_json,
 )
 
 
-REPORT_FORMAT = "riftco-transformer.conditional-reverse-protocol.v1"
+# Backward-compatible protocol helpers remain useful to downstream audits.
+REPORT_FORMAT = PROTOCOL_REPORT_FORMAT
+build_report = build_protocol_report
 
 
 def positive_integer(value: str) -> int:
@@ -36,106 +43,333 @@ def positive_integer(value: str) -> int:
     return result
 
 
+def parse_variants(value: str) -> tuple[Variant, ...]:
+    normalized = value.strip().upper()
+    if normalized == "ALL":
+        return tuple(Variant)
+    if not normalized:
+        raise argparse.ArgumentTypeError("variants must not be empty")
+    result: list[Variant] = []
+    for item in normalized.split(","):
+        try:
+            variant = Variant(item.strip())
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(
+                "variants must be all or a comma-separated subset of F,P,T,I"
+            ) from error
+        if variant in result:
+            raise argparse.ArgumentTypeError("variants must be unique")
+        result.append(variant)
+    return tuple(result)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate source-disjoint conditional-reversal splits and audit "
-            "the oracle, copy-only, and reverse-only controls."
+            "Train and analyze the Python-owned conditional-reverse F/P/T/I "
+            "study, or run its dependency-free protocol audit."
         )
     )
-    parser.add_argument("--sequence-length", type=positive_integer, default=15)
-    parser.add_argument("--alphabet", default="abcdefghijklmnopqrstuvwxyz")
-    parser.add_argument("--reverse-when-first-is", default="aeiou")
-    parser.add_argument("--delimiter", default="|")
+    parser.add_argument(
+        "--protocol-only",
+        action="store_true",
+        help="Generate only data/control evidence; no framework import or training.",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=tuple(profile.value for profile in Profile),
+        default=Profile.QUICK.value,
+    )
+    parser.add_argument(
+        "--variants",
+        type=parse_variants,
+        default=parse_variants("all"),
+    )
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--train", type=positive_integer, default=10_000)
-    parser.add_argument("--probe", type=positive_integer, default=5_000)
-    parser.add_argument("--validation", type=positive_integer, default=1_000)
-    parser.add_argument("--test", type=positive_integer, default=1_000)
+    parser.add_argument(
+        "--backend",
+        choices=("auto", "cpu", "metal", "cuda", "tpu"),
+        default="auto",
+    )
+    parser.add_argument(
+        "--steps",
+        type=positive_integer,
+        help="Override the profile's maximum Adam steps.",
+    )
+    parser.add_argument("--sequence-length", type=positive_integer)
+    parser.add_argument("--alphabet")
+    parser.add_argument("--reverse-when-first-is")
+    parser.add_argument("--delimiter")
+    parser.add_argument("--train", type=positive_integer)
+    parser.add_argument("--probe", type=positive_integer)
+    parser.add_argument("--validation", type=positive_integer)
+    parser.add_argument("--test", type=positive_integer)
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("runs/conditional-reverse/protocol.json"),
-        help="New JSON report path; an existing file is never overwritten.",
+        help="New JSON path. Existing files are never overwritten.",
     )
     return parser
 
 
-def build_report(
-    config: ProtocolConfig,
-    sizes: SplitSizes,
-) -> dict[str, object]:
-    splits = generate_disjoint_splits(config, sizes)
-    verify_disjoint(splits)
-    return {
-        "format": REPORT_FORMAT,
-        "ownership": {
-            "protocol": "python_lab",
-            "installed_framework_api": False,
-            "learned_fpti_status": "not_implemented_in_current_python_lab",
-        },
-        "config": asdict(config),
-        "split_sizes": asdict(sizes),
-        "source_disjoint": True,
-        "fingerprints": {
-            name: split_fingerprint(examples)
-            for name, examples in splits.items()
-        },
-        "validation_controls": _control_metrics(splits["validation"]),
-        "test_controls": _control_metrics(splits["test"]),
-    }
+def execute_variant(
+    config: ExperimentConfig,
+    splits: Mapping[str, Sequence[Example]],
+) -> VariantReport:
+    """Execute one variant; imports of the framework remain on this path."""
+
+    from .data import TokenCodec
+    from .evaluation import (
+        evaluate_model,
+        fit_program_output_pca,
+        run_f_steering,
+        run_paired_ablations,
+        score_hypotheses,
+    )
+    from .model import build_model
+    from .training import train_model
+
+    codec = TokenCodec.from_protocol(config.protocol)
+    with build_model(config.protocol, config.model) as runtime:
+        parameters = runtime.parameter_manifest()
+        history = train_model(
+            runtime,
+            splits["train"],
+            splits["validation"],
+            codec,
+            config.training,
+        )
+        validation = evaluate_model(
+            runtime,
+            splits["validation"],
+            codec,
+            config.training.evaluation_batch_size,
+            retain_per_example=False,
+        )
+        test = evaluate_model(
+            runtime,
+            splits["test"],
+            codec,
+            config.training.evaluation_batch_size,
+        )
+        hypotheses = score_hypotheses(
+            splits["test"],
+            test.predictions,
+            codec,
+        )
+        ablations = run_paired_ablations(
+            runtime,
+            splits["test"],
+            codec,
+            config.training.evaluation_batch_size,
+            shift=config.analysis.ablation_shift,
+        )
+        pca = (
+            fit_program_output_pca(
+                runtime,
+                splits["probe"],
+                codec,
+                config.training.evaluation_batch_size,
+                config.analysis,
+            )
+            if runtime.has_program
+            else None
+        )
+        steering = (
+            run_f_steering(
+                runtime,
+                splits["test"],
+                codec,
+                config.training.evaluation_batch_size,
+                config.analysis,
+            )
+            if runtime.variant is Variant.F
+            else None
+        )
+        return VariantReport(
+            variant=runtime.variant.value,
+            backend=runtime.backend,
+            parameters=parameters,
+            training=history,
+            validation=validation,
+            test=test,
+            test_hypotheses=hypotheses,
+            probe_pca=pca,
+            ablations=ablations,
+            steering=steering,
+            applicability={
+                "program_output_pca": runtime.has_program,
+                "program_output_ablation": runtime.has_program,
+                "selector_steering": runtime.variant is Variant.F,
+                "selector_steering_reason": (
+                    "F has the compiled conditional selector basis"
+                    if runtime.variant is Variant.F
+                    else "semantic selector coordinates are not defined"
+                ),
+            },
+        )
 
 
-def _control_metrics(examples: Sequence[Example]) -> dict[str, object]:
-    return {
-        "conditional_oracle": asdict(evaluate(examples, predict_oracle)),
-        "copy_only": asdict(evaluate(examples, predict_copy)),
-        "reverse_only": asdict(evaluate(examples, predict_reverse)),
-    }
-
-
-def write_new_json(path: Path, report: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x", encoding="utf-8") as output:
-        json.dump(report, output, allow_nan=False, indent=2, sort_keys=True)
-        output.write("\n")
-        output.flush()
-        os.fsync(output.fileno())
-
-
-def main() -> int:
-    arguments = build_parser().parse_args()
-    config = ProtocolConfig(
-        sequence_length=arguments.sequence_length,
-        alphabet=arguments.alphabet,
-        reverse_when_first_is=arguments.reverse_when_first_is,
-        delimiter=arguments.delimiter,
+def main(argv: Sequence[str] | None = None) -> int:
+    arguments = build_parser().parse_args(argv)
+    variants = arguments.variants
+    profile = Profile(arguments.profile)
+    base = make_profile(
+        profile,
+        variant=variants[0],
         seed=arguments.seed,
+        backend="cpu",
+    )
+    base = _apply_data_overrides(base, arguments)
+    output = arguments.output or _default_output(
+        profile,
+        arguments.seed,
+        protocol_only=arguments.protocol_only,
+    )
+    if output.exists():
+        print(
+            f"conditional-reverse run failed: output already exists: {output}",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        if arguments.protocol_only:
+            report = build_protocol_report(base.protocol, base.split_sizes)
+            write_new_json(output, report)
+            print(f"protocol report: {output}")
+            return 0
+
+        # The native package is intentionally imported only after the
+        # protocol-only branch has returned.
+        from .model import framework_abi, resolve_backend
+
+        backend = resolve_backend(arguments.backend)
+        base = replace(base, model=replace(base.model, backend=backend))
+        base = _apply_step_override(base, arguments.steps)
+        splits = generate_disjoint_splits(base.protocol, base.split_sizes)
+        verify_disjoint(splits)
+        command = (
+            tuple(sys.argv)
+            if argv is None
+            else (sys.argv[0],) + tuple(argv)
+        )
+        abi = framework_abi()
+        started_provenance = collect_provenance(
+            repository_root=Path(__file__).resolve().parents[2],
+            command=command,
+            framework_abi=abi,
+        )
+        variant_reports: list[VariantReport] = []
+        for variant in variants:
+            variant_config = replace(
+                base,
+                model=base.model.with_variant(variant),
+            )
+            print(f"running {variant.value} on {backend} ...", flush=True)
+            result = execute_variant(variant_config, splits)
+            variant_reports.append(result)
+            test_result = result.test
+            test_metrics = getattr(test_result, "metrics")
+            print(
+                f"{variant.value}: step "
+                f"{getattr(result.training, 'final_step')}, test exact "
+                f"{100.0 * test_metrics.exact_sequence_accuracy:.2f}%",
+                flush=True,
+            )
+        completed_provenance = collect_provenance(
+            repository_root=Path(__file__).resolve().parents[2],
+            command=command,
+            framework_abi=abi,
+        )
+        provenance = complete_provenance(
+            started_provenance,
+            completed_provenance,
+        )
+        report = build_learned_report(
+            base,
+            splits,
+            variant_reports,
+            provenance,
+        )
+        write_new_json(output, report)
+        print(f"learned report: {output}")
+        return 0
+    except Exception as error:
+        print(f"conditional-reverse run failed: {error}", file=sys.stderr)
+        return 1
+
+
+def _apply_data_overrides(
+    config: ExperimentConfig,
+    arguments: argparse.Namespace,
+) -> ExperimentConfig:
+    protocol = ProtocolConfig(
+        sequence_length=(
+            config.protocol.sequence_length
+            if arguments.sequence_length is None
+            else arguments.sequence_length
+        ),
+        alphabet=(
+            config.protocol.alphabet
+            if arguments.alphabet is None
+            else arguments.alphabet
+        ),
+        reverse_when_first_is=(
+            config.protocol.reverse_when_first_is
+            if arguments.reverse_when_first_is is None
+            else arguments.reverse_when_first_is
+        ),
+        delimiter=(
+            config.protocol.delimiter
+            if arguments.delimiter is None
+            else arguments.delimiter
+        ),
+        seed=config.protocol.seed,
     )
     sizes = SplitSizes(
-        train=arguments.train,
-        probe=arguments.probe,
-        validation=arguments.validation,
-        test=arguments.test,
+        train=config.split_sizes.train if arguments.train is None else arguments.train,
+        probe=config.split_sizes.probe if arguments.probe is None else arguments.probe,
+        validation=(
+            config.split_sizes.validation
+            if arguments.validation is None
+            else arguments.validation
+        ),
+        test=config.split_sizes.test if arguments.test is None else arguments.test,
     )
-    try:
-        report = build_report(config, sizes)
-        write_new_json(arguments.output, report)
-    except Exception as error:
-        print(f"conditional-reversal protocol failed: {error}")
-        return 1
-    test_controls = cast(dict[str, object], report["test_controls"])
-    oracle = cast(dict[str, object], test_controls["conditional_oracle"])
-    print(f"report: {arguments.output}")
-    print(
-        "test conditional-oracle exact accuracy: "
-        f"{100.0 * float(oracle['exact_sequence_accuracy']):.2f}%"
+    return replace(config, protocol=protocol, split_sizes=sizes)
+
+
+def _apply_step_override(
+    config: ExperimentConfig,
+    steps: int | None,
+) -> ExperimentConfig:
+    if steps is None:
+        return config
+    steps_per_epoch = math.ceil(
+        config.split_sizes.train / config.training.batch_size
     )
-    print(
-        "F/P/T/I learned execution is intentionally absent until a public "
-        "generic program-augmented model composition exists."
+    epochs = max(config.training.epochs, math.ceil(steps / steps_per_epoch))
+    return replace(
+        config,
+        training=replace(
+            config.training,
+            epochs=epochs,
+            maximum_steps=steps,
+        ),
     )
-    return 0
+
+
+def _default_output(
+    profile: Profile,
+    seed: int,
+    *,
+    protocol_only: bool,
+) -> Path:
+    kind = "protocol" if protocol_only else "learned"
+    return Path("runs/conditional-reverse") / (
+        f"{profile.value}-{kind}-seed-{seed}.json"
+    )
 
 
 if __name__ == "__main__":

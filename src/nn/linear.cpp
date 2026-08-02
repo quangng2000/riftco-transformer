@@ -9,6 +9,7 @@
 #include <iterator>
 #include <memory>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace riftco_transformer {
@@ -59,6 +60,29 @@ Tensor initialized_linear_weight(
 }
 
 }  // namespace
+
+class Linear::PreparedQuantizedWeightTransfer final
+    : public Module::PreparedBackendTransfer {
+public:
+    PreparedQuantizedWeightTransfer(
+        QuantizedWeight& destination,
+        QuantizedWeight transferred
+    ) : destination_(&destination),
+        transferred_(std::move(transferred)) {}
+
+    void commit() noexcept override {
+        *destination_ = std::move(transferred_);
+    }
+
+private:
+    QuantizedWeight* destination_;
+    QuantizedWeight transferred_;
+};
+
+static_assert(
+    std::is_nothrow_move_assignable_v<QuantizedWeight>,
+    "quantized backend-transfer commit must not throw"
+);
 
 Linear::Linear(Tensor weight)
     : weight_(std::in_place, checked_linear_weight(std::move(weight))),
@@ -149,17 +173,7 @@ Variable Linear::forward(const Variable& input) const {
 }
 
 void Linear::to(ExecutionBackend backend) {
-    std::optional<QuantizedWeight> transferred_weight;
-    if (has_quantized_weight() &&
-        quantized_weight_->backend() != backend) {
-        transferred_weight.emplace(
-            quantized_weight_->to(backend)
-        );
-    }
     Module::to(backend);
-    if (transferred_weight.has_value()) {
-        quantized_weight_ = std::move(*transferred_weight);
-    }
 }
 
 void Linear::quantize_weight_nf4(std::size_t block_size) {
@@ -268,6 +282,21 @@ ParameterList Linear::extra_parameters_for_transfer() {
                   std::make_move_iterator(adapter_parameters.end()));
   }
   return result;
+}
+
+Module::PreparedBackendTransferList
+Linear::prepare_extra_backend_transfers(ExecutionBackend backend) {
+    PreparedBackendTransferList result;
+    if (has_quantized_weight() &&
+        quantized_weight_->backend() != backend) {
+        result.push_back(
+            std::make_unique<PreparedQuantizedWeightTransfer>(
+                *quantized_weight_,
+                quantized_weight_->to(backend)
+            )
+        );
+    }
+    return result;
 }
 
 Linear::PreparedMaterializedWeight

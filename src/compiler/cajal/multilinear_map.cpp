@@ -34,6 +34,41 @@ namespace {
          std::to_string(expected);
 }
 
+struct MapShape {
+  std::size_t input_combination_count;
+  std::size_t coefficient_count;
+};
+
+[[nodiscard]] MapShape
+validate_shape(std::span<const std::size_t> input_dimensions,
+               std::size_t output_dimension) {
+  if (output_dimension == 0) {
+    throw MultilinearMapError(
+        "multilinear map output dimension must be greater than zero");
+  }
+
+  std::size_t input_combination_count = 1;
+  for (std::size_t input_index = 0; input_index < input_dimensions.size();
+       ++input_index) {
+    const std::size_t dimension = input_dimensions[input_index];
+    if (dimension == 0) {
+      throw MultilinearMapError("multilinear map input dimension " +
+                                std::to_string(input_index) +
+                                " must be greater than zero");
+    }
+    input_combination_count =
+        checked_multiply(input_combination_count, dimension,
+                         "multilinear map input dimension product");
+  }
+
+  return {
+      .input_combination_count = input_combination_count,
+      .coefficient_count =
+          checked_multiply(output_dimension, input_combination_count,
+                           "multilinear map coefficient count"),
+  };
+}
+
 } // namespace
 
 MultilinearMap::MultilinearMap(std::vector<std::size_t> input_dimensions,
@@ -42,30 +77,11 @@ MultilinearMap::MultilinearMap(std::vector<std::size_t> input_dimensions,
     : input_dimensions_(std::move(input_dimensions)),
       output_dimension_(output_dimension), input_combination_count_(1),
       coefficients_(std::move(coefficients)) {
-  if (output_dimension_ == 0) {
-    throw MultilinearMapError(
-        "multilinear map output dimension must be greater than zero");
-  }
-
-  for (std::size_t input_index = 0; input_index < input_dimensions_.size();
-       ++input_index) {
-    const std::size_t dimension = input_dimensions_[input_index];
-    if (dimension == 0) {
-      throw MultilinearMapError("multilinear map input dimension " +
-                                std::to_string(input_index) +
-                                " must be greater than zero");
-    }
-    input_combination_count_ =
-        checked_multiply(input_combination_count_, dimension,
-                         "multilinear map input dimension product");
-  }
-
-  const std::size_t expected_coefficient_count =
-      checked_multiply(output_dimension_, input_combination_count_,
-                       "multilinear map coefficient count");
-  if (coefficients_.size() != expected_coefficient_count) {
+  const MapShape shape = validate_shape(input_dimensions_, output_dimension_);
+  input_combination_count_ = shape.input_combination_count;
+  if (coefficients_.size() != shape.coefficient_count) {
     throw MultilinearMapError("multilinear map requires exactly " +
-                              std::to_string(expected_coefficient_count) +
+                              std::to_string(shape.coefficient_count) +
                               " coefficients, got " +
                               std::to_string(coefficients_.size()));
   }
@@ -76,6 +92,46 @@ MultilinearMap::MultilinearMap(std::vector<std::size_t> input_dimensions,
                                 std::to_string(index) + " must be finite");
     }
   }
+}
+
+MultilinearMap MultilinearMap::from_sparse(
+    std::vector<std::size_t> input_dimensions, std::size_t output_dimension,
+    std::span<const std::size_t> flat_indices, std::span<const double> values) {
+  if (flat_indices.size() != values.size()) {
+    throw MultilinearMapError(
+        "multilinear map sparse indices and values must have the same size");
+  }
+
+  const MapShape shape = validate_shape(input_dimensions, output_dimension);
+  std::vector<double> coefficients(shape.coefficient_count, 0.0);
+  for (std::size_t entry = 0; entry < flat_indices.size(); ++entry) {
+    const std::size_t flat_index = flat_indices[entry];
+    if (flat_index >= shape.coefficient_count) {
+      throw MultilinearMapError("multilinear map sparse index " +
+                                std::to_string(flat_index) + " at entry " +
+                                std::to_string(entry) +
+                                " is out of range for coefficient count " +
+                                std::to_string(shape.coefficient_count));
+    }
+    const double value = values[entry];
+    if (!std::isfinite(value)) {
+      throw MultilinearMapError("multilinear map sparse value " +
+                                std::to_string(entry) + " must be finite");
+    }
+    if (value == 0.0) {
+      throw MultilinearMapError("multilinear map sparse value " +
+                                std::to_string(entry) + " must be nonzero");
+    }
+    if (coefficients[flat_index] != 0.0) {
+      throw MultilinearMapError("multilinear map sparse index " +
+                                std::to_string(flat_index) +
+                                " appears more than once");
+    }
+    coefficients[flat_index] = value;
+  }
+
+  return MultilinearMap(std::move(input_dimensions), output_dimension,
+                        std::move(coefficients));
 }
 
 MultilinearMap MultilinearMap::constant(const EncodedValue &value) {

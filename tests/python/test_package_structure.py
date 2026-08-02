@@ -13,6 +13,7 @@ import riftco_transformer.data
 import riftco_transformer.native
 import riftco_transformer.post_training
 import riftco_transformer.pretraining
+import riftco_transformer.programmed
 import riftco_transformer.serving
 import riftco_transformer.training
 from riftco_transformer import Tensor
@@ -80,6 +81,7 @@ class PackageStructureTests(unittest.TestCase):
             riftco_transformer.training,
             riftco_transformer.pretraining,
             riftco_transformer.post_training,
+            riftco_transformer.programmed,
             riftco_transformer.serving,
         )
         for package in packages:

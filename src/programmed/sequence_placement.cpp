@@ -604,10 +604,7 @@ ProgrammedSequenceCore::forward(const Variable &source,
 }
 
 void ProgrammedSequenceCore::to(ExecutionBackend backend) {
-  program_->to(backend);
-  for (const auto &projection : input_projections_) {
-    projection->to(backend);
-  }
+  Module::to(backend);
 }
 
 std::size_t ProgrammedSequenceCore::logical_input_count() const noexcept {
@@ -865,11 +862,7 @@ SequencePlacementResult ProgrammedSequenceAdapter::forward(
 }
 
 void ProgrammedSequenceAdapter::to(ExecutionBackend backend) {
-  program_->to(backend);
-  for (const auto &projection : input_projections_) {
-    projection->to(backend);
-  }
-  output_projection_->to(backend);
+  Module::to(backend);
 }
 
 std::size_t ProgrammedSequenceAdapter::input_projection_count() const noexcept {

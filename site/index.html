@@ -35,6 +35,7 @@
         <a href="#framework">Framework</a>
         <a href="#backends">Backends</a>
         <a href="#experiment">Experiment</a>
+        <a href="#interfaces">Composition</a>
         <a href="docs/">Docs</a>
       </nav>
       <div class="header-actions">
@@ -63,7 +64,7 @@
         </div>
         <div class="hero-proof" aria-label="Framework highlights">
           <div><strong>0</strong><span>Python runtime dependencies</span></div>
-          <div><strong>39/39</strong><span>Release tests passing</span></div>
+          <div><strong>Debug</strong><span>full suite green</span></div>
           <div><strong>4</strong><span>backend contracts</span></div>
         </div>
       </div>
@@ -196,15 +197,15 @@
         <article class="capability-card card-compiler" data-reveal>
           <span class="card-label">Programs → Transformers</span>
           <h3>Compile finite programs into attention.</h3>
-          <p>A standard-library-only Cajal-lite checker, interpreter, encoder, and multilinear compiler feed a configurable one-way neural lowering bridge.</p>
-          <div class="compiler-flow"><code>program</code><span>→</span><code>map</code><span>→</span><code>head</code></div>
+          <p>Cajal-lite compilation plus dense or sparse map import feeds configurable neural lowering and the generic task-neutral program-augmented model.</p>
+          <div class="compiler-flow"><code>program</code><span>→</span><code>map</code><span>→</span><code>lower</code><span>→</span><code>compose</code></div>
           <a href="docs/internals/compiling_to_transformers.html">Explore the compiler <span>→</span></a>
         </article>
 
         <article class="capability-card card-analysis" data-reveal data-delay="1">
           <span class="card-label">Interpretation</span>
           <h3>Observe, intervene, verify.</h3>
-          <p>Model-neutral representation capture, deterministic PCA, paired batch-roll ablations, and privileged-basis steering live outside the model.</p>
+          <p>Stable named traces and differentiable batch-roll/steering sites feed model-neutral PCA and paired causal analysis outside the model.</p>
           <div class="scatter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <a href="docs/internals/compiling_to_transformers.html#interpretation-is-a-separate-analysis-stage">Analysis stage <span>→</span></a>
         </article>
@@ -247,9 +248,13 @@ ctest --preset debug</code></pre>
           <div class="code-panel" role="tabpanel" data-code-panel="metal" hidden>
             <pre><code>PYTHONPATH=python:. python3 -m \
   labs.conditional_reverse.run \
-  --output runs/conditional-reverse/protocol.json</code></pre>
+  --profile quick --variants F \
+  --backend cpu \
+  --output runs/conditional-reverse/quick.json
+
+# Verify current flags with --help.</code></pre>
           </div>
-          <div class="console-footer"><span>C ABI 2.4</span><span>C++ package · Python ctypes</span></div>
+          <div class="console-footer"><span>C ABI 2.5</span><span>C++ package · Python ctypes</span></div>
         </div>
       </div>
     </section>
@@ -294,8 +299,8 @@ ctest --preset debug</code></pre>
         <div class="experiment-copy" data-reveal>
           <span class="section-kicker">Conditional-reversal lab</span>
           <h2>Can a program become a Transformer head?</h2>
-          <p>The Python lab now owns the task, source-disjoint splits, evaluation, and reports. Generic Cajal compilation and analysis remain C++ framework primitives; the former task-specific F/P/T/I C++ prototype is retired.</p>
-          <div class="variant-row" aria-label="Historical experiment variants">
+          <p>The framework now exposes generic compilation, lowering, ProgramAugmentedModel execution, stable traces, interventions, and target-time-range loss through ABI 2.5 and <code>riftco_transformer.programmed</code>. The Python lab owns sparse F/P/T/I specifications, data, training, evaluation, analysis, and reports.</p>
+          <div class="variant-row" aria-label="Lab-defined variants">
             <span><b>F</b> frozen compiled</span>
             <span><b>P</b> reverse-only control</span>
             <span><b>T</b> trainable random</span>
@@ -306,7 +311,7 @@ ctest --preset debug</code></pre>
 
         <article class="result-card" data-reveal data-delay="1">
           <div class="result-header">
-            <div><span class="status-dot"></span><strong>Local Metal run</strong></div>
+            <div><span class="status-dot"></span><strong>Archived local Metal run</strong></div>
             <span>seed 42 · F</span>
           </div>
           <div class="result-primary"><strong>100<span>%</span></strong><small>held-out exact sequences</small></div>
@@ -316,12 +321,12 @@ ctest --preset debug</code></pre>
             <div><strong>96.15pp</strong><span>program ablation</span></div>
           </div>
           <div class="result-steering">
-            <div class="steering-label"><span>force copy</span><strong>89.56%</strong></div>
+            <div class="steering-label"><span>only copy basis</span><strong>89.56%</strong></div>
             <div class="meter"><i style="--value:89.56%"></i></div>
-            <div class="steering-label"><span>force reverse</span><strong>86.28%</strong></div>
+            <div class="steering-label"><span>only reverse basis</span><strong>86.28%</strong></div>
             <div class="meter reverse"><i style="--value:86.28%"></i></div>
           </div>
-          <p><strong>Historical scope:</strong> one local paper-scale configuration from the retired pre-boundary C++ prototype. The archived record is not evidence that the current Python lab executes F/P/T/I, nor a multi-seed paper reproduction or hardware benchmark.</p>
+          <p><strong>Historical scope:</strong> one local paper-scale configuration from the retired pre-boundary C++ prototype. It is not a fresh result from the ABI-2.5 Python path, evidence for every variant, a multi-seed paper reproduction, or a hardware benchmark.</p>
           <a href="https://github.com/quangng2000/riftco-transformer/blob/main/labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json">Archived run record <span>↗</span></a>
         </article>
       </div>
@@ -336,7 +341,7 @@ ctest --preset debug</code></pre>
         <div class="target-column">
           <span>runtime</span>
           <code>riftco_transformer::library</code>
-          <code>riftco_transformer::c_api</code>
+          <code>riftco_transformer::c_api · ABI 2.5</code>
         </div>
         <div class="target-column">
           <span>programming</span>
@@ -345,10 +350,10 @@ ctest --preset debug</code></pre>
           <code>riftco_transformer::programmed</code>
         </div>
         <div class="target-column">
-          <span>analysis + Python labs</span>
+          <span>Python composition + labs</span>
           <code>riftco_transformer::analysis</code>
+          <code>riftco_transformer.programmed</code>
           <code>labs/* · repository only</code>
-          <code>not installed or exported</code>
         </div>
       </div>
     </section>
@@ -451,18 +456,18 @@ ctest --preset debug</code></pre>
       <div class="footer-links"><strong>Build</strong><a href="docs/how-to/">How-to guides</a><a href="docs/reference/">Reference</a><a href="docs/internals/">Internals</a></div>
       <div class="footer-links"><strong>Project</strong><a href="https://github.com/quangng2000/riftco-transformer">GitHub</a><a href="https://pypi.org/project/riftco-transformer/">PyPI</a><a href="https://github.com/quangng2000/riftco-transformer/blob/main/LICENSE">Apache-2.0</a></div>
     </div>
-    <div class="shell footer-bottom"><span>© 2026 Quang T Nguyen</span><span>Version 0.5.0 · C ABI 2.4</span></div>
+    <div class="shell footer-bottom"><span>© 2026 Quang T Nguyen</span><span>Version 0.5.0 · C ABI 2.5</span></div>
   </footer>
 
   <dialog class="search-dialog" data-search-dialog aria-label="Search documentation">
     <div class="search-box">
       <div class="search-input-row">
         <span aria-hidden="true">⌕</span>
-        <input type="search" placeholder="Search tensors, QLoRA, attention…" autocomplete="off" data-search-input aria-label="Search documentation">
+        <input type="search" placeholder="Search tensors, ProgramAugmentedModel, attention…" autocomplete="off" data-search-input aria-label="Search documentation">
         <button type="button" data-search-close aria-label="Close search">Esc</button>
       </div>
       <div class="search-results" data-search-results>
-        <div class="search-empty"><strong>Search the complete framework</strong><span>Try “strides”, “paged Adam”, “Metal”, or “compiled attention”.</span></div>
+        <div class="search-empty"><strong>Search the complete framework</strong><span>Try “strides”, “ProgramAugmentedModel”, “Metal”, or “compiled attention”.</span></div>
       </div>
       <div class="search-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span></div>
     </div>

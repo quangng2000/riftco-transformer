@@ -150,11 +150,11 @@ paged KV-cache layout.
 
 **F/P/T/I**
 
-Historical conditional-reversal controls from the retired C++ prototype: F was
-a frozen compiled conditional program, P a frozen unconditional reverse
-program, T a randomized trainable program with F's shape, and I omitted the
-program branch. The current Python lab specifies and audits the task but does
-not execute these variants.
+Conditional-reversal lab controls: F is a frozen compiled conditional program,
+P a frozen unconditional reverse program, T a randomized trainable program
+with F's shape, and I omits the program branch. The task-specific C++ prototype
+is retired; the current Python lab constructs and executes these variants over
+the generic installed `riftco_transformer.programmed` surface.
 
 ## G
 
@@ -301,6 +301,12 @@ post-training.
 
 Held-out observations used to fit an analysis model such as PCA, separate from
 validation and final test scoring.
+
+**Program-augmented model**
+
+A fixed-context generic model combining residual ReLU feed-forward and one or
+more learned causal-attention branches with an optional lowered multilinear
+program. It contains no task-specific F/P/T/I policy.
 
 ## Q
 

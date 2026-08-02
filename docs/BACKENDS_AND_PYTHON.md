@@ -4,7 +4,7 @@ The backend layer owns tensor storage and focused accelerated operations
 without changing the transformer or autograd equations:
 
 ```text
-Python stages/tokenizer/tensors/model/Adam ──ctypes──→ stable C ABI 2.4
+Python workflows/programmed models/tensors/Adam ──ctypes──→ stable C ABI 2.5
                                          │
                                          ▼
                                 public C++ operations
@@ -526,12 +526,13 @@ riftco_transformer_c.dll        Windows
 
 The ABI uses:
 
-- opaque tokenizer, context, tensor, model, decode-session, parameter-list,
-  variable, and Adam handles;
+- opaque tokenizer, context, tensor, model, multilinear-map,
+  program-augmented-model, representation-trace, decode-session,
+  parameter-list, variable, and Adam handles;
 - fixed-width integers for status codes, backends, shapes, and counts;
-- fixed-layout tokenizer-options, model-config, decode-session-options,
-  Adam-options, and step-stat structures beginning with their caller-supplied
-  byte size;
+- fixed-layout tokenizer, model, program-augmented-model, program-branch,
+  neural-lowering, programmed-forward, decode-session, and Adam option/config
+  structures beginning with their caller-supplied byte size;
 - an explicit `cdecl` calling convention on Windows;
 - explicit create/release ownership;
 - host-copy functions instead of exposing storage pointers;
@@ -552,6 +553,13 @@ to that retained canonical state. `rt_model_to` rejects a transfer while a
 decode session, variable graph, or optimizer is alive, preventing backend
 drift under caches, saved graphs, and optimizer moments.
 
+Program-augmented models use the same trainable-owner contract: their parameter
+lists, forward variables, and Adam objects retain generic model state, and
+transfer is rejected while a graph or optimizer pins the old backend. A
+multilinear-map handle is copied and lowered during model creation rather than
+borrowed. A captured `rt_representation_trace` owns detached CPU values and can
+outlive both the forward graph and model.
+
 The C training graph is single-use. A successful `rt_variable_backward`
 consumes the shared graph, and a successful Adam step advances the model's
 parameter epoch so any older, unconsumed graph is rejected. This makes stale
@@ -565,7 +573,7 @@ flight. Python uses one shared reentrant lock for a model and its derived
 objects, which is why its concurrent `close()` behavior is stronger than the
 raw C contract.
 
-ABI version `0x00020004` represents the current version 2.4: the upper 16 bits
+ABI version `0x00020005` represents the current version 2.5: the upper 16 bits
 are the major and the lower 16 bits are the minor. Version 2.0 was the
 intentional breaking namespace reset. It exports only the `rt_` function/type
 prefix and `RT_` constants; no legacy symbol-prefix aliases are provided.
@@ -575,8 +583,11 @@ renumbering CPU (`0`) or Metal (`1`). Version 2.2 additively appends
 exposes NF4 model conversion and exact packed-memory
 statistics without changing existing structures or numeric values. Version
 2.4 extends `rt_adam_options` with bounded-page moment-state selection while
-continuing to accept the original 2.3 structure prefix. Future major changes may
-break callers, while a minor change may only add compatible API. Clients accept
+continuing to accept the original 2.3 structure prefix. Version 2.5 adds dense
+and sparse multilinear-map import, generic program-augmented model and trace
+handles, forward interventions, and contiguous time-range cross entropy.
+Future major changes may break callers, while a minor change may only add
+compatible API. Clients accept
 the same major and an equal or newer minor. Published status and backend
 integer values must never be renumbered. CMake checks the public header's
 major/minor against the shared-library version during configuration so their
@@ -594,6 +605,18 @@ parameter epoch. Parameter loading, transfer, LoRA lifecycle changes, and Adam
 updates are rejected while derived state would make the operation unsafe.
 Attention and checkpointing are runtime policies: they do not change weights,
 the persisted artifact schema, or the separate decode-session cache policy.
+The programmed surface remains task-neutral: no F/P/T/I enum, dataset,
+training loop, metric, PCA policy, or report crosses the C boundary.
+
+The 2.5 program family imports immutable output-major maps through
+`rt_multilinear_map_create_dense` or `rt_multilinear_map_create_sparse`, then
+constructs either the learned-only or optional-program
+`rt_program_augmented_model`. Its forward returns ordinary `rt_variable`
+logits and, when requested, an owning `rt_representation_trace` queried by
+name, shape, and host-copy functions. The same parameter-list/Adam/backward
+lifecycle applies. `rt_cross_entropy_time_range` selects one contiguous time
+span independently per batch row; it does not add experiment-specific masking
+policy to the model.
 
 Tokenizer selection is independent from execution-backend selection. A native
 factory maps the stable method value to a strategy behind one tokenizer
@@ -604,15 +627,19 @@ This is a source-level built-in extension point, not a third-party tokenizer
 plugin ABI.
 
 `rt_tokenizer_options_init`, `rt_transformer_config_init`,
-`rt_lora_config_init`, `rt_decode_session_options_init`, and
-`rt_adam_options_init` receive the caller's actual structure size. Their
+`rt_program_augmented_model_config_init`, `rt_program_branch_config_init`,
+`rt_neural_lowering_options_init`,
+`rt_program_augmented_forward_options_init`, `rt_lora_config_init`,
+`rt_decode_session_options_init`, and `rt_adam_options_init` receive the
+caller's actual structure size. Their
 fields use explicit fixed-width layouts, including reserved words rather than
 ambiguous tail padding. Future additive minors can inspect the supplied size
 without overwriting an older caller's smaller allocation.
 
 The shared library also carries ABI major version `2` in its platform library
-metadata. CMake install exports `riftco_transformer::c_api` and
-`riftco_transformer::library`; the private adapter interface is not exported.
+metadata. CMake install exports `riftco_transformer::c_api`,
+`riftco_transformer::programmed`, and the lower-level component targets; the
+private adapter interface is not exported.
 
 ## Python client
 
@@ -706,6 +733,20 @@ stats = optimizer.step()
 print(loss.item(), stats.gradient_norm)
 ```
 
+The installed `riftco_transformer.programmed` package wraps the ABI 2.5 map,
+model, intervention, and trace surfaces. `MultilinearMap.from_sparse(...)`
+accepts nonzero output-major flat indices without first building a dense Python
+list. `ProgramAugmentedModel` accepts a task-neutral model config and optional
+`ProgramBranch`; `forward(..., ProgramAugmentedForwardOptions(...))` returns
+logits plus copied `RepresentationTrace` values. `cross_entropy_time_range`
+uses those logits in the same native single-use autograd graph as ordinary
+cross entropy. Map and model handles are closeable and non-copyable; returned
+trace dataclasses own Python tuples and are detached from native lifetime.
+
+Repository labs may compose this package, but they retain ownership of data,
+F/P/T/I selection, training/evaluation loops, PCA, ablation interpretation,
+and reports. None of that research policy is implemented by the native model.
+
 `DecoderOnlyTransformer` defaults to `attention="materialized"`. The
 `full_sequence_attention` property reports the current policy, and
 `set_full_sequence_attention("flash")` changes future full-sequence forwards.
@@ -763,7 +804,7 @@ The library contains the statically linked framework implementation behind the
 stable C ABI. A standard installed wheel has no third-party runtime
 dependencies; users of a matching wheel do not need CMake, a C++ compiler, a
 system-wide native installation, or `RIFTCO_TRANSFORMER_LIBRARY`. Standard
-wheels recognize `cuda` and `tpu` through ABI 2.4 but build their unavailable
+wheels recognize `cuda` and `tpu` through ABI 2.5 but build their unavailable
 stubs, so they do not require or silently load CUDA or `libtpu` runtimes.
 
 The initial binary matrix provides Linux `x86_64` and `aarch64` wheels for
@@ -826,9 +867,10 @@ publisher as project `riftco-transformer`, GitHub owner `quangng2000`, repositor
 repository and its Python package are licensed under Apache-2.0. Keep
 `PUBLISH_TO_PYPI` disabled until the Trusted Publisher is in place.
 
-Python `Tokenizer`, `Context`, `Tensor`, `DecoderOnlyTransformer`,
-`DecodeSession`, `ParameterList`, `Variable`, and `Adam` objects support
-context managers and idempotent `close()`. The owning wrappers are
+Python `Tokenizer`, `Context`, `Tensor`, `MultilinearMap`,
+`DecoderOnlyTransformer`, `ProgramAugmentedModel`, `DecodeSession`,
+`ParameterList`, `Variable`, and `Adam` objects support context managers and
+idempotent `close()`. The owning wrappers are
 intentionally non-copyable: use ordinary Python references to share them.
 Native operations and `close()` synchronize handle lifetimes, so a concurrent
 close cannot free a handle during an in-flight call. Model-derived objects
@@ -924,11 +966,14 @@ The pure C11 test verifies the ABI independently of C++, including tokenizer
 option validation, method selection, token-piece and merge queries,
 full-sequence attention selection, decode-session lifecycle, state
 restoration, parameter metadata/transactional loading, canaries, binary round
-trips, and error contracts. The Python tests cover byte compatibility,
+trips, dense/sparse multilinear-map import, program-model lifecycle and
+interventions, representation traces, time-range cross entropy, and error
+contracts. The Python tests cover byte compatibility,
 deterministic BPE compression and unseen bytes, tokenizer and decode-session
 lifecycle, full-sequence attention selection and backward, scalar/shape
 access, zeros, error translation, CPU matmul, mixed-backend rejection,
-conditional real-Metal parity, model-derived lifetime retention, graph
+conditional real-Metal parity, generic programmed-model forward/backward,
+capture/steering/ablation, model-derived lifetime retention, graph
 invalidation, incremental generation, and complete
 text → BPE → model → loss → backward → Adam execution.
 

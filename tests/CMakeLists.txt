@@ -481,6 +481,17 @@ set_tests_properties(cajal_neural_lowering
 )
 
 add_riftco_transformer_component_test(
+    program_augmented_model_tests
+    program_augmented_model
+    programmed/test_program_augmented_model.cpp
+    riftco_transformer::programmed
+)
+set_tests_properties(program_augmented_model
+    PROPERTIES
+        LABELS "programmed;model;autograd"
+)
+
+add_riftco_transformer_component_test(
     analysis_pca_tests
     analysis_pca
     analysis/test_pca.cpp

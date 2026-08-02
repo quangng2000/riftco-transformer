@@ -310,7 +310,7 @@ Use `.so` on Linux or `.dll` on Windows.
 
 ### C ABI mismatch
 
-**Symptom:** Python reports that it requires ABI 2.4 or a newer compatible
+**Symptom:** Python reports that it requires ABI 2.5 or a newer compatible
 minor but loaded another library.
 
 **Cause:** `RIFTCO_TRANSFORMER_LIBRARY` or system search found a stale or

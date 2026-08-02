@@ -10,7 +10,7 @@ auditable without turning one experiment into framework API.
 | --- | --- | --- |
 | Numerical execution | C++ framework | tensors, autograd, modules, transformer, loss, Adam, NF4, backends |
 | Reusable model/runtime state | C++ framework | tokenizer state, `ModelSnapshot`, native generation, KV cache |
-| Symbolic and interpretation primitives | C++ framework | Cajal compiler, neural lowering, programmed placement, PCA/ablation helpers |
+| Symbolic and interpretation primitives | C++ framework | Cajal compiler, neural lowering, generic program-augmented composition, PCA/ablation helpers |
 | Stable language boundary | C ABI | opaque handles and size-versioned structures used by `ctypes` |
 | Workflow policy | installed Python package | datasets, batches, training loops, pretraining, post-training, evaluation, bundles, HTTP serving |
 | Small usage demonstrations | `examples/python/` | one readable training run and three-stage artifact flow |
@@ -34,13 +34,14 @@ flowchart TD
     Model --> Artifacts["C++ state + native serving"]
     Model --> CABI["Stable C ABI"]
     Core --> CABI
+    Programmed --> CABI
 
     CABI --> PyNative["Python native bindings"]
+    PyNative --> PyProgrammed["Installed riftco_transformer.programmed"]
     PyNative --> PyWorkflow["Python training + data + stages + bundles"]
     PyWorkflow --> Examples["examples/python"]
     PyWorkflow --> Labs["labs"]
-
-    Programmed -. "future task-neutral Python composition" .-> Labs
+    PyProgrammed --> Labs
 ```
 
 Arrows point from a consumer to the lower-level capability it uses. In
@@ -70,7 +71,7 @@ include/riftco_transformer/
 ├── stages/serving/       reusable in-process generation composition
 ├── compiler/cajal/       finite typed AST, checker, evaluator, compiler
 ├── lowering/             compiler-to-neural bridge
-├── programmed/           generic sequence placement and representation capture
+├── programmed/           sequence placement and generic ProgramAugmentedModel
 ├── analysis/             PCA, interventions, and ablation statistics
 └── c_api.h               stable C boundary
 
@@ -94,9 +95,10 @@ src/
 ```
 
 There is intentionally no native pretraining stack, post-training stack,
-training CLI, or task-specific conditional-reversal library. Direct C++ users
-can still compose the reusable model, loss, autograd, and Adam primitives;
-repository high-level orchestration is canonical in Python.
+training CLI, or task-specific conditional-reversal library. C++ does expose
+the task-neutral `ProgramAugmentedModel`, time-range loss, autograd, and Adam
+primitives; F/P/T/I construction, loops, evaluation, and reports remain
+canonical in Python.
 
 ### Header and implementation pairing
 
@@ -150,6 +152,7 @@ one reference test, and the hardware implementation that benefits from it.
 ```text
 python/riftco_transformer/
 ├── native/          typed `ctypes` wrappers over opaque C handles
+├── programmed/      generic multilinear-map and learned/programmed model API
 ├── training/        batches, trainer loop, metrics, backend selection
 ├── pretraining/     next-token workflow and immutable base bundle creation
 ├── post_training/   Full/LoRA/QLoRA workflow and held-out evaluation
@@ -177,7 +180,7 @@ labs/
 ├── _support/             shared report publication helpers
 ├── lora_rank/            controlled LoRA-rank selection
 ├── fine_tuning/          full-versus-LoRA comparison
-└── conditional_reverse/  task/protocol audit and historical evidence
+└── conditional_reverse/  F/P/T/I study, interpretation, and evidence policy
 ```
 
 An example answers “how do I call this public API?” A lab answers “what fixed
@@ -193,10 +196,12 @@ PYTHONPATH=python:. python3 -m labs.fine_tuning.run --help
 PYTHONPATH=python:. python3 -m labs.conditional_reverse.run --help
 ```
 
-The conditional-reversal lab currently audits deterministic data and oracle
-controls only. The former C++ F/P/T/I implementation was retired; one record
-under `labs/conditional_reverse/reports/` preserves its provenance without
-presenting it as a current benchmark or paper reproduction.
+The conditional-reversal lab composes `riftco_transformer.programmed` and owns
+deterministic data, sparse F/P/T/I specifications, training/evaluation policy,
+PCA, ablations, steering, and reports. The generic C++/C ABI/Python path is
+implemented without creating a task-specific native library. One archived
+record under `labs/conditional_reverse/reports/` preserves the retired native
+prototype's provenance; it is not current multi-seed reproduction evidence.
 
 ## State handoffs
 
@@ -223,6 +228,7 @@ tests/
 ├── stages/        native serving
 ├── compiler/      Cajal checker/evaluator/compiler equivalence
 ├── lowering/      neural lowering
+├── programmed/    sequence core and generic program-augmented model
 ├── analysis/      PCA and interventions
 ├── abi/           stable C boundary
 ├── package/       installed CMake consumers
@@ -245,8 +251,8 @@ The installed package exports these concerns separately:
 | `riftco_transformer::compiler` | standard-library-only Cajal frontend/compiler |
 | `riftco_transformer::analysis` | standard-library-only interpretation primitives |
 | `riftco_transformer::lowering` | one-way compiler-to-neural bridge |
-| `riftco_transformer::programmed` | generic programmed sequence composition |
-| `riftco_transformer::c_api` | shared stable C ABI used by Python |
+| `riftco_transformer::programmed` | generic programmed sequence and learned-model composition |
+| `riftco_transformer::c_api` | shared stable ABI 2.5 used by Python, including programmed handles |
 
 `cmake/RiftcoTransformerBackends.cmake` owns hardware options;
 `RiftcoTransformerWarnings.cmake` and `RiftcoTransformerSanitizers.cmake` own

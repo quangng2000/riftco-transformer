@@ -21,8 +21,8 @@ target_link_libraries(app PRIVATE riftco_transformer::library)
 | `riftco_transformer::compiler` | Cajal types, AST, evaluator, encoding, compiler | Standard library only |
 | `riftco_transformer::analysis` | Matrices, representation traces, PCA, interventions, ablations | Standard library only |
 | `riftco_transformer::lowering` | Cajal/multilinear-map to neural modules | Compiler + runtime |
-| `riftco_transformer::programmed` | Placement of lowered programs in sequence residuals | Analysis + lowering |
-| `riftco_transformer::c_api` | Stable C ABI 2.4 shared library | Runtime behind opaque handles |
+| `riftco_transformer::programmed` | Programmed sequence cores, placement, and task-neutral learned/programmed model composition | Analysis + lowering |
+| `riftco_transformer::c_api` | Stable C ABI 2.5 shared library | Runtime and programmed composition behind opaque handles |
 
 The exported target definitions live in
 [`CMakeLists.txt`](https://github.com/quangng2000/riftco-transformer/blob/main/CMakeLists.txt)
@@ -68,7 +68,7 @@ See [Tensor](TENSOR.md), [Tensor operations](TENSOR_OPS.md), and
 | [`nn/embedding.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/embedding.hpp) | `Embedding::forward` | Gathers rows from a registered embedding table. |
 | [`nn/layer_norm.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/layer_norm.hpp) | `LayerNorm::forward` | Registered scale and bias; differentiable normalization. |
 | [`nn/low_rank_adapter.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/low_rank_adapter.hpp) | `LowRankAdapter::forward`, `weight_delta` | Owns floating-point A/B adapter parameters. |
-| [`nn/activations.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/activations.hpp) and [`nn/loss.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/loss.hpp) | `gelu`, `relu`, `softmax`, `cross_entropy` | Differentiable operations over `Variable`; cross-entropy returns a scalar mean loss. |
+| [`nn/activations.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/activations.hpp) and [`nn/loss.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/loss.hpp) | `gelu`, `relu`, `softmax`, `cross_entropy`, `cross_entropy_time_range` | Differentiable operations over `Variable`; loss returns a scalar mean over all positions or one contiguous per-batch time range. |
 | [`model/feed_forward.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/model/feed_forward.hpp) | `FeedForward`, `FeedForwardActivation` | Position-wise expand/activate/project module with GELU or ReLU. |
 | [`model/causal_self_attention.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/model/causal_self_attention.hpp) | `CausalSelfAttention`, `FullSequenceAttentionKind`, head split/merge, diagnostic materialized attention | Full-sequence materialized/Flash policy is independent of incremental decode. |
 | [`model/transformer_block.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/model/transformer_block.hpp) | `TransformerBlock::forward` | Pre-normalized attention and feed-forward residual composition. |
@@ -111,7 +111,8 @@ Configuration defaults are listed in [Configuration reference](CONFIGURATION_REF
 | --- | --- |
 | [`compiler::cajal`](https://github.com/quangng2000/riftco-transformer/tree/main/include/riftco_transformer/compiler/cajal) | Immutable `Type`, `Expression`, and `Value`; `type_check`, `evaluate`, `encode`, `decode`, `compile`; `CompiledProgram` and `MultilinearMap` |
 | [`lowering`](https://github.com/quangng2000/riftco-transformer/tree/main/include/riftco_transformer/lowering) | `NeuralLoweringConfig`, `LoweringRegistry`, `analyze_neural_lowering`, `lower_to_neural`, `LoweredMultilinearModule` |
-| [`programmed`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/programmed/sequence_placement.hpp) | `ProgrammedSequenceCore`, `ProgrammedSequenceAdapter`, placement, capture, steering, and batch-roll ablation options |
+| [`programmed/sequence_placement.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/programmed/sequence_placement.hpp) | `ProgrammedSequenceCore`, `ProgrammedSequenceAdapter`, projection sharing, placement, steering, and batch-roll ablation options |
+| [`programmed/program_augmented_model.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/programmed/program_augmented_model.hpp) | `ProgramAugmentedModelConfig`, move-only `ProgramBranch`, `ProgramAugmentedForwardOptions`, `ProgramAugmentedModel` |
 | [`analysis`](https://github.com/quangng2000/riftco-transformer/tree/main/include/riftco_transformer/analysis) | `Matrix`, `RepresentationTrace`, `fit_pca`, `transform_pca`, `apply_intervention`, `summarize_ablation` |
 
 The compiler and analysis libraries do not depend on the tensor runtime.
@@ -120,10 +121,57 @@ a finite, first-order language constructed through C++ APIs; it is not a text
 parser or a general lambda-calculus implementation. See
 [Compiling to transformers](COMPILING_TO_TRANSFORMERS.md).
 
+## Program-augmented composition
+
+`ProgramAugmentedModel` is a fixed-context, task-neutral composition. For
+token-plus-position state $x$, residual width $D$, and $N\geq1$ independently
+parameterized causal-attention branches, its learned path is
+
+```math
+\begin{aligned}
+r_1 &= x + \mathrm{FFN}_{\mathrm{ReLU}}(x),\\
+h &= W_A[\mathrm{Attn}_1(r_1);\ldots;
+             \mathrm{Attn}_N(r_1)] + b_A.
+\end{aligned}
+```
+
+Without a program, $r_2=r_1+h$. With a `ProgramBranch`, the model selects the
+configured source span, runs `ProgrammedSequenceCore`, places the raw program
+output at the arbitrary configured target offset with zeros elsewhere, and
+computes
+
+```math
+r_2=r_1+W_M[h;\mathrm{place}(p)]+b_M.
+```
+
+A final learned projection produces vocabulary logits. The branch config owns
+source/target offsets, core input layouts and shared projection groups, a
+lowered module, and optional merge bias. Forward options support affine
+program-input steering and one shared positive batch-roll shift for learned
+attention, selected program inputs, and/or raw program output. These are graph
+interventions: gradients still flow through placement and the selected model
+paths.
+
+When capture is enabled, the owning host trace uses these stable names:
+
+- `embedding.sum`
+- `residual.pre_attention`
+- `learned_attention.merged`
+- `program.source` when a branch exists
+- `program.input.N` and `program.input.N.projected` for each logical input
+- `program.output.raw` and `program.output.placed` when a branch exists
+- `residual.post_merge`
+- `logits`
+
+`cross_entropy_time_range(logits, targets, time_offset, time_count)` selects
+the same contiguous time interval independently in every `[batch,time,vocab]`
+row before taking mean cross entropy. Ordinary `cross_entropy` remains the
+all-position objective.
+
 ## Stable C ABI
 
 [`c_api.h`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/c_api.h)
-defines C ABI 2.4. It uses fixed-width constants, status returns, versioned
+defines C ABI 2.5. It uses fixed-width constants, status returns, versioned
 value structures, and opaque handles:
 
 ```c
@@ -140,7 +188,10 @@ rt_context_release(context);
 | Backend and tensors | `rt_backend_is_available`, context create/query/release, FP32 tensor create/query/copy/matmul/release |
 | Model | Config initialization, create/transfer/query, attention/checkpointing selection, forward, NF4 conversion, LoRA attach/query/merge, memory statistics, release |
 | Serving | Decode-session options, create, step, reset, cache queries, release |
-| Parameters and autograd | Base/LoRA parameter lists, shape/value transfer, model forward variables, cross-entropy, backward, release |
+| Multilinear maps | Dense or sparse output-major import into `rt_multilinear_map`, copied ownership, release |
+| Programmed model | Versioned model/branch/lowering/forward configs; create, transfer, query, parameters, forward, release |
+| Representation traces | Owning trace count/name/shape/value queries and release |
+| Parameters and autograd | Base/LoRA/programmed parameter lists, shape/value transfer, model forward variables, all-position or time-range cross-entropy, backward, release |
 | Optimization | Adam options, create, step, zero gradients, state diagnostics, release |
 
 Initialize every versioned structure with its matching `rt_*_init` function
@@ -162,7 +213,7 @@ module re-exports the native layer:
 from riftco_transformer import (
     Adam, Context, DecoderOnlyTransformer, LoraConfig, Tensor,
     Tokenizer, TransformerConfig, Variable, backend_available,
-    cross_entropy,
+    cross_entropy, cross_entropy_time_range,
 )
 ```
 
@@ -177,12 +228,16 @@ high-level packages are:
 | [`training`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/training) | Batch sources, `TrainingLoopConfig`, `CausalLanguageModelTrainer`, backend selection |
 | [`pretraining`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/pretraining) | `PretrainingConfig`, `pretrain_text`, `pretrain_splits`, `pretrain_file`, `pretrain_files` |
 | [`post_training`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/post_training) | Instruction loading/splits, `PostTrainingConfig`, `post_train`, held-out evaluation |
+| [`programmed`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/programmed) | `MultilinearMap.from_dense/from_sparse`, lowering and branch configs, `ProgramAugmentedModel`, interventions, owning traces |
 | [`serving`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/serving) | Samplers, `TextGenerator`, `ModelService`, dependency-free HTTP server |
 
 Repository research protocols are intentionally outside this installed API.
 Top-level [`labs`](https://github.com/quangng2000/riftco-transformer/tree/main/labs)
 contains Python-owned fine-tuning, LoRA-rank, and conditional-reversal labs;
 they compose the public packages above and write ignored `runs/` output.
+In particular, the framework exposes no native F/P/T/I experiment type:
+conditional-reversal program construction, training, evaluation, PCA policy,
+and reporting remain in the Python lab.
 
 Python loads the native library from the wheel, recognized source-build
 directories, the system loader, or the explicit `RIFTCO_TRANSFORMER_LIBRARY`

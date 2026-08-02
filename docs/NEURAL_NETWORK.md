@@ -299,6 +299,13 @@ where $\mathbf{1}[k=y_n]$ is $1$ when $k$ is the target and $0$
 otherwise. Targets remain integer `TokenId` values and correspond to the
 flattened leading dimensions of `[batch, time, vocabulary]` logits.
 
+`cross_entropy_time_range(logits, targets, time_offset, time_count)` applies
+the same stable objective only to
+`[time_offset, time_offset + time_count)` in every batch row. The scalar mean
+uses `batch * time_count` selected positions, and the logit gradient is exactly
+zero outside that interval. This keeps task-specific supervision policy in a
+caller such as a Python lab while reusing the native loss/autograd kernel.
+
 ## Where attention is
 
 `CausalSelfAttention` is a separate model component, not hidden inside
@@ -332,8 +339,9 @@ y ──→ LayerNorm ──→ FeedForward ───────────→
 ## Module backend transfer
 
 `Linear`, `Embedding`, `LayerNorm`, `LowRankAdapter`, `FeedForward`,
-`CausalSelfAttention`, `TransformerBlock`, and `DecoderOnlyTransformer`
-expose `to(ExecutionBackend)`. Their registered base-parameter tree delegates
+`CausalSelfAttention`, `TransformerBlock`, `DecoderOnlyTransformer`, and
+`ProgramAugmentedModel` expose `to(ExecutionBackend)`. Their registered
+base-parameter tree delegates
 to one common transactional transfer utility, keeping device policy out of
 layer equations. Every changed value and fresh zero gradient is prepared
 before any parameter is committed. Transfer a module before constructing a
@@ -352,6 +360,12 @@ they own backend storage of their own, `Module::to()` is virtual: quantized
 ordinary parameter transaction. This keeps calls through `Module&` correct and
 prevents a model from ending up with parameters and packed weights on different
 backends.
+
+`ProgramAugmentedModel::to()` similarly transfers lowered-program coefficient
+tensors that are intentionally frozen and therefore absent from its ordinary
+`ParameterList`. Learned projections, attention branches, residual merges, and
+trainable program coefficients still participate in the registered parameter
+transaction.
 
 ## Source map
 

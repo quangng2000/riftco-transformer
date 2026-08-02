@@ -18,6 +18,14 @@ from riftco_transformer import (
     cross_entropy,
 )
 from riftco_transformer.native import bindings
+from riftco_transformer.programmed import (
+    MultilinearMap,
+    NeuralLoweringConfig,
+    ProgramAugmentedModel,
+    ProgramAugmentedModelConfig,
+    ProgramBranch,
+    ProgramInputLayout,
+)
 
 
 def native_filename() -> str:
@@ -128,6 +136,43 @@ def exercise_qlora() -> None:
             raise RuntimeError(f"LoRA merge left quantization state: {cleared}")
 
 
+def exercise_programmed_model() -> None:
+    """Exercise the packaged task-neutral compiled-program composition."""
+
+    with MultilinearMap.from_sparse(
+        (4,),
+        4,
+        (0, 5, 10, 15),
+        (1.0, 1.0, 1.0, 1.0),
+    ) as identity:
+        branch = ProgramBranch(
+            map=identity,
+            source_offset=0,
+            source_length=2,
+            target_offset=2,
+            output_length=2,
+            inputs=(ProgramInputLayout(),),
+            lowering=NeuralLoweringConfig(strategy="linear"),
+        )
+        config = ProgramAugmentedModelConfig(
+            vocabulary_size=5,
+            context_length=4,
+            model_width=4,
+            head_count=2,
+            feed_forward_width=8,
+            attention_branch_count=1,
+            random_seed=439,
+        )
+        with ProgramAugmentedModel(config, branch) as model:
+            if not model.has_program:
+                raise RuntimeError("wheel programmed model lost its program")
+            with model(((0, 1, 2, 3),)) as logits:
+                if logits.shape != (1, 4, 5):
+                    raise RuntimeError(
+                        f"unexpected programmed-model shape: {logits.shape}"
+                    )
+
+
 def main() -> int:
     if os.environ.get("RIFTCO_TRANSFORMER_LIBRARY"):
         raise RuntimeError(
@@ -165,6 +210,7 @@ def main() -> int:
                         raise RuntimeError(f"unexpected matmul result: {values}")
 
     exercise_qlora()
+    exercise_programmed_model()
 
     library = bindings._native()
     loaded_path = Path(str(library._name)).resolve()

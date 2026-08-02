@@ -131,6 +131,30 @@ _Static_assert(
     sizeof(rt_activation_checkpointing_kind) == 4,
     "rt_activation_checkpointing_kind ABI layout"
 );
+_Static_assert(
+    sizeof(rt_program_augmented_model_config) == 64,
+    "rt_program_augmented_model_config ABI layout"
+);
+_Static_assert(
+    sizeof(rt_program_input_layout) == 24,
+    "rt_program_input_layout ABI layout"
+);
+_Static_assert(
+    sizeof(rt_program_branch_config) == 64,
+    "rt_program_branch_config ABI layout"
+);
+_Static_assert(
+    sizeof(rt_neural_lowering_options) == 56,
+    "rt_neural_lowering_options ABI layout"
+);
+_Static_assert(
+    sizeof(rt_program_input_steering) == 48,
+    "rt_program_input_steering ABI layout"
+);
+_Static_assert(
+    sizeof(rt_program_augmented_forward_options) == 64,
+    "rt_program_augmented_forward_options ABI layout"
+);
 
 typedef struct error_thread_result {
     int started_with_empty_error;
@@ -4922,7 +4946,7 @@ int main(void) {
     );
     require_condition(
         RT_ABI_VERSION_MAJOR == UINT32_C(2) &&
-            RT_ABI_VERSION_MINOR == UINT32_C(4),
+            RT_ABI_VERSION_MINOR == UINT32_C(5),
         "current additive ABI version"
     );
 

@@ -320,7 +320,7 @@ PYTHONPATH=python:. python3 -m labs.lora_rank.run --help
 ### Python generation and local serving
 
 `TextGenerator` performs single-request autoregressive generation. For a
-native `DecoderOnlyTransformer`, it uses the current stable ABI 2.4
+native `DecoderOnlyTransformer`, it uses the current stable ABI 2.5
 `DecodeSession` surface, prefills one token at a time,
 and then appends one generated token per step.
 Paged caching with 16-token pages is the default; callers can select the

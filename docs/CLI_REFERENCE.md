@@ -59,12 +59,20 @@ PYTHONPATH=python:. python3 -m labs.fine_tuning.run \
   --base results/stages/tinystories_pretrained.rift \
   --data data/external/huggingface/dolly-lora-v1 \
   --output runs/fine-tuning
+
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run \
+  --profile quick --variants F --backend cpu \
+  --output runs/conditional-reverse/quick.json
 ```
 
 Lab output defaults to ignored `runs/` paths, and commands refuse to overwrite
-existing evidence. The conditional-reversal command audits the task, disjoint
-splits, oracle, and controls; it does not train or execute the former learned
-F/P/T/I C++ prototype. See
+existing evidence. The conditional-reversal lab owns the task, source-disjoint
+splits, F/P/T/I construction, training/evaluation policy, PCA, ablations,
+steering, and reports. It composes the generic installed
+`riftco_transformer.programmed` model rather than importing task-specific C++.
+`quick` is the smoke profile and `paper` is the long configuration. Because
+the source lab CLI can evolve independently of the installed package, verify
+the exact accepted syntax with `--help` before starting either profile. See
 [Compiling programs to transformers](COMPILING_TO_TRANSFORMERS.md).
 
 ## Tests

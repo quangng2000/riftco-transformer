@@ -161,6 +161,103 @@ void test_multilinear_map_primitive() {
       "input dimension products must reject overflow");
 }
 
+void test_sparse_multilinear_map_construction() {
+  const std::vector<std::size_t> flat_indices{0, 4, 6, 11};
+  const std::vector<double> values{2.0, 3.0, -1.0, 4.0};
+  const cajal::MultilinearMap sparse =
+      cajal::MultilinearMap::from_sparse({2, 3}, 2, flat_indices, values);
+  const std::vector<double> expected_coefficients{
+      2.0, 0.0, 0.0, 0.0, 3.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 4.0,
+  };
+  require(std::vector<double>(sparse.coefficients().begin(),
+                              sparse.coefficients().end()) ==
+              expected_coefficients,
+          "sparse entries must materialize in output-major flat order");
+  require(sparse.coefficient_at(0, std::vector<std::size_t>{1, 1}) == 3.0 &&
+              sparse.coefficient_at(1, std::vector<std::size_t>{1, 2}) == 4.0,
+          "sparse coefficients must use the dense map coordinate layout");
+  require_coordinates(sparse.apply(std::vector<cajal::EncodedValue>{
+                          cajal::EncodedValue({1.0, 2.0}),
+                          cajal::EncodedValue({3.0, 4.0, 5.0})}),
+                      {30.0, 37.0}, "sparse map application");
+
+  const std::vector<std::size_t> empty_indices;
+  const std::vector<double> empty_values;
+  const cajal::MultilinearMap zero_constant =
+      cajal::MultilinearMap::from_sparse({}, 3, empty_indices, empty_values);
+  require(zero_constant.arity() == 0 && zero_constant.coefficient_count() == 3,
+          "empty sparse constants must retain their output shape");
+  require_coordinates(zero_constant.apply(std::vector<cajal::EncodedValue>{}),
+                      {0.0, 0.0, 0.0}, "empty sparse constant application");
+
+  const cajal::MultilinearMap zero_bilinear =
+      cajal::MultilinearMap::from_sparse({2, 3}, 2, empty_indices,
+                                         empty_values);
+  require_coordinates(zero_bilinear.apply(std::vector<cajal::EncodedValue>{
+                          cajal::EncodedValue({1.0, 2.0}),
+                          cajal::EncodedValue({3.0, 4.0, 5.0})}),
+                      {0.0, 0.0}, "empty sparse nonconstant application");
+
+  const std::vector<std::size_t> one_index{0};
+  const std::vector<std::size_t> two_indices{0, 1};
+  const std::vector<double> one_value{1.0};
+  const std::vector<double> two_values{1.0, 2.0};
+  require_throws_as<cajal::MultilinearMapError>(
+      [&] {
+        static_cast<void>(
+            cajal::MultilinearMap::from_sparse({2}, 1, two_indices, one_value));
+      },
+      "sparse index and value counts must match");
+
+  const std::vector<std::size_t> out_of_range_index{2};
+  require_throws_as<cajal::MultilinearMapError>(
+      [&] {
+        static_cast<void>(cajal::MultilinearMap::from_sparse(
+            {2}, 1, out_of_range_index, one_value));
+      },
+      "sparse indices must be in range");
+
+  const std::vector<std::size_t> duplicate_indices{1, 1};
+  require_throws_as<cajal::MultilinearMapError>(
+      [&] {
+        static_cast<void>(cajal::MultilinearMap::from_sparse(
+            {2}, 1, duplicate_indices, two_values));
+      },
+      "sparse indices must be unique");
+
+  const std::vector<double> infinite_value{
+      std::numeric_limits<double>::infinity()};
+  require_throws_as<cajal::MultilinearMapError>(
+      [&] {
+        static_cast<void>(cajal::MultilinearMap::from_sparse({2}, 1, one_index,
+                                                             infinite_value));
+      },
+      "sparse values must be finite");
+
+  const std::vector<double> zero_value{0.0};
+  require_throws_as<cajal::MultilinearMapError>(
+      [&] {
+        static_cast<void>(
+            cajal::MultilinearMap::from_sparse({2}, 1, one_index, zero_value));
+      },
+      "explicit sparse zero values must be rejected");
+
+  require_throws_as<cajal::MultilinearMapError>(
+      [&] {
+        static_cast<void>(cajal::MultilinearMap::from_sparse(
+            {std::numeric_limits<std::size_t>::max(), 2}, 1, empty_indices,
+            empty_values));
+      },
+      "sparse map input dimension products must reject overflow");
+  require_throws_as<cajal::MultilinearMapError>(
+      [&] {
+        static_cast<void>(cajal::MultilinearMap::from_sparse(
+            {2}, std::numeric_limits<std::size_t>::max(), empty_indices,
+            empty_values));
+      },
+      "sparse map coefficient counts must reject overflow");
+}
+
 void check_environment(const cajal::Expression &expression,
                        const cajal::CompiledProgram &compiled,
                        const cajal::Environment &environment,
@@ -420,6 +517,7 @@ int main() {
   try {
     test_value_encoding_decoding_and_enumeration();
     test_multilinear_map_primitive();
+    test_sparse_multilinear_map_construction();
     test_compiler_equivalence_for_core_expressions();
     test_dictionary_and_lookup_compilation();
     test_compiled_program_environment_validation();

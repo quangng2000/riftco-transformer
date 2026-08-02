@@ -31,14 +31,37 @@ public:
     // recursively, for example "attention.query.weight".
     [[nodiscard]] ParameterList parameters();
 
-    // Transfers the complete registered parameter tree transactionally.
-    // Derived modules that own backend resources outside the Parameter tree
-    // must override this operation and include those resources in the same
-    // transfer transaction. Call before constructing a forward graph or
+    // Transfers the complete registered module tree transactionally, including
+    // both Parameters and non-optimizer backend state exposed through the
+    // protected preparation hook. Call before constructing a forward graph or
     // backend-specific optimizer.
     virtual void to(ExecutionBackend backend);
 
 protected:
+    // A staged, non-optimizer part of a backend transfer. Derived modules must
+    // allocate and copy everything in prepare_extra_backend_transfers()
+    // without changing live state. Module::to() calls commit() only after the
+    // entire registered tree and every Parameter have been prepared. commit()
+    // must therefore remain allocation-free and non-throwing.
+    class PreparedBackendTransfer {
+    public:
+        virtual ~PreparedBackendTransfer() = default;
+        virtual void commit() noexcept = 0;
+
+        PreparedBackendTransfer(
+            const PreparedBackendTransfer&
+        ) = delete;
+        PreparedBackendTransfer& operator=(
+            const PreparedBackendTransfer&
+        ) = delete;
+
+    protected:
+        PreparedBackendTransfer() = default;
+    };
+
+    using PreparedBackendTransferList =
+        std::vector<std::unique_ptr<PreparedBackendTransfer>>;
+
     // A registration segment must be nonempty and cannot contain '.', which is
     // reserved as the separator in recursively qualified parameter names.
     void register_parameter(
@@ -71,6 +94,11 @@ protected:
     // overriding this hook. Returned names are relative to this module.
     [[nodiscard]] virtual ParameterList
     extra_parameters_for_transfer();
+
+    // Backend-owned state returned here is transfer-only state: it is not
+    // added to parameters() and therefore never acquires optimizer state.
+    [[nodiscard]] virtual PreparedBackendTransferList
+    prepare_extra_backend_transfers(ExecutionBackend backend);
 
 private:
     enum class RegistrationKind {

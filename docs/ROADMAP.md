@@ -230,9 +230,14 @@ next batch, loss, gradients, and Adam update as an uninterrupted run.
   prototype, clearly separated from current executable evidence — complete
   slice
 - public task-neutral program-augmented model composition that Python labs can
-  use without importing experiment-specific C++ — future boundary
-- rebuilt Python F/P/T/I training, PCA, ablation, and steering study after that
-  generic composition boundary exists
+  use without importing experiment-specific C++ — complete slice
+- additive C ABI 2.5 multilinear-map import, generic programmed-model,
+  representation-trace, and contiguous time-range cross-entropy surfaces,
+  plus installed `riftco_transformer.programmed` wrappers — complete slice
+- Python-owned F/P/T/I construction, training/evaluation, PCA, batch-roll
+  ablation, steering, and quick/paper profile orchestration over the generic
+  public model — complete executable slice; fresh reviewed run evidence is a
+  separate milestone
 - full paper-scale multi-seed F/P/T/I runs with archived configurations,
   validation-based selection, test metrics, checkpoints, and comparison to the
   reported analysis
@@ -252,10 +257,12 @@ coefficients remain explicit key/value outer products.
 Program-integration acceptance check: strategy analysis is inspectable before
 allocation; exact mode rejects lossy FP32 materialization; automatic lowering
 selects bilinear linear attention; and frozen coefficients stay out of Adam.
-For a future learned conditional-reversal lab, Python must be able to compose
-the generic programmed module, train surrounding parameters, fit PCA only on
-probe/train captures, and apply held-out ablation/steering without a
-task-specific installed C++ target.
+Python can now compose the generic programmed model, train surrounding
+parameters with target-time-range loss, fit PCA on probe/train captures, and
+apply held-out ablation/steering without a task-specific installed C++ target.
+The remaining evidence acceptance check is to archive fresh quick smoke output
+and then full multi-seed paper-profile configurations/results without using
+test outcomes for selection.
 
 ## 11. Optional performance work
 
@@ -310,6 +317,9 @@ Only after correctness:
   one-device StableHLO quantized linear, matmul, materialized attention/VJPs,
   and paged decode — implemented;
   real-Cloud-TPU acceptance remains pending
+- additive ABI 2.5 dense/sparse multilinear-map import, generic
+  `ProgramAugmentedModel` lifecycle/forward/parameters, owning representation
+  traces, and contiguous time-range cross entropy — complete slice
 - TPU device-resident storage, genuinely tiled StableHLO Flash attention,
   additional native operations, asynchronous execution, SPMD partitioning,
   and multi-host support

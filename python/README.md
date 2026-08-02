@@ -81,7 +81,7 @@ without implying an end-to-end TPU speedup. Real Cloud TPU validation is still
 pending. Default installs never load `libtpu`.
 
 The Python package follows the framework release version (`0.5.0` here), while
-the native C ABI has its own compatibility version (`2.4`). The client accepts
+the native C ABI has its own compatibility version (`2.5`). The client accepts
 the same ABI major and an equal or newer additive minor, and rejects older or
 breaking ABIs before use.
 
@@ -214,6 +214,43 @@ must fit the device's threadgroup-memory limit. The native runtime preflights
 the complete forward/backward path before starting the forward pass. If the
 device rejects a very wide head, use more heads or select
 `attention="materialized"`.
+
+## Program-augmented models
+
+`riftco_transformer.programmed` is the installed, task-neutral Python surface
+for composing learned sequence paths with an optional lowered multilinear
+program. It exports `MultilinearMap`, `NeuralLoweringConfig`,
+`ProgramInputLayout`, `ProgramBranch`, `ProgramAugmentedModelConfig`,
+`ProgramAugmentedModel`, forward options, and owning representation-trace
+values. `MultilinearMap.from_sparse(...)` accepts output-major flat nonzero
+indices and values, avoiding a dense Python coefficient list; the current
+native lowerer still materializes its configured dense representation.
+
+The model has a fixed context length, a residual ReLU feed-forward path, a
+configurable number of independent causal-attention branches, and an optional
+program core whose raw output is placed at a configured target offset before a
+learned residual merge. Forward options can capture stable named
+representations, batch-roll learned attention, batch-roll selected program
+inputs or output, and apply affine input steering. `cross_entropy_time_range`
+trains only one contiguous time range per batch, which lets a lab supervise a
+target half without treating source positions as loss targets.
+
+The installed module owns no F/P/T/I enum, dataset, training loop, metric,
+PCA policy, or report. The source-only conditional-reversal lab constructs
+those controls and drives the generic model:
+
+```bash
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run --help
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run \
+  --profile quick --variants F --backend cpu \
+  --output runs/conditional-reverse/quick.json
+```
+
+Check `--help` for the exact current CLI before starting either the `quick` or
+long-running `paper` profile. The generic path is implemented; fresh reviewed
+quick/paper results are intentionally not asserted in this package README.
+The archived seed-42 F result in the repository came from the retired
+task-specific C++ prototype and is not a multi-seed reproduction.
 
 ## Hugging Face data and research labs
 
@@ -408,7 +445,7 @@ extension.
 
 ## Incremental generation
 
-Native models use the current ABI 2.4 `DecodeSession` surface instead of
+Native models use the current ABI 2.5 `DecodeSession` surface instead of
 rerunning the full-sequence training forward for every generated token.
 `TextGenerator` creates a request-local session, prefills the
 prompt one token at a time, and then performs one-token decode:
@@ -462,6 +499,7 @@ The physical package mirrors the runtime boundaries:
 ```text
 riftco_transformer/
 ├── native/          # stable C ABI bindings
+├── programmed/      # generic learned/programmed composition
 ├── artifacts/       # ModelBundle persistence
 ├── data/            # external dataset adapters and preparation
 ├── training/        # shared batches, metrics, and trainer

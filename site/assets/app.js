@@ -167,7 +167,7 @@
     const terms = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     activeResult = -1;
     if (!terms.length) {
-      results.innerHTML = '<div class="search-empty"><strong>Search the complete framework</strong><span>Try “strides”, “paged Adam”, “Metal”, or “compiled attention”.</span></div>';
+      results.innerHTML = '<div class="search-empty"><strong>Search the complete framework</strong><span>Try “strides”, “ProgramAugmentedModel”, “Metal”, or “compiled attention”.</span></div>';
       return;
     }
     const matches = searchIndex

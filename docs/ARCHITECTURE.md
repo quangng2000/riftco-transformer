@@ -260,6 +260,22 @@ wrapper. A future third-party binary-plugin system would require a separately
 versioned C function table rather than exposing compiler-specific C++ class
 layout.
 
+## Compiler and programmed-model boundary
+
+The standard-library-only Cajal compiler produces backend-neutral multilinear
+maps. `riftco_transformer::lowering` is the one-way bridge into tensor/autograd
+modules, and `riftco_transformer::programmed` composes a lowered core with
+generic learned feed-forward and causal-attention paths. ABI 2.5 exposes dense
+or sparse map import, `ProgramAugmentedModel`, owning representation traces,
+interventions, and time-range cross entropy; the installed
+`riftco_transformer.programmed` package wraps that lifecycle.
+
+This dependency direction does not move experiment ownership into C++.
+Repository labs define programs such as F/P/T/I, datasets, optimizer loops,
+validation/test rules, PCA policy, ablation interpretation, and reports. The
+generic model knows only fixed context/model dimensions, attention branch
+count, optional source/target program placement, and forward options.
+
 ## Intentional limits
 
 Metal storage is persistent but shared and synchronously host-addressable.

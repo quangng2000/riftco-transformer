@@ -14,4 +14,13 @@ namespace riftco_transformer {
     std::span<const TokenId> targets
 );
 
+// Selects [time_offset, time_offset + time_count) independently in each batch
+// row of [batch, time, vocabulary] logits and flattened [batch, time] targets.
+[[nodiscard]] Variable cross_entropy_time_range(
+    const Variable& logits,
+    std::span<const TokenId> targets,
+    std::size_t time_offset,
+    std::size_t time_count
+);
+
 }  // namespace riftco_transformer

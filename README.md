@@ -61,9 +61,10 @@ available on this macOS host.
 Python owns workflow policy: datasets, batching, high-level training loops,
 evaluation, labs, and report generation. C++ owns the reusable execution
 engine: tensors, autograd, models, losses, Adam, artifacts, serving primitives,
-compiler/analysis components, and hardware backends. Python calls that native
-engine through the stable C ABI; research protocols are not installed as
-framework API.
+compiler/analysis components, the task-neutral program-augmented model, and
+hardware backends. Python calls that native engine through the stable C ABI;
+research protocols such as F/P/T/I remain Python-owned lab policy rather than
+installed C++ experiment types.
 
 ```mermaid
 flowchart LR
@@ -179,8 +180,9 @@ The installed C++ package separates concerns into
 `riftco_transformer::analysis` (standard-library-only PCA, interventions, and
 ablation statistics). `riftco_transformer::lowering` is the configurable
 one-way neural bridge, and `riftco_transformer::programmed` adds reusable
-sequence placement and representation capture. Link only the concern you use;
-transitive dependencies are supplied by the exported targets.
+sequence placement, `ProgramAugmentedModel`, and representation capture. Link
+only the concern you use; transitive dependencies are supplied by the exported
+targets.
 
 ## Research labs
 
@@ -191,18 +193,28 @@ checkout so Python can import both the public framework package and the lab:
 ```bash
 PYTHONPATH=python:. python3 -m labs.lora_rank.run --help
 PYTHONPATH=python:. python3 -m labs.fine_tuning.run --help
+PYTHONPATH=python:. python3 -m labs.conditional_reverse.run --help
+
+# Small end-to-end F smoke profile. Check --help for the exact current CLI.
 PYTHONPATH=python:. python3 -m labs.conditional_reverse.run \
-  --output runs/conditional-reverse/protocol.json
+  --profile quick --variants F --backend cpu \
+  --output runs/conditional-reverse/quick.json
 ```
 
 Generated artifacts and reports belong under ignored `runs/` directories;
 small reviewed evidence records may live beside a lab. The conditional-reverse
-lab retains one [historical F-variant record](labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json)
-from the retired experiment-specific C++ prototype. The current Python lab
-audits the task, disjoint splits, oracle, and controls; it does not execute or
-claim to reproduce the former learned F/P/T/I variants. Reintroducing those
-variants requires a public, task-neutral program-augmented model API that Python
-can compose from the reusable compiler and analysis primitives.
+lab now composes the installed `riftco_transformer.programmed` API: Python owns
+F/P/T/I map construction, data, training, validation/test policy, PCA,
+ablations, steering, and reports, while C++ executes the generic learned and
+programmed graph through ABI 2.5. A `paper` profile is available for the full
+configuration; always inspect `--help` before launching a long run.
+
+The generic execution path is implemented and tested. Fresh quick- and
+paper-profile results are not claimed here until reviewed run records are
+inserted. The retained
+[historical F record](labs/conditional_reverse/reports/m4-max-metal-f-seed-42.json)
+came from the retired task-specific C++ prototype; it remains single-seed
+historical evidence, not a current multi-seed paper reproduction.
 
 For CUDA, use an NVIDIA GPU and compatible driver plus CUDA Toolkit 12 or
 newer:
@@ -317,7 +329,7 @@ Open `http://127.0.0.1:8000/`. The stages exchange immutable `.rift` bundles in
 | Run all three stages | [Pipeline](docs/PIPELINE.md) · [LoRA](docs/LORA.md) · [Serving](docs/SERVING.md) |
 | Compare full tuning and LoRA | [Post-training generalization](docs/GENERALIZATION.md) |
 | Fine-tune with packed NF4 base weights | [QLoRA](docs/QLORA.md) |
-| Compile programs and understand the conditional-reversal lab boundary | [Compiling programs to Transformers](docs/COMPILING_TO_TRANSFORMERS.md) |
+| Compile programs and run the Python-owned conditional-reversal study | [Compiling programs to Transformers](docs/COMPILING_TO_TRANSFORMERS.md) |
 | Prepare Hugging Face data | [Datasets and LoRA experiments](docs/DATASETS_AND_LORA_EXPERIMENTS.md) |
 | Navigate or contribute | [Project structure](docs/PROJECT_STRUCTURE.md) · [Roadmap](docs/ROADMAP.md) · [Release automation](python/README.md#release-automation) |
 | See feature superposition | [3D vector lab source](visualizations/vector-distribution.html) · [Run the visualization](visualizations/README.md) |

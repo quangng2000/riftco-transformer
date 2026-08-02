@@ -27,6 +27,14 @@ from riftco_transformer import (  # noqa: E402
     LORA_TARGET_DEFAULT,
     LORA_TARGET_NAMES,
     LoraConfig,
+    MultilinearMap,
+    NeuralLoweringConfig,
+    ProgramAugmentedForwardOptions,
+    ProgramAugmentedModel,
+    ProgramAugmentedModelConfig,
+    ProgramBranch,
+    ProgramInputLayout,
+    ProgramInputSteering,
     STATUS_BACKEND_UNAVAILABLE,
     STATUS_INVALID_ARGUMENT,
     STATUS_OUT_OF_RANGE,
@@ -38,8 +46,60 @@ from riftco_transformer import (  # noqa: E402
     TransformerConfig,
     backend_available,
     cross_entropy,
+    cross_entropy_time_range,
 )
 from riftco_transformer import _abi_version_is_compatible  # noqa: E402
+
+
+def _small_program_model_config() -> ProgramAugmentedModelConfig:
+    return ProgramAugmentedModelConfig(
+        vocabulary_size=5,
+        context_length=4,
+        model_width=4,
+        head_count=2,
+        feed_forward_width=8,
+        attention_branch_count=1,
+        random_seed=73,
+    )
+
+
+def _sparse_identity_map() -> MultilinearMap:
+    return MultilinearMap.from_sparse(
+        (4,),
+        4,
+        (0, 5, 10, 15),
+        (1.0, 1.0, 1.0, 1.0),
+    )
+
+
+def _sparse_reversal_map() -> MultilinearMap:
+    return MultilinearMap.from_sparse(
+        (4,),
+        4,
+        (3, 6, 9, 12),
+        (1.0, 1.0, 1.0, 1.0),
+    )
+
+
+def _linear_program_branch(
+    multilinear_map: MultilinearMap,
+    *,
+    trainable: bool = False,
+) -> ProgramBranch:
+    return ProgramBranch(
+        map=multilinear_map,
+        source_offset=0,
+        source_length=2,
+        target_offset=2,
+        output_length=2,
+        inputs=(ProgramInputLayout(),),
+        lowering=NeuralLoweringConfig(
+            strategy="linear",
+            initialization="random_uniform" if trainable else "compiled",
+            trainable=trainable,
+            random_seed=79,
+        ),
+    )
 
 
 class PythonBindingTests(unittest.TestCase):
@@ -55,9 +115,247 @@ class PythonBindingTests(unittest.TestCase):
         self.assertFalse(_abi_version_is_compatible(0x00020001))
         self.assertFalse(_abi_version_is_compatible(0x00020002))
         self.assertFalse(_abi_version_is_compatible(0x00020003))
-        self.assertTrue(_abi_version_is_compatible(0x00020004))
+        self.assertFalse(_abi_version_is_compatible(0x00020004))
         self.assertTrue(_abi_version_is_compatible(0x00020005))
+        self.assertTrue(_abi_version_is_compatible(0x00020006))
         self.assertFalse(_abi_version_is_compatible(0x00030000))
+
+    def test_sparse_multilinear_map_validation_and_close(self) -> None:
+        with _sparse_identity_map() as identity:
+            self.assertEqual(identity.input_dimensions, (4,))
+            self.assertEqual(identity.output_dimension, 4)
+            self.assertEqual(identity.coefficient_count, 16)
+            self.assertFalse(identity.closed)
+            with self.assertRaises(TypeError):
+                copy.copy(identity)
+            with self.assertRaises(TypeError):
+                copy.deepcopy(identity)
+        self.assertTrue(identity.closed)
+        identity.close()
+
+        reversal = _sparse_reversal_map()
+        self.assertEqual(reversal.coefficient_count, 16)
+        reversal.close()
+        reversal.close()
+        self.assertTrue(reversal.closed)
+
+        with self.assertRaises(RiftcoTransformerError):
+            MultilinearMap.from_sparse(
+                (4,), 4, (3, 3), (1.0, 2.0)
+            )
+        with self.assertRaises(RiftcoTransformerError):
+            MultilinearMap.from_sparse((4,), 4, (16,), (1.0,))
+        with self.assertRaisesRegex(ValueError, "same length"):
+            MultilinearMap.from_sparse((4,), 4, (0,), ())
+        with self.assertRaisesRegex(ValueError, "nonzero"):
+            MultilinearMap.from_sparse((4,), 4, (0,), (0.0,))
+        with self.assertRaisesRegex(ValueError, "finite"):
+            MultilinearMap.from_sparse((4,), 4, (0,), (math.nan,))
+
+    def test_program_augmented_paths_traces_and_interventions(self) -> None:
+        config = _small_program_model_config()
+        tokens = ((0, 1, 2, 3), (3, 2, 1, 0))
+
+        learned = ProgramAugmentedModel(config)
+        self.assertFalse(learned.has_program)
+        self.assertEqual(learned.backend, "cpu")
+        with learned.parameters() as parameters:
+            self.assertEqual(len(parameters), 18)
+            self.assertNotIn("program_merge.weight", parameters.names)
+
+        learned_result = learned.forward(
+            tokens,
+            ProgramAugmentedForwardOptions(capture_representations=True),
+        )
+        learned_trace = learned_result.representations
+        self.assertEqual(learned_result.logits.shape, (2, 4, 5))
+        self.assertEqual(
+            tuple(entry.name for entry in learned_trace.entries),
+            (
+                "embedding.sum",
+                "residual.pre_attention",
+                "learned_attention.merged",
+                "residual.post_merge",
+                "logits",
+            ),
+        )
+
+        with self.assertRaises(RiftcoTransformerError) as no_program_error:
+            learned.forward(
+                tokens,
+                ProgramAugmentedForwardOptions(
+                    steering=(ProgramInputSteering(0, 0),),
+                ),
+            )
+        self.assertEqual(
+            no_program_error.exception.status,
+            STATUS_INVALID_ARGUMENT,
+        )
+        with self.assertRaises(ValueError):
+            ProgramAugmentedForwardOptions(
+                batch_roll_learned_attention=True,
+                batch_roll_shift=0,
+            )
+        rolled = learned.forward(
+            tokens,
+            ProgramAugmentedForwardOptions(
+                batch_roll_learned_attention=True,
+            ),
+        )
+        rolled.logits.close()
+        learned_result.logits.close()
+        learned.close()
+        learned.close()
+        self.assertTrue(learned.closed)
+        self.assertEqual(learned_trace.at("logits").shape, (2, 4, 5))
+
+        reversal = _sparse_reversal_map()
+        programmed = ProgramAugmentedModel(
+            config,
+            _linear_program_branch(reversal),
+        )
+        reversal.close()
+        self.assertTrue(reversal.closed)
+        self.assertTrue(programmed.has_program)
+        with programmed.parameters() as parameters:
+            self.assertEqual(len(parameters), 20)
+            self.assertIn(
+                "program.input_projections.0.weight",
+                parameters.names,
+            )
+            self.assertIn("program_merge.weight", parameters.names)
+            self.assertNotIn("program.program.coefficients", parameters.names)
+
+        result = programmed.forward(
+            tokens,
+            ProgramAugmentedForwardOptions(
+                capture_representations=True,
+                batch_roll_learned_attention=True,
+                steering=(
+                    ProgramInputSteering(
+                        input_index=0,
+                        position=0,
+                        scales=(0.5, 1.5),
+                    ),
+                ),
+                ablate_program_output=True,
+            ),
+        )
+        self.assertEqual(result.logits.shape, (2, 4, 5))
+        self.assertEqual(len(result.representations.entries), 10)
+        self.assertEqual(
+            result.representations.at("program.input.0").shape,
+            (2, 4),
+        )
+        placed = result.representations.at("program.output.placed")
+        self.assertEqual(placed.shape, (2, 4, 2))
+        self.assertEqual(len(placed.values), math.prod(placed.shape))
+        result.logits.close()
+
+        with self.assertRaises(RiftcoTransformerError) as steering_index_error:
+            programmed.forward(
+                tokens,
+                ProgramAugmentedForwardOptions(
+                    steering=(ProgramInputSteering(1, 0),),
+                ),
+            )
+        self.assertEqual(
+            steering_index_error.exception.status,
+            STATUS_OUT_OF_RANGE,
+        )
+        with self.assertRaises(RiftcoTransformerError) as steering_width_error:
+            programmed.forward(
+                tokens,
+                ProgramAugmentedForwardOptions(
+                    steering=(
+                        ProgramInputSteering(0, 0, scales=(1.0,)),
+                    ),
+                ),
+            )
+        self.assertEqual(
+            steering_width_error.exception.status,
+            STATUS_INVALID_ARGUMENT,
+        )
+        with self.assertRaises(RiftcoTransformerError) as ablation_error:
+            programmed.forward(
+                tokens,
+                ProgramAugmentedForwardOptions(
+                    ablated_program_inputs=(1,),
+                ),
+            )
+        self.assertEqual(ablation_error.exception.status, STATUS_OUT_OF_RANGE)
+        with self.assertRaises(ValueError):
+            ProgramAugmentedForwardOptions(
+                batch_roll_shift=0,
+                ablate_program_output=True,
+            )
+        programmed.close()
+        programmed.close()
+        self.assertTrue(programmed.closed)
+
+    def test_program_augmented_time_range_training_and_graph_lifetime(
+        self,
+    ) -> None:
+        config = _small_program_model_config()
+        identity = _sparse_identity_map()
+        model = ProgramAugmentedModel(
+            config,
+            _linear_program_branch(identity, trainable=True),
+        )
+        identity.close()
+
+        parameters = model.parameters()
+        self.assertEqual(len(parameters), 21)
+        self.assertIn("program.program.coefficients", parameters.names)
+        optimizer = Adam(parameters, learning_rate=1.0e-2)
+        self.assertEqual(optimizer.parameter_count, 21)
+
+        tokens = ((0, 1, 2, 3), (3, 2, 1, 0))
+        targets = ((1, 2, 3, 4), (2, 1, 0, 4))
+        logits = model(tokens)
+        stale_logits = model(tokens)
+        loss = cross_entropy_time_range(logits, targets, 2, 2)
+        self.assertEqual(loss.shape, ())
+        self.assertTrue(math.isfinite(loss.item()))
+        self.assertGreater(loss.item(), 0.0)
+
+        with self.assertRaises(ValueError):
+            cross_entropy_time_range(logits, targets, 0, 0)
+        with self.assertRaises(RiftcoTransformerError) as range_error:
+            cross_entropy_time_range(logits, targets, 3, 2)
+        self.assertEqual(range_error.exception.status, STATUS_OUT_OF_RANGE)
+        with self.assertRaises(RiftcoTransformerError) as target_error:
+            cross_entropy_time_range(logits, (targets[0],), 2, 2)
+        self.assertEqual(target_error.exception.status, STATUS_INVALID_ARGUMENT)
+        with self.assertRaises(RiftcoTransformerError) as transfer_error:
+            model.to("cpu")
+        self.assertEqual(
+            transfer_error.exception.status,
+            STATUS_INVALID_ARGUMENT,
+        )
+
+        model.close()
+        model.close()
+        parameters.close()
+        logits.close()
+        self.assertTrue(model.closed)
+        self.assertTrue(parameters.closed)
+
+        loss.backward()
+        stats = optimizer.step()
+        self.assertEqual(stats.step, 1)
+        self.assertTrue(math.isfinite(stats.gradient_norm))
+        with self.assertRaises(RiftcoTransformerError) as epoch_error:
+            cross_entropy_time_range(stale_logits, targets, 2, 2)
+        self.assertIn("optimizer step", epoch_error.exception.detail)
+        with self.assertRaises(RiftcoTransformerError) as consumed_error:
+            loss.backward()
+        self.assertIn("after backward", consumed_error.exception.detail)
+
+        optimizer.zero_grad()
+        loss.close()
+        stale_logits.close()
+        optimizer.close()
 
     def test_cuda_context_or_unavailable_error(self) -> None:
         self.assertEqual(BACKEND_CUDA, 2)

@@ -10,7 +10,7 @@ project(
 include(GNUInstallDirs)
 find_package(Threads REQUIRED)
 
-set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.4.0)
+set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.5.0)
 string(REPLACE "." ";" riftco_transformer_c_abi_components
     "${RIFTCO_TRANSFORMER_C_ABI_VERSION}"
 )
@@ -318,6 +318,7 @@ riftco_transformer_propagate_sanitizer_runtime(riftco_transformer_lowering)
 # residuals. Neither the core runtime nor ordinary Transformer models depend on
 # symbolic compilation or the analysis component.
 add_library(riftco_transformer_programmed STATIC
+    src/programmed/program_augmented_model.cpp
     src/programmed/sequence_placement.cpp
 )
 add_library(riftco_transformer::programmed ALIAS riftco_transformer_programmed)
@@ -380,6 +381,7 @@ target_compile_features(riftco_transformer_c
 target_link_libraries(riftco_transformer_c
     PRIVATE
         riftco_transformer::library
+        riftco_transformer::programmed
 )
 
 set_target_properties(riftco_transformer_c
