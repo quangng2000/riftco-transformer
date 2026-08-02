@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="0; url={{REDIRECT_TARGET_ATTRIBUTE}}">
+    <meta name="robots" content="noindex">
+    <link rel="canonical" href="{{CANONICAL_URL_ATTRIBUTE}}">
+    <title>{{TITLE}} · Riftco Transformer</title>
+  </head>
+  <body data-page-kind="redirect" data-redirect-target="{{REDIRECT_TARGET_ATTRIBUTE}}">
+    <p>This documentation page moved to <a href="{{REDIRECT_TARGET_ATTRIBUTE}}">{{TITLE}}</a>.</p>
+    <script>
+      (() => {
+        const target = {{REDIRECT_TARGET_JSON}};
+        window.location.replace(target + window.location.search + window.location.hash);
+      })();
+    </script>
+  </body>
+</html>

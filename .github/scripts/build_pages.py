@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build the dependency-free Riftco Transformer documentation site.
 
-The repository deliberately avoids a Python Markdown dependency.  This small
-renderer implements the subset used by README.md and docs/*.md, escapes all
-source text before placing it in HTML, and emits deterministic static files
-that GitHub Pages can serve from a project subpath.
+``site/docs_manifest.json`` is the source of truth for the reader-oriented
+documentation hierarchy and page metadata.  The repository deliberately avoids
+a Python Markdown dependency, so this script renders the subset used by
+README.md and docs/*.md, safely rewrites cross-guide links, and emits a
+byte-for-byte deterministic GitHub Pages site with canonical and legacy routes.
 """
 
 from __future__ import annotations
@@ -18,17 +19,20 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SITE_SOURCE = PROJECT_ROOT / "site"
 DOCS_SOURCE = PROJECT_ROOT / "docs"
-TEMPLATE_PATH = SITE_SOURCE / "templates" / "guide.html"
+MANIFEST_PATH = SITE_SOURCE / "docs_manifest.json"
+TEMPLATES_DIRECTORY = SITE_SOURCE / "templates"
 DEFAULT_OUTPUT = PROJECT_ROOT / "build" / "pages"
 DEFAULT_BASE_URL = "https://quangng2000.github.io/riftco-transformer/"
 REPOSITORY_BLOB_URL = "https://github.com/quangng2000/riftco-transformer/blob/main/"
+REPOSITORY_EDIT_URL = "https://github.com/quangng2000/riftco-transformer/edit/main/"
+REPOSITORY_ISSUES_URL = "https://github.com/quangng2000/riftco-transformer/issues/new"
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})([^`]*)$")
@@ -46,15 +50,59 @@ class Heading:
 
 
 @dataclass(frozen=True)
+class Section:
+    identifier: str
+    title: str
+    description: str
+    order: int
+
+    @property
+    def canonical_path(self) -> str:
+        return f"docs/{self.identifier}/index.html"
+
+
+@dataclass(frozen=True)
 class Guide:
     source: Path
     source_name: str
     slug: str
     title: str
-    description: str
+    summary: str
+    section: Section
+    guide_type: str
+    order: int
+    stability: str
+    backends: tuple[str, ...]
+    audience: tuple[str, ...]
+    related_sources: tuple[str, ...]
     content: str
     headings: tuple[Heading, ...]
     search_text: str
+
+    @property
+    def canonical_path(self) -> str:
+        return f"docs/{self.section.identifier}/{self.slug}.html"
+
+    @property
+    def legacy_path(self) -> str:
+        return f"guides/{self.slug}.html"
+
+    @property
+    def title_anchor(self) -> str:
+        first_heading = self.headings[0] if self.headings else None
+        if first_heading and first_heading.level == 1:
+            return first_heading.identifier
+        return _slugify(self.title)
+
+
+@dataclass(frozen=True)
+class Documentation:
+    version: str
+    sections: tuple[Section, ...]
+    guides: tuple[Guide, ...]
+
+    def guides_in(self, section: Section) -> tuple[Guide, ...]:
+        return tuple(guide for guide in self.guides if guide.section == section)
 
 
 def _slugify(value: str, fallback: str = "section") -> str:
@@ -602,52 +650,307 @@ def _document_paths() -> list[Path]:
     return paths
 
 
-def _description(content: str, title: str) -> str:
-    for paragraph in re.findall(r"<p>(.*?)</p>", content, flags=re.DOTALL):
-        text = _html_to_text(paragraph)
-        if text and text != title:
-            return text if len(text) <= 240 else text[:237].rstrip() + "..."
-    return title
+def _exact_keys(
+    value: Any,
+    *,
+    required: set[str],
+    location: str,
+    optional: set[str] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{location} must be an object")
+    optional = optional or set()
+    keys = set(value)
+    missing = sorted(required - keys)
+    unexpected = sorted(keys - required - optional)
+    if missing or unexpected:
+        details: list[str] = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if unexpected:
+            details.append("unexpected " + ", ".join(unexpected))
+        raise RuntimeError(f"{location} has invalid fields ({'; '.join(details)})")
+    return value
 
 
-def _load_guides() -> list[Guide]:
-    paths = _document_paths()
-    guide_urls = {path.resolve(): f"{_guide_slug(path)}.html" for path in paths}
+def _required_string(value: Any, location: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(f"{location} must be a non-empty string")
+    if value != value.strip():
+        raise RuntimeError(f"{location} must not have leading or trailing whitespace")
+    return value
+
+
+def _required_order(value: Any, location: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError(f"{location} must be a non-negative integer")
+    return value
+
+
+def _required_string_list(value: Any, location: str, *, allow_empty: bool = False) -> tuple[str, ...]:
+    if not isinstance(value, list) or (not value and not allow_empty):
+        qualifier = "an array" if allow_empty else "a non-empty array"
+        raise RuntimeError(f"{location} must be {qualifier} of strings")
+    values = tuple(_required_string(item, f"{location}[{index}]") for index, item in enumerate(value))
+    if len(set(values)) != len(values):
+        raise RuntimeError(f"{location} contains duplicates")
+    return values
+
+
+def _load_manifest() -> tuple[str, tuple[Section, ...], list[dict[str, Any]]]:
+    if not MANIFEST_PATH.is_file():
+        raise RuntimeError(f"missing documentation manifest: {MANIFEST_PATH.relative_to(PROJECT_ROOT)}")
+    try:
+        parsed = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"invalid documentation manifest JSON: {error}") from error
+
+    manifest = _exact_keys(
+        parsed,
+        required={"version", "sections", "guides"},
+        location="documentation manifest",
+    )
+    version = _required_string(manifest["version"], "manifest.version")
+
+    if not isinstance(manifest["sections"], list) or not manifest["sections"]:
+        raise RuntimeError("manifest.sections must be a non-empty array")
+    sections: list[Section] = []
+    for index, raw_section in enumerate(manifest["sections"]):
+        section_value = _exact_keys(
+            raw_section,
+            required={"id", "title", "description", "order"},
+            location=f"manifest.sections[{index}]",
+        )
+        identifier = _required_string(section_value["id"], f"manifest.sections[{index}].id")
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", identifier):
+            raise RuntimeError(
+                f"manifest.sections[{index}].id must use lowercase letters, numbers, and interior hyphens"
+            )
+        sections.append(
+            Section(
+                identifier=identifier,
+                title=_required_string(section_value["title"], f"manifest.sections[{index}].title"),
+                description=_required_string(
+                    section_value["description"],
+                    f"manifest.sections[{index}].description",
+                ),
+                order=_required_order(section_value["order"], f"manifest.sections[{index}].order"),
+            )
+        )
+    if len({section.identifier for section in sections}) != len(sections):
+        raise RuntimeError("manifest.sections contains duplicate ids")
+    if len({section.order for section in sections}) != len(sections):
+        raise RuntimeError("manifest.sections contains duplicate order values")
+    sections.sort(key=lambda section: (section.order, section.title.casefold(), section.identifier))
+
+    if not isinstance(manifest["guides"], list) or not manifest["guides"]:
+        raise RuntimeError("manifest.guides must be a non-empty array")
+    guide_values: list[dict[str, Any]] = []
+    required_guide_keys = {
+        "source",
+        "section",
+        "type",
+        "order",
+        "summary",
+        "stability",
+        "backends",
+        "audience",
+    }
+    expected_sources = {
+        path.relative_to(PROJECT_ROOT).as_posix() for path in _document_paths()
+    }
+    section_ids = {section.identifier for section in sections}
+    seen_sources: set[str] = set()
+    orders_by_section: dict[str, set[int]] = {identifier: set() for identifier in section_ids}
+
+    for index, raw_guide in enumerate(manifest["guides"]):
+        guide_value = _exact_keys(
+            raw_guide,
+            required=required_guide_keys,
+            optional={"related"},
+            location=f"manifest.guides[{index}]",
+        )
+        source_name = _required_string(guide_value["source"], f"manifest.guides[{index}].source")
+        source_path = Path(source_name)
+        if source_path.is_absolute() or ".." in source_path.parts or source_path.as_posix() != source_name:
+            raise RuntimeError(f"manifest.guides[{index}].source must be a normalized repository path")
+        if source_name not in expected_sources:
+            raise RuntimeError(f"manifest.guides[{index}].source is not a documentation input: {source_name}")
+        if source_name in seen_sources:
+            raise RuntimeError(f"manifest.guides contains duplicate source: {source_name}")
+        seen_sources.add(source_name)
+
+        section_id = _required_string(guide_value["section"], f"manifest.guides[{index}].section")
+        if section_id not in section_ids:
+            raise RuntimeError(f"manifest.guides[{index}].section is unknown: {section_id}")
+        guide_order = _required_order(guide_value["order"], f"manifest.guides[{index}].order")
+        if guide_order in orders_by_section[section_id]:
+            raise RuntimeError(
+                f"manifest.guides has duplicate order {guide_order} in section {section_id}"
+            )
+        orders_by_section[section_id].add(guide_order)
+
+        normalized = {
+            "source": source_name,
+            "section": section_id,
+            "type": _required_string(guide_value["type"], f"manifest.guides[{index}].type"),
+            "order": guide_order,
+            "summary": _required_string(guide_value["summary"], f"manifest.guides[{index}].summary"),
+            "stability": _required_string(
+                guide_value["stability"],
+                f"manifest.guides[{index}].stability",
+            ),
+            "backends": _required_string_list(
+                guide_value["backends"],
+                f"manifest.guides[{index}].backends",
+            ),
+            "audience": _required_string_list(
+                guide_value["audience"],
+                f"manifest.guides[{index}].audience",
+            ),
+            "related": _required_string_list(
+                guide_value.get("related", []),
+                f"manifest.guides[{index}].related",
+                allow_empty=True,
+            ),
+        }
+        guide_values.append(normalized)
+
+    missing_sources = sorted(expected_sources - seen_sources)
+    extra_sources = sorted(seen_sources - expected_sources)
+    if missing_sources or extra_sources:
+        details: list[str] = []
+        if missing_sources:
+            details.append("missing " + ", ".join(missing_sources))
+        if extra_sources:
+            details.append("unexpected " + ", ".join(extra_sources))
+        raise RuntimeError("manifest must cover every documentation source exactly once (" + "; ".join(details) + ")")
+
+    empty_sections = sorted(identifier for identifier, orders in orders_by_section.items() if not orders)
+    if empty_sections:
+        raise RuntimeError("manifest sections have no guides: " + ", ".join(empty_sections))
+
+    for guide_value in guide_values:
+        related_sources = guide_value["related"]
+        invalid_related = sorted(set(related_sources) - expected_sources)
+        if invalid_related:
+            raise RuntimeError(
+                f"manifest guide {guide_value['source']} has unknown related sources: "
+                + ", ".join(invalid_related)
+            )
+        if guide_value["source"] in related_sources:
+            raise RuntimeError(f"manifest guide {guide_value['source']} cannot relate to itself")
+
+    return version, tuple(sections), guide_values
+
+
+def _without_leading_document_title(content: str, headings: tuple[Heading, ...]) -> str:
+    if not headings or headings[0].level != 1:
+        return content
+    return re.sub(r"\A\s*<h1\b.*?</h1>\s*", "", content, count=1, flags=re.DOTALL)
+
+
+def _load_documentation() -> Documentation:
+    version, sections, manifest_guides = _load_manifest()
+    sections_by_id = {section.identifier: section for section in sections}
+
+    guide_urls: dict[Path, str] = {}
+    for metadata in manifest_guides:
+        source = (PROJECT_ROOT / metadata["source"]).resolve()
+        slug = _guide_slug(source)
+        guide_urls[source] = f"../../docs/{metadata['section']}/{slug}.html"
     if len(set(guide_urls.values())) != len(guide_urls):
-        raise RuntimeError("documentation filenames produce duplicate guide slugs")
+        raise RuntimeError("documentation filenames produce duplicate canonical guide paths")
+    legacy_slugs = [_guide_slug(PROJECT_ROOT / metadata["source"]) for metadata in manifest_guides]
+    if len(set(legacy_slugs)) != len(legacy_slugs):
+        raise RuntimeError("documentation filenames produce duplicate legacy guide paths")
 
     guides: list[Guide] = []
-    for path in paths:
+    for metadata in manifest_guides:
+        path = PROJECT_ROOT / metadata["source"]
         renderer = MarkdownRenderer(path, guide_urls)
-        content = renderer.render(path.read_text(encoding="utf-8"))
+        rendered_content = renderer.render(path.read_text(encoding="utf-8"))
         headings = tuple(renderer.headings)
-        title = headings[0].title if headings else path.stem.replace("_", " ").title()
+        if not headings or headings[0].level != 1:
+            raise RuntimeError(f"documentation source must start with a level-one heading: {metadata['source']}")
+        title = headings[0].title
+        content = _without_leading_document_title(rendered_content, headings)
         guides.append(
             Guide(
                 source=path,
-                source_name=path.relative_to(PROJECT_ROOT).as_posix(),
+                source_name=metadata["source"],
                 slug=_guide_slug(path),
                 title=title,
-                description=_description(content, title),
+                summary=metadata["summary"],
+                section=sections_by_id[metadata["section"]],
+                guide_type=metadata["type"],
+                order=metadata["order"],
+                stability=metadata["stability"],
+                backends=metadata["backends"],
+                audience=metadata["audience"],
+                related_sources=metadata["related"],
                 content=content,
                 headings=headings,
-                search_text=_html_to_text(content),
+                search_text=_normalise_space(f"{title} {metadata['summary']} {_html_to_text(content)}"),
             )
         )
-    return guides
+    guides.sort(
+        key=lambda guide: (
+            guide.section.order,
+            guide.order,
+            guide.title.casefold(),
+            guide.source_name,
+        )
+    )
+    return Documentation(version=version, sections=sections, guides=tuple(guides))
 
 
-def _guide_navigation(guides: Iterable[Guide], current: Guide) -> str:
-    links = []
-    for guide in guides:
-        current_attribute = (
-            ' class="active" aria-current="page"' if guide.slug == current.slug else ""
+def _site_href(site_root: str, site_path: str) -> str:
+    return f"{site_root.rstrip('/')}/{site_path.lstrip('/')}"
+
+
+def _guide_navigation(
+    documentation: Documentation,
+    *,
+    current_section: Section,
+    current_guide: Guide | None,
+    site_root: str,
+) -> str:
+    groups: list[str] = []
+    for section in documentation.sections:
+        is_current_section = section == current_section
+        details_classes = "guide-nav-group current" if is_current_section else "guide-nav-group"
+        open_attribute = " open" if is_current_section else ""
+        overview_classes = "guide-nav-section-link"
+        overview_current = ""
+        if is_current_section and current_guide is None:
+            overview_classes += " active"
+            overview_current = ' aria-current="page"'
+        links = [
+            f'<a class="{overview_classes}" href="{html.escape(_site_href(site_root, section.canonical_path), quote=True)}"{overview_current}>'
+            "Section overview</a>"
+        ]
+        for guide in documentation.guides_in(section):
+            classes = "active" if current_guide == guide else ""
+            class_attribute = f' class="{classes}"' if classes else ""
+            current_attribute = ' aria-current="page"' if current_guide == guide else ""
+            links.append(
+                f'<a href="{html.escape(_site_href(site_root, guide.canonical_path), quote=True)}"'
+                f"{class_attribute}{current_attribute}>"
+                f'<span>{html.escape(guide.title)}</span>'
+                f'<small>{html.escape(guide.guide_type)}</small></a>'
+            )
+        groups.append(
+            f'<details class="{details_classes}"{open_attribute}>'
+            "<summary>"
+            f'<span>{html.escape(section.title)}</span>'
+            '<span class="guide-nav-chevron" aria-hidden="true">⌄</span>'
+            "</summary>"
+            '<div class="guide-nav-links">'
+            + "\n".join(links)
+            + "</div></details>"
         )
-        links.append(
-            f'<a href="{guide.slug}.html"{current_attribute}>'
-            f"{html.escape(guide.title)}</a>"
-        )
-    return '<nav class="guide-nav" aria-label="Framework guides">\n' + "\n".join(links) + "\n</nav>"
+    return '<nav class="guide-nav" aria-label="Documentation sections">\n' + "\n".join(groups) + "\n</nav>"
 
 
 def _table_of_contents(guide: Guide) -> str:
@@ -660,6 +963,186 @@ def _table_of_contents(guide: Guide) -> str:
         for heading in headings
     ]
     return '<nav aria-label="On this page">\n' + "\n".join(links) + "\n</nav>"
+
+
+def _metadata_badges(guide: Guide) -> str:
+    backend_badges = "".join(
+        f'<span class="metadata-badge backend">{html.escape(backend)}</span>'
+        for backend in guide.backends
+    )
+    audience = ", ".join(guide.audience)
+    stability_class = _slugify(guide.stability, "status")
+    return (
+        '<dl class="guide-metadata">'
+        '<div class="metadata-group"><dt class="metadata-label">Type</dt>'
+        f'<dd class="metadata-value"><span class="metadata-badge type">{html.escape(guide.guide_type)}</span></dd></div>'
+        '<div class="metadata-group"><dt class="metadata-label">Status</dt>'
+        f'<dd class="metadata-value"><span class="metadata-badge stability {html.escape(stability_class, quote=True)}">'
+        f'{html.escape(guide.stability)}</span></dd></div>'
+        '<div class="metadata-group"><dt class="metadata-label">Backends</dt>'
+        f'<dd class="metadata-value metadata-badges">{backend_badges}</dd></div>'
+        '<div class="metadata-group"><dt class="metadata-label">For</dt>'
+        f'<dd class="metadata-value">{html.escape(audience)}</dd></div>'
+        "</dl>"
+    )
+
+
+def _guide_breadcrumbs(guide: Guide) -> str:
+    return (
+        '<nav class="docs-breadcrumbs" aria-label="Breadcrumb">'
+        '<ol><li><a href="../../">Home</a></li>'
+        '<li><a href="../">Docs</a></li>'
+        f'<li><a href="index.html">{html.escape(guide.section.title)}</a></li>'
+        f'<li aria-current="page">{html.escape(guide.title)}</li></ol></nav>'
+    )
+
+
+def _section_breadcrumbs(section: Section) -> str:
+    return (
+        '<nav class="docs-breadcrumbs" aria-label="Breadcrumb">'
+        '<ol><li><a href="../../">Home</a></li>'
+        '<li><a href="../">Docs</a></li>'
+        f'<li aria-current="page">{html.escape(section.title)}</li></ol></nav>'
+    )
+
+
+def _related_guides(documentation: Documentation, current: Guide) -> tuple[Guide, ...]:
+    by_source = {guide.source_name: guide for guide in documentation.guides}
+    if current.related_sources:
+        return tuple(by_source[source] for source in current.related_sources)
+
+    def relevance(candidate: Guide) -> tuple[int, int, str, str]:
+        score = 0
+        if candidate.section == current.section:
+            score += 12
+        if candidate.guide_type.casefold() == current.guide_type.casefold():
+            score += 4
+        score += len(set(candidate.backends).intersection(current.backends))
+        score += len(set(candidate.audience).intersection(current.audience))
+        return (-score, abs(candidate.order - current.order), candidate.title.casefold(), candidate.source_name)
+
+    candidates = sorted((guide for guide in documentation.guides if guide != current), key=relevance)
+    return tuple(candidates[:3])
+
+
+def _related_guide_cards(documentation: Documentation, current: Guide) -> str:
+    cards = []
+    for guide in _related_guides(documentation, current):
+        cards.append(
+            f'<a class="related-guide-card" href="../../{html.escape(guide.canonical_path, quote=True)}">'
+            f'<span>{html.escape(guide.section.title)} · {html.escape(guide.guide_type)}</span>'
+            f'<strong>{html.escape(guide.title)}</strong>'
+            f'<small>{html.escape(guide.summary)}</small></a>'
+        )
+    return (
+        '<section class="guide-related" aria-labelledby="related-guides-title">'
+        '<div class="guide-related-heading"><span>Continue exploring</span>'
+        '<h2 id="related-guides-title">Related documentation</h2></div>'
+        '<div class="related-guide-grid">' + "\n".join(cards) + "</div></section>"
+    )
+
+
+def _adjacent_navigation(
+    documentation: Documentation,
+    position: int,
+) -> tuple[str, str]:
+    guides = documentation.guides
+    previous = guides[position - 1] if position else None
+    following = guides[position + 1] if position + 1 < len(guides) else None
+    previous_link = (
+        f'<a class="previous-guide" href="../../{html.escape(previous.canonical_path, quote=True)}">'
+        '<span>Previous</span>'
+        f'<strong>{html.escape(previous.title)}</strong>'
+        f'<small>{html.escape(previous.section.title)}</small></a>'
+        if previous
+        else '<span class="previous-guide is-empty" aria-hidden="true"></span>'
+    )
+    following_link = (
+        f'<a class="next-guide" href="../../{html.escape(following.canonical_path, quote=True)}">'
+        '<span>Next</span>'
+        f'<strong>{html.escape(following.title)}</strong>'
+        f'<small>{html.escape(following.section.title)}</small></a>'
+        if following
+        else '<span class="next-guide is-empty" aria-hidden="true"></span>'
+    )
+    return previous_link, following_link
+
+
+def _docs_section_cards(documentation: Documentation) -> str:
+    cards: list[str] = []
+    for index, section in enumerate(documentation.sections, start=1):
+        guides = documentation.guides_in(section)
+        types = sorted({guide.guide_type for guide in guides}, key=str.casefold)
+        guide_links = "".join(
+            f'<li><a href="{html.escape(section.identifier, quote=True)}/{html.escape(guide.slug, quote=True)}.html">'
+            f'{html.escape(guide.title)} <span aria-hidden="true">→</span></a></li>'
+            for guide in guides[:3]
+        )
+        remaining = len(guides) - min(3, len(guides))
+        remaining_line = (
+            f'<li class="docs-section-more">+ {remaining} more guide{"s" if remaining != 1 else ""}</li>'
+            if remaining
+            else ""
+        )
+        cards.append(
+            '<article class="docs-section-card">'
+            '<div class="docs-section-card-top">'
+            f'<span class="docs-section-number">{index:02d}</span>'
+            f'<span class="metadata-badge">{len(guides)} guide{"s" if len(guides) != 1 else ""}</span>'
+            "</div>"
+            f'<h2><a href="{html.escape(section.identifier, quote=True)}/">{html.escape(section.title)}</a></h2>'
+            f'<p>{html.escape(section.description)}</p>'
+            f'<div class="docs-section-meta">{html.escape(" · ".join(types))}</div>'
+            f'<ul>{guide_links}{remaining_line}</ul>'
+            f'<a class="docs-section-open" href="{html.escape(section.identifier, quote=True)}/">Browse section '
+            '<span aria-hidden="true">→</span></a>'
+            "</article>"
+        )
+    return "\n".join(cards)
+
+
+def _documentation_type_summary(documentation: Documentation) -> str:
+    counts: dict[str, int] = {}
+    for guide in documentation.guides:
+        counts[guide.guide_type] = counts.get(guide.guide_type, 0) + 1
+    return "".join(
+        '<div class="docs-type-stat">'
+        f'<strong>{count}</strong><span>{html.escape(guide_type)}</span></div>'
+        for guide_type, count in sorted(counts.items(), key=lambda item: item[0].casefold())
+    )
+
+
+def _footer_section_links(documentation: Documentation) -> str:
+    return "".join(
+        f'<a href="{html.escape(section.identifier, quote=True)}/">{html.escape(section.title)}</a>'
+        for section in documentation.sections
+    )
+
+
+def _section_guide_cards(documentation: Documentation, section: Section) -> str:
+    cards: list[str] = []
+    for guide in documentation.guides_in(section):
+        backend_badges = "".join(
+            f'<span class="metadata-badge backend">{html.escape(backend)}</span>'
+            for backend in guide.backends
+        )
+        cards.append(
+            f'<article class="section-guide-card" data-guide-type="{html.escape(guide.guide_type, quote=True)}">'
+            '<div class="section-guide-kicker">'
+            f'<span>{html.escape(guide.guide_type)}</span>'
+            f'<span class="metadata-badge stability {_slugify(guide.stability)}">{html.escape(guide.stability)}</span>'
+            "</div>"
+            f'<h2><a href="{html.escape(guide.slug, quote=True)}.html">{html.escape(guide.title)}</a></h2>'
+            f'<p>{html.escape(guide.summary)}</p>'
+            '<div class="section-guide-footer">'
+            f'<span class="section-guide-audience">For {html.escape(", ".join(guide.audience))}</span>'
+            f'<span class="metadata-badges">{backend_badges}</span>'
+            "</div>"
+            f'<a class="section-guide-open" href="{html.escape(guide.slug, quote=True)}.html" aria-label="Read {html.escape(guide.title, quote=True)}">'
+            'Read guide <span aria-hidden="true">→</span></a>'
+            "</article>"
+        )
+    return "\n".join(cards)
 
 
 def _render_template(template: str, values: dict[str, str]) -> str:
@@ -708,64 +1191,164 @@ def _safe_reset_output(output: Path) -> None:
     resolved.mkdir(parents=True, exist_ok=True)
 
 
-def build_site(output: Path, base_url: str = DEFAULT_BASE_URL) -> list[Guide]:
+def _read_template(filename: str) -> str:
+    path = TEMPLATES_DIRECTORY / filename
+    if not path.is_file():
+        raise RuntimeError(f"missing site template: {path.relative_to(PROJECT_ROOT)}")
+    return path.read_text(encoding="utf-8")
+
+
+def build_site(output: Path, base_url: str = DEFAULT_BASE_URL) -> Documentation:
     output = output.resolve()
     _safe_reset_output(output)
     guides_directory = output / "guides"
     guides_directory.mkdir(parents=True, exist_ok=True)
+    docs_directory = output / "docs"
+    docs_directory.mkdir(parents=True, exist_ok=True)
     _copy_static_site(output)
 
-    template = TEMPLATE_PATH.read_text(encoding="utf-8")
-    guides = _load_guides()
+    guide_template = _read_template("guide.html")
+    docs_home_template = _read_template("docs_home.html")
+    section_template = _read_template("section.html")
+    redirect_template = _read_template("redirect.html")
+    documentation = _load_documentation()
     normalised_base_url = base_url.rstrip("/") + "/"
 
-    for position, guide in enumerate(guides):
-        previous_guide = guides[position - 1] if position else None
-        next_guide = guides[position + 1] if position + 1 < len(guides) else None
-        previous_link = (
-            f'<a class="previous-guide" href="{previous_guide.slug}.html">'
-            f'<span>Previous</span><strong>{html.escape(previous_guide.title)}</strong></a>'
-            if previous_guide
-            else '<span class="previous-guide is-empty" aria-hidden="true"></span>'
-        )
-        next_link = (
-            f'<a class="next-guide" href="{next_guide.slug}.html">'
-            f'<span>Next</span><strong>{html.escape(next_guide.title)}</strong></a>'
-            if next_guide
-            else '<span class="next-guide is-empty" aria-hidden="true"></span>'
-        )
-        encoded_source = "/".join(quote(part) for part in Path(guide.source_name).parts)
-        page = _render_template(
-            template,
+    docs_home = _render_template(
+        docs_home_template,
+        {
+            "VERSION": html.escape(documentation.version),
+            "VERSION_ATTRIBUTE": html.escape(documentation.version, quote=True),
+            "GUIDE_COUNT": str(len(documentation.guides)),
+            "SECTION_COUNT": str(len(documentation.sections)),
+            "SECTION_CARDS": _docs_section_cards(documentation),
+            "TYPE_SUMMARY": _documentation_type_summary(documentation),
+            "FIRST_SECTION_TITLE": html.escape(documentation.sections[0].title),
+            "FIRST_SECTION_URL_ATTRIBUTE": html.escape(
+                documentation.sections[0].identifier,
+                quote=True,
+            ),
+            "FOOTER_SECTION_LINKS": _footer_section_links(documentation),
+            "CANONICAL_URL_ATTRIBUTE": html.escape(f"{normalised_base_url}docs/", quote=True),
+            "OG_IMAGE_URL_ATTRIBUTE": html.escape(f"{normalised_base_url}og.png", quote=True),
+        },
+    )
+    (docs_directory / "index.html").write_text(docs_home, encoding="utf-8", newline="\n")
+
+    for section in documentation.sections:
+        section_directory = docs_directory / section.identifier
+        section_directory.mkdir(parents=True, exist_ok=True)
+        section_page = _render_template(
+            section_template,
             {
+                "VERSION": html.escape(documentation.version),
+                "VERSION_ATTRIBUTE": html.escape(documentation.version, quote=True),
+                "TITLE": html.escape(section.title),
+                "TITLE_ATTRIBUTE": html.escape(section.title, quote=True),
+                "DESCRIPTION": html.escape(section.description),
+                "DESCRIPTION_ATTRIBUTE": html.escape(section.description, quote=True),
+                "GUIDE_COUNT": str(len(documentation.guides_in(section))),
+                "GUIDE_NOUN": (
+                    "guide" if len(documentation.guides_in(section)) == 1 else "guides"
+                ),
+                "BREADCRUMBS": _section_breadcrumbs(section),
+                "GUIDE_NAVIGATION": _guide_navigation(
+                    documentation,
+                    current_section=section,
+                    current_guide=None,
+                    site_root="../..",
+                ),
+                "GUIDE_CARDS": _section_guide_cards(documentation, section),
+                "CANONICAL_URL_ATTRIBUTE": html.escape(
+                    f"{normalised_base_url}docs/{section.identifier}/",
+                    quote=True,
+                ),
+                "OG_IMAGE_URL_ATTRIBUTE": html.escape(f"{normalised_base_url}og.png", quote=True),
+            },
+        )
+        (section_directory / "index.html").write_text(
+            section_page,
+            encoding="utf-8",
+            newline="\n",
+        )
+
+    for position, guide in enumerate(documentation.guides):
+        previous_link, next_link = _adjacent_navigation(documentation, position)
+        encoded_source = "/".join(quote(part) for part in Path(guide.source_name).parts)
+        canonical_url = f"{normalised_base_url}{guide.canonical_path}"
+        issue_title = quote(f"Docs: {guide.title}", safe="")
+        issue_body = quote(
+            f"Documentation page: {canonical_url}\nSource: {guide.source_name}\n\nDescribe the problem or suggested improvement:\n",
+            safe="",
+        )
+        page = _render_template(
+            guide_template,
+            {
+                "VERSION": html.escape(documentation.version),
+                "VERSION_ATTRIBUTE": html.escape(documentation.version, quote=True),
                 "TITLE": html.escape(guide.title),
                 "TITLE_ATTRIBUTE": html.escape(guide.title, quote=True),
-                "DESCRIPTION_ATTRIBUTE": html.escape(guide.description, quote=True),
-                "CANONICAL_URL_ATTRIBUTE": html.escape(
-                    f"{normalised_base_url}guides/{guide.slug}.html",
-                    quote=True,
-                ),
-                "OG_IMAGE_URL_ATTRIBUTE": html.escape(
-                    f"{normalised_base_url}og.png",
-                    quote=True,
-                ),
+                "TITLE_ANCHOR_ATTRIBUTE": html.escape(guide.title_anchor, quote=True),
+                "DESCRIPTION_ATTRIBUTE": html.escape(guide.summary, quote=True),
+                "SUMMARY": html.escape(guide.summary),
+                "SECTION_TITLE": html.escape(guide.section.title),
+                "GUIDE_TYPE": html.escape(guide.guide_type),
+                "CANONICAL_URL_ATTRIBUTE": html.escape(canonical_url, quote=True),
+                "OG_IMAGE_URL_ATTRIBUTE": html.escape(f"{normalised_base_url}og.png", quote=True),
+                "BREADCRUMBS": _guide_breadcrumbs(guide),
+                "GUIDE_METADATA": _metadata_badges(guide),
                 "SOURCE_PATH": html.escape(guide.source_name),
                 "SOURCE_URL_ATTRIBUTE": html.escape(
                     f"{REPOSITORY_BLOB_URL}{encoded_source}",
                     quote=True,
                 ),
-                "GUIDE_NAVIGATION": _guide_navigation(guides, guide),
+                "EDIT_URL_ATTRIBUTE": html.escape(
+                    f"{REPOSITORY_EDIT_URL}{encoded_source}",
+                    quote=True,
+                ),
+                "ISSUE_URL_ATTRIBUTE": html.escape(
+                    f"{REPOSITORY_ISSUES_URL}?title={issue_title}&body={issue_body}",
+                    quote=True,
+                ),
+                "GUIDE_NAVIGATION": _guide_navigation(
+                    documentation,
+                    current_section=guide.section,
+                    current_guide=guide,
+                    site_root="../..",
+                ),
                 "TABLE_OF_CONTENTS": _table_of_contents(guide),
                 "CONTENT": guide.content,
+                "RELATED_GUIDES": _related_guide_cards(documentation, guide),
                 "PREVIOUS_GUIDE": previous_link,
                 "NEXT_GUIDE": next_link,
             },
         )
-        (guides_directory / f"{guide.slug}.html").write_text(page, encoding="utf-8", newline="\n")
+        canonical_output = output / guide.canonical_path
+        canonical_output.parent.mkdir(parents=True, exist_ok=True)
+        canonical_output.write_text(page, encoding="utf-8", newline="\n")
+
+        redirect_target = f"../{guide.canonical_path}"
+        redirect_page = _render_template(
+            redirect_template,
+            {
+                "TITLE": html.escape(guide.title),
+                "TITLE_ATTRIBUTE": html.escape(guide.title, quote=True),
+                "CANONICAL_URL_ATTRIBUTE": html.escape(canonical_url, quote=True),
+                "REDIRECT_TARGET_ATTRIBUTE": html.escape(redirect_target, quote=True),
+                "REDIRECT_TARGET_JSON": json.dumps(redirect_target, ensure_ascii=False),
+            },
+        )
+        (output / guide.legacy_path).write_text(
+            redirect_page,
+            encoding="utf-8",
+            newline="\n",
+        )
 
     search_index = [
         {
-            "description": guide.description,
+            "audience": list(guide.audience),
+            "backends": list(guide.backends),
+            "description": guide.summary,
             "headings": [
                 {
                     "id": heading.identifier,
@@ -774,12 +1357,17 @@ def build_site(output: Path, base_url: str = DEFAULT_BASE_URL) -> list[Guide]:
                 }
                 for heading in guide.headings
             ],
+            "section": guide.section.identifier,
+            "section_title": guide.section.title,
             "source": guide.source_name,
+            "stability": guide.stability,
             "text": guide.search_text,
             "title": guide.title,
-            "url": f"guides/{guide.slug}.html",
+            "type": guide.guide_type,
+            "url": guide.canonical_path,
+            "version": documentation.version,
         }
-        for guide in guides
+        for guide in documentation.guides
     ]
     (output / "search-index.json").write_text(
         json.dumps(search_index, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -787,8 +1375,11 @@ def build_site(output: Path, base_url: str = DEFAULT_BASE_URL) -> list[Guide]:
         newline="\n",
     )
 
-    locations = [normalised_base_url] + [
-        f"{normalised_base_url}guides/{guide.slug}.html" for guide in guides
+    locations = [
+        normalised_base_url,
+        f"{normalised_base_url}docs/",
+        *(f"{normalised_base_url}docs/{section.identifier}/" for section in documentation.sections),
+        *(f"{normalised_base_url}{guide.canonical_path}" for guide in documentation.guides),
     ]
     sitemap_urls = "\n".join(
         f"  <url><loc>{html.escape(location)}</loc></url>" for location in locations
@@ -809,7 +1400,7 @@ def build_site(output: Path, base_url: str = DEFAULT_BASE_URL) -> list[Guide]:
         newline="\n",
     )
     (output / ".nojekyll").write_text("", encoding="utf-8")
-    return guides
+    return documentation
 
 
 def _tree_digests(root: Path) -> dict[str, str]:
@@ -846,15 +1437,31 @@ def _check_internal_links(output: Path, base_url: str) -> None:
             if target not in cached_pages:
                 failures.append(f"{page.relative_to(output)} -> {href} (missing page)")
                 continue
+            redirect_match = re.search(
+                r'data-redirect-target="([^"]+)"',
+                cached_pages[target],
+            )
+            anchor_target = target
+            if redirect_match:
+                redirected_href = html.unescape(redirect_match.group(1))
+                redirected_path = unquote(urlsplit(redirected_href).path)
+                anchor_target = (target.parent / redirected_path).resolve()
+                if redirected_path.endswith("/") or anchor_target.is_dir():
+                    anchor_target /= "index.html"
+                if anchor_target not in cached_pages:
+                    failures.append(
+                        f"{target.relative_to(output)} redirects to {redirected_href} (missing page)"
+                    )
+                    continue
             if parsed.fragment:
                 identifier = html.escape(unquote(parsed.fragment), quote=True)
-                if f'id="{identifier}"' not in cached_pages[target]:
+                if f'id="{identifier}"' not in cached_pages[anchor_target]:
                     failures.append(f"{page.relative_to(output)} -> {href} (missing anchor)")
     if failures:
         raise RuntimeError("broken internal links:\n" + "\n".join(failures))
 
 
-def check_site(output: Path, guides: list[Guide], base_url: str) -> None:
+def check_site(output: Path, documentation: Documentation, base_url: str) -> None:
     expected = {
         ".nojekyll",
         "404.html",
@@ -865,28 +1472,124 @@ def check_site(output: Path, guides: list[Guide], base_url: str) -> None:
         "robots.txt",
         "search-index.json",
         "sitemap.xml",
-        *(f"guides/{guide.slug}.html" for guide in guides),
+        "docs/index.html",
+        *(section.canonical_path for section in documentation.sections),
+        *(guide.canonical_path for guide in documentation.guides),
+        *(guide.legacy_path for guide in documentation.guides),
     }
     actual = set(_tree_digests(output))
     missing = sorted(expected - actual)
     if missing:
         raise RuntimeError(f"generated site is missing: {', '.join(missing)}")
 
-    for page in sorted((output / "guides").glob("*.html")):
+    for page in sorted(output.rglob("*.html"), key=lambda path: path.as_posix()):
         contents = page.read_text(encoding="utf-8")
         placeholders = sorted(set(_PLACEHOLDER_RE.findall(contents)))
         if placeholders:
-            raise RuntimeError(f"{page.name} has unfilled placeholders: {', '.join(placeholders)}")
-        if 'data-site-root=".."' not in contents:
-            raise RuntimeError(f"{page.name} does not declare its project-relative site root")
+            raise RuntimeError(
+                f"{page.relative_to(output)} has unfilled placeholders: {', '.join(placeholders)}"
+            )
+
+    normalised_base_url = base_url.rstrip("/") + "/"
+    for guide in documentation.guides:
+        page = output / guide.canonical_path
+        contents = page.read_text(encoding="utf-8")
+        if 'data-site-root="../.."' not in contents:
+            raise RuntimeError(
+                f"{guide.canonical_path} does not declare data-site-root='../..'"
+            )
+        h1_count = len(re.findall(r"<h1(?:\s|>)", contents))
+        if h1_count != 1:
+            raise RuntimeError(
+                f"{guide.canonical_path} must contain exactly one h1; found {h1_count}"
+            )
+        if f'<h1 id="{html.escape(guide.title_anchor, quote=True)}">' not in contents:
+            raise RuntimeError(f"{guide.canonical_path} does not preserve its title anchor")
+        required_metadata = (
+            guide.guide_type,
+            guide.stability,
+            *guide.backends,
+            *guide.audience,
+        )
+        missing_metadata = [value for value in required_metadata if html.escape(value) not in contents]
+        if missing_metadata:
+            raise RuntimeError(
+                f"{guide.canonical_path} is missing guide metadata: {', '.join(missing_metadata)}"
+            )
+        if "Edit page" not in contents or "Report issue" not in contents:
+            raise RuntimeError(f"{guide.canonical_path} is missing documentation feedback actions")
+
+        redirect = output / guide.legacy_path
+        redirect_contents = redirect.read_text(encoding="utf-8")
+        expected_target = f"../{guide.canonical_path}"
+        if f'data-redirect-target="{expected_target}"' not in redirect_contents:
+            raise RuntimeError(f"{guide.legacy_path} does not redirect to {guide.canonical_path}")
+        expected_canonical = f"{normalised_base_url}{guide.canonical_path}"
+        if f'<link rel="canonical" href="{expected_canonical}">' not in redirect_contents:
+            raise RuntimeError(f"{guide.legacy_path} has the wrong canonical URL")
+
+    docs_home = (output / "docs" / "index.html").read_text(encoding="utf-8")
+    if 'data-site-root=".."' not in docs_home:
+        raise RuntimeError("docs/index.html does not declare data-site-root='..'")
+    for section in documentation.sections:
+        section_page = (output / section.canonical_path).read_text(encoding="utf-8")
+        if 'data-site-root="../.."' not in section_page:
+            raise RuntimeError(
+                f"{section.canonical_path} does not declare data-site-root='../..'"
+            )
 
     parsed_index = json.loads((output / "search-index.json").read_text(encoding="utf-8"))
-    if len(parsed_index) != len(guides):
+    if not isinstance(parsed_index, list) or len(parsed_index) != len(documentation.guides):
         raise RuntimeError("search index entry count does not match guide count")
+    required_search_keys = {
+        "audience",
+        "backends",
+        "description",
+        "headings",
+        "section",
+        "section_title",
+        "source",
+        "stability",
+        "text",
+        "title",
+        "type",
+        "url",
+        "version",
+    }
+    for index, entry in enumerate(parsed_index):
+        if not isinstance(entry, dict) or set(entry) != required_search_keys:
+            raise RuntimeError(f"search index entry {index} does not match the public search schema")
     indexed_urls = {entry["url"] for entry in parsed_index}
-    expected_urls = {f"guides/{guide.slug}.html" for guide in guides}
+    expected_urls = {guide.canonical_path for guide in documentation.guides}
     if indexed_urls != expected_urls:
         raise RuntimeError("search index URLs do not match generated guides")
+    indexed_by_source = {entry["source"]: entry for entry in parsed_index}
+    for guide in documentation.guides:
+        entry = indexed_by_source.get(guide.source_name)
+        if not entry:
+            raise RuntimeError(f"search index is missing {guide.source_name}")
+        if entry["section"] != guide.section.identifier or entry["type"] != guide.guide_type:
+            raise RuntimeError(f"search index metadata does not match {guide.source_name}")
+        guide_page = (output / guide.canonical_path).read_text(encoding="utf-8")
+        for heading in entry["headings"]:
+            identifier = html.escape(str(heading["id"]), quote=True)
+            if f'id="{identifier}"' not in guide_page:
+                raise RuntimeError(
+                    f"search index anchor {heading['id']} is missing from {guide.canonical_path}"
+                )
+
+    sitemap_contents = (output / "sitemap.xml").read_text(encoding="utf-8")
+    sitemap_locations = [html.unescape(location) for location in re.findall(r"<loc>(.*?)</loc>", sitemap_contents)]
+    expected_locations = [
+        normalised_base_url,
+        f"{normalised_base_url}docs/",
+        *(f"{normalised_base_url}docs/{section.identifier}/" for section in documentation.sections),
+        *(f"{normalised_base_url}{guide.canonical_path}" for guide in documentation.guides),
+    ]
+    if sitemap_locations != expected_locations:
+        raise RuntimeError("sitemap does not contain exactly the canonical documentation pages")
+    if any("/guides/" in location for location in sitemap_locations):
+        raise RuntimeError("sitemap must not include legacy guide redirects")
 
     _check_internal_links(output, base_url)
 
@@ -920,11 +1623,12 @@ def _parse_arguments() -> argparse.Namespace:
 
 def main() -> int:
     arguments = _parse_arguments()
-    guides = build_site(arguments.output, arguments.base_url)
+    documentation = build_site(arguments.output, arguments.base_url)
     if arguments.check:
-        check_site(arguments.output.resolve(), guides, arguments.base_url)
+        check_site(arguments.output.resolve(), documentation, arguments.base_url)
     print(
-        f"built {len(guides)} guides in {arguments.output.resolve()}"
+        f"built {len(documentation.guides)} guides across {len(documentation.sections)} sections "
+        f"for v{documentation.version} in {arguments.output.resolve()}"
         + (" (checks passed)" if arguments.check else "")
     )
     return 0

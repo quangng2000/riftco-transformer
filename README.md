@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/riftco-transformer.svg)](https://pypi.org/project/riftco-transformer/)
 [![Python](https://img.shields.io/pypi/pyversions/riftco-transformer.svg)](https://pypi.org/project/riftco-transformer/)
 [![Release](https://github.com/quangng2000/riftco-transformer/actions/workflows/release.yml/badge.svg)](https://github.com/quangng2000/riftco-transformer/actions/workflows/release.yml)
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-c7ff4a.svg)](https://quangng2000.github.io/riftco-transformer/)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-c7ff4a.svg)](https://quangng2000.github.io/riftco-transformer/docs/)
 [![License](https://img.shields.io/github/license/quangng2000/riftco-transformer.svg)](LICENSE)
 
 A small, auditable decoder-only Transformer built directly in C++20, with a
@@ -13,7 +13,7 @@ with full fine-tuning, LoRA, or packed-weight QLoRA, measure held-out
 generalization, save portable
 artifacts, and serve through paged attention.
 
-**[Explore the complete framework documentation →](https://quangng2000.github.io/riftco-transformer/)**
+**[Explore the complete framework documentation →](https://quangng2000.github.io/riftco-transformer/docs/)**
 
 | Install | Import | Third-party Python dependencies |
 | --- | --- | --- |

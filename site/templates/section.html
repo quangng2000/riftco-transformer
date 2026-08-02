@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="{{DESCRIPTION_ATTRIBUTE}}">
+    <meta name="theme-color" content="#07110f">
+    <meta name="riftco-doc-version" content="{{VERSION_ATTRIBUTE}}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Riftco Transformer">
+    <meta property="og:title" content="{{TITLE_ATTRIBUTE}} · Riftco Transformer Documentation">
+    <meta property="og:description" content="{{DESCRIPTION_ATTRIBUTE}}">
+    <meta property="og:image" content="{{OG_IMAGE_URL_ATTRIBUTE}}">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="canonical" href="{{CANONICAL_URL_ATTRIBUTE}}">
+    <link rel="stylesheet" href="../../assets/styles.css">
+    <script defer src="../../assets/app.js"></script>
+    <title>{{TITLE}} · Riftco Transformer Documentation</title>
+  </head>
+  <body class="guide-body section-home" data-site-root="../.." data-page-kind="docs-section">
+    <a class="skip-link" href="#section-content">Skip to section</a>
+    <header class="site-header guide-header" data-header>
+      <div class="shell header-inner">
+        <a class="brand" href="../../" aria-label="Riftco Transformer home"><span class="brand-mark" aria-hidden="true">R</span><span class="brand-name">riftco<span>/transformer</span></span></a>
+        <button class="mobile-nav-toggle icon-button" type="button" aria-label="Open navigation" aria-expanded="false" data-nav-toggle><span></span><span></span></button>
+        <nav class="site-nav" aria-label="Primary navigation" data-site-nav><a href="../../#framework">Framework</a><a href="../../#backends">Backends</a><a href="../../#experiment">Experiment</a><a href="../" aria-current="page">Docs</a></nav>
+        <div class="header-actions"><span class="docs-version" title="Documentation version">v{{VERSION}}</span><button class="search-trigger" type="button" data-search-open aria-label="Search documentation"><span aria-hidden="true">⌕</span><span>Search</span><kbd>⌘ K</kbd></button><button class="icon-button theme-toggle" type="button" data-theme-toggle aria-label="Switch color theme"><span class="theme-icon" aria-hidden="true">◐</span></button><a class="github-link" href="https://github.com/quangng2000/riftco-transformer" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a></div>
+      </div>
+    </header>
+
+    <div class="guide-layout section-layout">
+      <aside class="guide-sidebar" aria-label="Documentation navigation"><div class="guide-sidebar-heading"><span class="guide-sidebar-title">Documentation · v{{VERSION}}</span><button class="guide-menu-toggle" type="button" data-guide-menu aria-expanded="false">Browse sections <span aria-hidden="true">⌄</span></button></div>{{GUIDE_NAVIGATION}}</aside>
+      <main class="guide-main section-main" id="section-content">
+        {{BREADCRUMBS}}
+        <header class="section-intro"><span class="section-label">Documentation section</span><h1>{{TITLE}}</h1><p>{{DESCRIPTION}}</p><div class="section-intro-meta"><span>{{GUIDE_COUNT}} maintained {{GUIDE_NOUN}}</span><span>Framework v{{VERSION}}</span></div></header>
+        <div class="section-guide-list">{{GUIDE_CARDS}}</div>
+      </main>
+      <aside class="guide-toc section-aside" aria-label="About this section"><span class="guide-toc-title">About this section</span><p>{{DESCRIPTION}}</p><a href="../">All documentation <span aria-hidden="true">→</span></a></aside>
+    </div>
+
+    <dialog class="search-dialog" data-search-dialog aria-label="Search documentation"><div class="search-box"><div class="search-input-row"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search concepts, tasks, APIs…" autocomplete="off" data-search-input aria-label="Search documentation"><button type="button" data-search-close aria-label="Close search">Esc</button></div><div class="search-results" data-search-results aria-live="polite"><div class="search-empty"><strong>Search the complete framework</strong><span>Try “strides”, “paged Adam”, “Metal”, or “compiled attention”.</span></div></div><div class="search-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span></div></div></dialog>
+  </body>
+</html>

@@ -35,7 +35,7 @@
         <a href="#framework">Framework</a>
         <a href="#backends">Backends</a>
         <a href="#experiment">Experiment</a>
-        <a href="#documentation">Docs</a>
+        <a href="docs/">Docs</a>
       </nav>
       <div class="header-actions">
         <button class="search-trigger" type="button" data-search-open aria-label="Search documentation">
@@ -59,7 +59,7 @@
         <p class="hero-lede">An auditable decoder-only Transformer framework built from first principles in C++—from tensor strides and reverse-mode autograd to QLoRA, paged serving, native accelerators, and programs compiled into attention.</p>
         <div class="hero-actions">
           <a class="button button-primary" href="#quickstart">Start building <span aria-hidden="true">→</span></a>
-          <a class="button button-secondary" href="guides/architecture.html">Read the architecture</a>
+          <a class="button button-secondary" href="docs/concepts/architecture.html">Read the architecture</a>
         </div>
         <div class="hero-proof" aria-label="Framework highlights">
           <div><strong>0</strong><span>Python runtime dependencies</span></div>
@@ -133,23 +133,23 @@
       </div>
 
       <div class="stack-map" data-reveal>
-        <a class="stack-node" href="guides/tokenization.html">
+        <a class="stack-node" href="docs/concepts/tokenization.html">
           <span class="node-number">01</span><strong>Data</strong><small>Byte/BPE tokenization<br>next-token batches</small>
         </a>
         <span class="stack-arrow" aria-hidden="true">→</span>
-        <a class="stack-node" href="guides/tensor.html">
+        <a class="stack-node" href="docs/learn/tensor.html">
           <span class="node-number">02</span><strong>Core</strong><small>Tensors · operations<br>autograd · NF4</small>
         </a>
         <span class="stack-arrow" aria-hidden="true">→</span>
-        <a class="stack-node featured" href="guides/transformer.html">
+        <a class="stack-node featured" href="docs/learn/transformer.html">
           <span class="node-number">03</span><strong>Model</strong><small>Attention · FFN<br>decoder blocks</small>
         </a>
         <span class="stack-arrow" aria-hidden="true">→</span>
-        <a class="stack-node" href="guides/training.html">
+        <a class="stack-node" href="docs/learn/training.html">
           <span class="node-number">04</span><strong>Train</strong><small>Full · LoRA · QLoRA<br>Adam · checkpoints</small>
         </a>
         <span class="stack-arrow" aria-hidden="true">→</span>
-        <a class="stack-node" href="guides/serving.html">
+        <a class="stack-node" href="docs/how-to/serving.html">
           <span class="node-number">05</span><strong>Serve</strong><small>Generation<br>paged KV cache</small>
         </a>
       </div>
@@ -160,7 +160,7 @@
           <h3>Linear algebra you can step through.</h3>
           <p>Contiguous row-major tensors, explicit shapes and strides, checked broadcasting, batched matmul, reductions, indexing, and backend-owned storage.</p>
           <div class="code-line"><span>Tensor</span> [batch, time, feature]</div>
-          <a href="guides/tensor.html">Tensor contract <span>→</span></a>
+          <a href="docs/learn/tensor.html">Tensor contract <span>→</span></a>
         </article>
 
         <article class="capability-card card-autograd" data-reveal data-delay="1">
@@ -170,7 +170,7 @@
           <div class="gradient-visual" aria-hidden="true">
             <span>x</span><i></i><span>matmul</span><i></i><span>loss</span><b>↶ ∂</b>
           </div>
-          <a href="guides/autograd.html">Follow backward <span>→</span></a>
+          <a href="docs/learn/autograd.html">Follow backward <span>→</span></a>
         </article>
 
         <article class="capability-card card-model" data-reveal>
@@ -178,7 +178,7 @@
           <h3>Every residual path exposed.</h3>
           <p>Pre-normalized blocks, materialized or exact memory-linear Flash attention, GELU/ReLU feed-forwards, and a causal language-model head.</p>
           <div class="mini-blocks" aria-hidden="true"><span>LN</span><span>MHA</span><span>+</span><span>LN</span><span>FFN</span><span>+</span></div>
-          <a href="guides/transformer.html">Model anatomy <span>→</span></a>
+          <a href="docs/learn/transformer.html">Model anatomy <span>→</span></a>
         </article>
 
         <article class="capability-card card-tuning" data-reveal data-delay="1">
@@ -190,7 +190,7 @@
             <span><i style="--w:30%"></i><small>LoRA</small></span>
             <span><i style="--w:13%"></i><small>QLoRA</small></span>
           </div>
-          <a href="guides/qlora.html">Packed-weight training <span>→</span></a>
+          <a href="docs/how-to/qlora.html">Packed-weight training <span>→</span></a>
         </article>
 
         <article class="capability-card card-compiler" data-reveal>
@@ -198,7 +198,7 @@
           <h3>Compile finite programs into attention.</h3>
           <p>A standard-library-only Cajal-lite checker, interpreter, encoder, and multilinear compiler feed a configurable one-way neural lowering bridge.</p>
           <div class="compiler-flow"><code>program</code><span>→</span><code>map</code><span>→</span><code>head</code></div>
-          <a href="guides/compiling_to_transformers.html">Explore the compiler <span>→</span></a>
+          <a href="docs/internals/compiling_to_transformers.html">Explore the compiler <span>→</span></a>
         </article>
 
         <article class="capability-card card-analysis" data-reveal data-delay="1">
@@ -206,7 +206,7 @@
           <h3>Observe, intervene, verify.</h3>
           <p>Model-neutral representation capture, deterministic PCA, paired batch-roll ablations, and privileged-basis steering live outside the model.</p>
           <div class="scatter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <a href="guides/compiling_to_transformers.html#interpretation-is-a-separate-analysis-stage">Analysis stage <span>→</span></a>
+          <a href="docs/internals/compiling_to_transformers.html#interpretation-is-a-separate-analysis-stage">Analysis stage <span>→</span></a>
         </article>
       </div>
     </section>
@@ -222,7 +222,7 @@
             <li>C++20 and CMake 3.24+</li>
             <li>CPU everywhere; Metal in macOS builds</li>
           </ul>
-          <a class="text-link" href="guides/readme.html#setup">Complete setup guide <span>→</span></a>
+          <a class="text-link" href="docs/get-started/getting_started.html">Complete setup guide <span>→</span></a>
         </div>
         <div class="code-console" data-code-tabs data-reveal data-delay="1">
           <div class="code-tabs" role="tablist" aria-label="Installation method">
@@ -288,7 +288,7 @@ cmake --build --preset release
           <ul><li>Host-mirrored storage</li><li>Fake-PJRT CI coverage</li><li>Real-device validation pending</li></ul>
         </article>
       </div>
-      <p class="honesty-note"><strong>Honest boundary:</strong> accelerator selection does not imply every operation is device-resident or faster. Autograd scheduling, safety checks, and some reference paths remain host-controlled. <a href="guides/backends_and_python.html">Capability matrix →</a></p>
+      <p class="honesty-note"><strong>Honest boundary:</strong> accelerator selection does not imply every operation is device-resident or faster. Autograd scheduling, safety checks, and some reference paths remain host-controlled. <a href="docs/internals/backends_and_python.html">Capability matrix →</a></p>
     </section>
 
     <section class="section experiment-section" id="experiment">
@@ -303,7 +303,7 @@ cmake --build --preset release
             <span><b>T</b> trainable random</span>
             <span><b>I</b> no program</span>
           </div>
-          <a class="button button-primary" href="guides/compiling_to_transformers.html#learned-fpti-hybrid">Read the experiment</a>
+          <a class="button button-primary" href="docs/internals/compiling_to_transformers.html#learned-fpti-hybrid">Read the experiment</a>
         </div>
 
         <article class="result-card" data-reveal data-delay="1">
@@ -358,68 +358,75 @@ cmake --build --preset release
     <section class="section docs-section" id="documentation">
       <div class="shell">
         <div class="section-heading" data-reveal>
-          <div><span class="section-kicker">Documentation</span><h2>Start with a question. Follow it to the code.</h2></div>
-          <p>Every guide is generated from the repository’s maintained Markdown, with source links, section navigation, rendered math, and full-site search.</p>
+          <div><span class="section-kicker">Documentation</span><h2>Choose your intent. Follow it to the code.</h2></div>
+          <p>Learn progressively, solve a focused task, understand a concept, or look up an exact interface. Every page remains connected to its maintained source.</p>
         </div>
 
         <div class="docs-groups">
           <section class="docs-group" data-reveal>
-            <div class="docs-group-heading"><span>01</span><div><h3>Foundations</h3><p>Storage, math, gradients, and reusable layers.</p></div></div>
+            <div class="docs-group-heading"><span>01</span><div><h3>Get started</h3><p>Install, build, and run a verified first example.</p></div></div>
             <div class="docs-links">
-              <a href="guides/tensor.html"><strong>Tensor</strong><span>shape · stride · storage</span></a>
-              <a href="guides/tensor_ops.html"><strong>Tensor operations</strong><span>broadcast · matmul · reduction</span></a>
-              <a href="guides/autograd.html"><strong>Autograd</strong><span>graph · VJP · backward</span></a>
-              <a href="guides/modules.html"><strong>Modules</strong><span>parameters · registration · transfer</span></a>
-              <a href="guides/neural_network.html"><strong>Neural primitives</strong><span>embedding · linear · norm · loss</span></a>
+              <a href="docs/get-started/"><strong>Start here</strong><span>requirements · setup · first run →</span></a>
             </div>
           </section>
 
           <section class="docs-group" data-reveal>
-            <div class="docs-group-heading"><span>02</span><div><h3>The Transformer</h3><p>Shapes and algorithms across the decoder stack.</p></div></div>
+            <div class="docs-group-heading"><span>02</span><div><h3>Learn</h3><p>Build understanding from tensors through the decoder stack.</p></div></div>
             <div class="docs-links">
-              <a href="guides/architecture.html"><strong>Architecture</strong><span>end-to-end boundaries</span></a>
-              <a href="guides/attention.html"><strong>Attention</strong><span>causal · materialized · Flash</span></a>
-              <a href="guides/transformer.html"><strong>Decoder model</strong><span>embeddings · residuals · logits</span></a>
-              <a href="guides/activation_checkpointing.html"><strong>Checkpointing</strong><span>replay · memory · VJPs</span></a>
+              <a href="docs/learn/"><strong>Follow the learning path</strong><span>tensor · autograd · attention · model →</span></a>
             </div>
           </section>
 
           <section class="docs-group" data-reveal>
-            <div class="docs-group-heading"><span>03</span><div><h3>Train & adapt</h3><p>Data, optimization, fine-tuning, and evaluation.</p></div></div>
+            <div class="docs-group-heading"><span>03</span><div><h3>How-to guides</h3><p>Complete focused training, adaptation, and serving tasks.</p></div></div>
             <div class="docs-links">
-              <a href="guides/tokenization.html"><strong>Tokenization</strong><span>byte · BPE · batches</span></a>
-              <a href="guides/training.html"><strong>Training loop</strong><span>sampling · metrics · graphs</span></a>
-              <a href="guides/adam.html"><strong>Adam</strong><span>clipping · pages · backends</span></a>
-              <a href="guides/lora.html"><strong>LoRA</strong><span>targets · lifecycle · merge</span></a>
-              <a href="guides/qlora.html"><strong>QLoRA</strong><span>NF4 · scales · packed linear</span></a>
-              <a href="guides/generalization.html"><strong>Generalization</strong><span>splits · selection · held-out tests</span></a>
+              <a href="docs/how-to/"><strong>Solve a task</strong><span>train · LoRA · QLoRA · serve →</span></a>
             </div>
           </section>
 
           <section class="docs-group" data-reveal>
-            <div class="docs-group-heading"><span>04</span><div><h3>Ship & extend</h3><p>Stage boundaries, hardware, serving, and internals.</p></div></div>
+            <div class="docs-group-heading"><span>04</span><div><h3>Concepts</h3><p>Understand the algorithms, contracts, and system boundaries.</p></div></div>
             <div class="docs-links">
-              <a href="guides/pipeline.html"><strong>Staged pipeline</strong><span>pretrain · post-train · artifact</span></a>
-              <a href="guides/serving.html"><strong>Serving</strong><span>generation · paged KV cache</span></a>
-              <a href="guides/backends_and_python.html"><strong>Backends & Python</strong><span>CPU · Metal · CUDA · TPU · ABI</span></a>
-              <a href="guides/project_structure.html"><strong>Project structure</strong><span>ownership · dependencies · seams</span></a>
-              <a href="guides/datasets_and_lora_experiments.html"><strong>Dataset experiments</strong><span>TinyStories · Dolly · selection</span></a>
-              <a href="guides/roadmap.html"><strong>Roadmap</strong><span>complete · active · future</span></a>
+              <a href="docs/concepts/"><strong>Explore the design</strong><span>math · execution · lifecycle →</span></a>
             </div>
           </section>
 
-          <section class="docs-group docs-group-wide" data-reveal>
-            <div class="docs-group-heading"><span>05</span><div><h3>Compile & interpret</h3><p>A separate path from finite programs to inspectable neural computation.</p></div></div>
+          <section class="docs-group" data-reveal>
+            <div class="docs-group-heading"><span>05</span><div><h3>Reference</h3><p>Look up public APIs, configuration, commands, and terms.</p></div></div>
             <div class="docs-links">
-              <a href="guides/compiling_to_transformers.html"><strong>Compiling programs to Transformers</strong><span>Cajal-lite · multilinear maps · neural lowering · conditional reversal · PCA · ablations · steering</span></a>
+              <a href="docs/reference/"><strong>Find an exact interface</strong><span>C++ · C ABI · Python · CLI →</span></a>
+            </div>
+          </section>
+
+          <section class="docs-group" data-reveal>
+            <div class="docs-group-heading"><span>06</span><div><h3>Internals & backends</h3><p>Trace ownership, dispatch, kernels, and extension seams.</p></div></div>
+            <div class="docs-links">
+              <a href="docs/internals/"><strong>Inspect the runtime</strong><span>CPU · Metal · CUDA · TPU →</span></a>
+            </div>
+          </section>
+
+          <section class="docs-group" data-reveal>
+            <div class="docs-group-heading"><span>07</span><div><h3>Experiments</h3><p>Read protocols, evidence, limitations, and interpretation results.</p></div></div>
+            <div class="docs-links">
+              <a href="docs/experiments/"><strong>Review the labs</strong><span>compiler · PCA · ablations · steering →</span></a>
+            </div>
+          </section>
+
+          <section class="docs-group" data-reveal>
+            <div class="docs-group-heading"><span>08</span><div><h3>Contributing</h3><p>Build, test, document, and extend the framework consistently.</p></div></div>
+            <div class="docs-links">
+              <a href="docs/contribute/"><strong>Contribute safely</strong><span>workflow · standards · roadmap →</span></a>
             </div>
           </section>
         </div>
 
-        <button class="search-cta" type="button" data-search-open>
-          <span><b>⌕</b><span><strong>Search all documentation</strong><small>Titles, sections, equations, and guide text</small></span></span>
-          <kbd>⌘ K</kbd>
-        </button>
+        <div class="docs-actions" data-reveal>
+          <a class="button button-primary" href="docs/">Browse documentation <span aria-hidden="true">→</span></a>
+          <button class="search-cta" type="button" data-search-open>
+            <span><b>⌕</b><span><strong>Search all documentation</strong><small>Titles, sections, equations, and guide text</small></span></span>
+            <kbd>⌘ K</kbd>
+          </button>
+        </div>
       </div>
     </section>
 
@@ -442,8 +449,8 @@ cmake --build --preset release
         <a class="brand footer-brand" href="./"><span class="brand-mark">R</span><span class="brand-name">riftco<span>/transformer</span></span></a>
         <p>Build it from first principles.<br>Keep every boundary visible.</p>
       </div>
-      <div class="footer-links"><strong>Learn</strong><a href="guides/readme.html#setup">Get started</a><a href="guides/architecture.html">Architecture</a><a href="guides/roadmap.html">Roadmap</a></div>
-      <div class="footer-links"><strong>Build</strong><a href="guides/training.html">Training</a><a href="guides/qlora.html">QLoRA</a><a href="guides/serving.html">Serving</a></div>
+      <div class="footer-links"><strong>Learn</strong><a href="docs/get-started/">Get started</a><a href="docs/learn/">Tutorials</a><a href="docs/concepts/">Concepts</a></div>
+      <div class="footer-links"><strong>Build</strong><a href="docs/how-to/">How-to guides</a><a href="docs/reference/">Reference</a><a href="docs/internals/">Internals</a></div>
       <div class="footer-links"><strong>Project</strong><a href="https://github.com/quangng2000/riftco-transformer">GitHub</a><a href="https://pypi.org/project/riftco-transformer/">PyPI</a><a href="https://github.com/quangng2000/riftco-transformer/blob/main/LICENSE">Apache-2.0</a></div>
     </div>
     <div class="shell footer-bottom"><span>© 2026 Quang T Nguyen</span><span>Version 0.5.0 · C ABI 2.4</span></div>

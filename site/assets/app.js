@@ -143,13 +143,18 @@
   const scoreEntry = (entry, terms) => {
     const title = entry.title.toLowerCase();
     const description = (entry.description || "").toLowerCase();
+    const taxonomy = [entry.section_title, entry.sectionTitle, entry.section, entry.type, entry.stability, ...(entry.audience || []), ...(entry.backends || [])]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
     const headings = (entry.headings || []).map((heading) => heading.title).join(" ").toLowerCase();
     const text = (entry.text || "").toLowerCase();
     let score = 0;
     for (const term of terms) {
-      if (!title.includes(term) && !description.includes(term) && !headings.includes(term) && !text.includes(term)) return -1;
+      if (!title.includes(term) && !description.includes(term) && !taxonomy.includes(term) && !headings.includes(term) && !text.includes(term)) return -1;
       if (title === term) score += 30;
       else if (title.includes(term)) score += 15;
+      if (taxonomy.includes(term)) score += 8;
       if (headings.includes(term)) score += 6;
       if (description.includes(term)) score += 4;
       if (text.includes(term)) score += 1;
@@ -180,7 +185,8 @@
       );
       const suffix = headingMatch ? `#${headingMatch.id}` : "";
       const detail = headingMatch?.title || entry.description || entry.source;
-      return `<a class="search-result" href="${root}/${entry.url}${suffix}"><strong>${escapeHtml(entry.title)}</strong><span>${escapeHtml(detail)}</span></a>`;
+      const context = [entry.type, entry.section_title || entry.sectionTitle || entry.section].filter(Boolean).join(" · ");
+      return `<a class="search-result" href="${root}/${entry.url}${suffix}"><small>${escapeHtml(context)}</small><strong>${escapeHtml(entry.title)}</strong><span>${escapeHtml(detail)}</span></a>`;
     }).join("");
   };
 

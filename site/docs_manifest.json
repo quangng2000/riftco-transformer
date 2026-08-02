@@ -1,0 +1,375 @@
+{
+  "version": "0.5.0",
+  "sections": [
+    {
+      "id": "get-started",
+      "title": "Get started",
+      "description": "Install the framework, verify the runtime, and choose a learning path.",
+      "order": 1
+    },
+    {
+      "id": "learn",
+      "title": "Learn",
+      "description": "Build a working mental model from tensors and gradients through a complete decoder-only transformer.",
+      "order": 2
+    },
+    {
+      "id": "how-to",
+      "title": "How-to guides",
+      "description": "Complete focused tasks in training, fine-tuning, memory management, and serving.",
+      "order": 3
+    },
+    {
+      "id": "concepts",
+      "title": "Concepts",
+      "description": "Understand the design boundaries, lifecycle rules, data representation, and optimization model.",
+      "order": 4
+    },
+    {
+      "id": "reference",
+      "title": "Reference",
+      "description": "Look up public APIs, configuration keys, commands, defaults, validation rules, and terminology.",
+      "order": 5
+    },
+    {
+      "id": "internals",
+      "title": "Internals",
+      "description": "Inspect source ownership, backend dispatch, compiler boundaries, and framework extension seams.",
+      "order": 6
+    },
+    {
+      "id": "experiments",
+      "title": "Experiments",
+      "description": "Run controlled data, fine-tuning, generalization, and interpretation protocols with explicit evidence limits.",
+      "order": 7
+    },
+    {
+      "id": "contribute",
+      "title": "Contribute",
+      "description": "Follow the roadmap and the engineering, testing, and documentation contribution contracts.",
+      "order": 8
+    }
+  ],
+  "guides": [
+    {
+      "source": "README.md",
+      "section": "get-started",
+      "type": "Overview",
+      "order": 1,
+      "summary": "Survey the framework, backend status, staged workflow, installation paths, and documentation map.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["New users", "Framework users"]
+    },
+    {
+      "source": "docs/GETTING_STARTED.md",
+      "section": "get-started",
+      "type": "Tutorial",
+      "order": 2,
+      "summary": "Install Riftco Transformer, verify a tensor calculation, build the C++ source, and run a short training smoke test.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["New users", "Learners"]
+    },
+    {
+      "source": "docs/TUTORIAL_BUILD_TRANSFORMER.md",
+      "section": "learn",
+      "type": "Tutorial",
+      "order": 1,
+      "summary": "Assemble a small decoder-only transformer and trace one complete forward, backward, and Adam update.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "C++ developers"]
+    },
+    {
+      "source": "docs/TENSOR.md",
+      "section": "learn",
+      "type": "Concept",
+      "order": 2,
+      "summary": "Understand contiguous storage, shapes, strides, scalar tensors, indexing, reshape, and backend transfer.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "Framework users"]
+    },
+    {
+      "source": "docs/TENSOR_OPS.md",
+      "section": "learn",
+      "type": "Concept",
+      "order": 3,
+      "summary": "Learn the checked tensor-operation contracts, broadcasting rules, reductions, and relationship to autograd.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "Backend authors"]
+    },
+    {
+      "source": "docs/AUTOGRAD.md",
+      "section": "learn",
+      "type": "Concept",
+      "order": 4,
+      "summary": "Follow reverse-mode automatic differentiation from graph construction through gradient accumulation and custom gradients.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "Framework contributors"]
+    },
+    {
+      "source": "docs/NEURAL_NETWORK.md",
+      "section": "learn",
+      "type": "Concept",
+      "order": 5,
+      "summary": "Understand embeddings, linear layers, normalization, activations, feed-forward composition, softmax, and cross-entropy.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "Framework users"]
+    },
+    {
+      "source": "docs/ATTENTION.md",
+      "section": "learn",
+      "type": "Concept",
+      "order": 6,
+      "summary": "Trace causal multi-head self-attention shapes, masking, materialized execution, and exact memory-linear execution.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "Backend authors"]
+    },
+    {
+      "source": "docs/TRANSFORMER.md",
+      "section": "learn",
+      "type": "Concept",
+      "order": 7,
+      "summary": "Follow embeddings, pre-normalized residual blocks, final normalization, and the language-model head through a decoder-only transformer.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "Framework users"]
+    },
+    {
+      "source": "docs/TRAINING.md",
+      "section": "learn",
+      "type": "Concept",
+      "order": 8,
+      "summary": "Understand seeded batches, fresh computation graphs, cross-entropy, gradient clipping, Adam updates, and training metrics.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "Framework users"]
+    },
+    {
+      "source": "docs/PIPELINE.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 1,
+      "summary": "Compose pretraining, supervised post-training, immutable artifact handoff, generation, and local serving.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "C++ developers", "Python developers"]
+    },
+    {
+      "source": "docs/LORA.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 2,
+      "summary": "Attach low-rank adapters, optimize only adapter parameters, compare ranks without test leakage, and merge for serving.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "Researchers"]
+    },
+    {
+      "source": "docs/QLORA.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 3,
+      "summary": "Fine-tune LoRA adapters over an NF4-packed frozen base while preserving packed storage during computation.",
+      "stability": "Experimental",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "Researchers", "Backend authors"]
+    },
+    {
+      "source": "docs/SERVING.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 4,
+      "summary": "Run incremental generation with per-request decoder state, paged KV storage, and the local C or Python serving surfaces.",
+      "stability": "Experimental",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "Python developers"]
+    },
+    {
+      "source": "docs/ACTIVATION_CHECKPOINTING.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 5,
+      "summary": "Trade replay computation for lower retained autograd state at transformer-block boundaries.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "Framework contributors"]
+    },
+    {
+      "source": "docs/TROUBLESHOOTING.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 6,
+      "summary": "Diagnose configuration, build, backend, shape, training, artifact, Python loading, and documentation failures.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["New users", "Framework users", "Contributors"]
+    },
+    {
+      "source": "docs/ARCHITECTURE.md",
+      "section": "concepts",
+      "type": "Overview",
+      "order": 1,
+      "summary": "Map the implemented dataflow and the boundaries between model, autograd, training, serving, and execution backends.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "Contributors"]
+    },
+    {
+      "source": "docs/MODULES.md",
+      "section": "concepts",
+      "type": "Concept",
+      "order": 2,
+      "summary": "Understand parameter registration, ownership, recursive names, nonmoving modules, and transactional backend transfer.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["C++ developers", "Framework contributors"]
+    },
+    {
+      "source": "docs/TOKENIZATION.md",
+      "section": "concepts",
+      "type": "Concept",
+      "order": 3,
+      "summary": "Understand byte and byte-pair tokenization strategies, token IDs, UTF-8 boundaries, and shifted next-token windows.",
+      "stability": "Stable",
+      "backends": ["Backend-neutral"],
+      "audience": ["Learners", "Framework users"]
+    },
+    {
+      "source": "docs/ADAM.md",
+      "section": "concepts",
+      "type": "Concept",
+      "order": 4,
+      "summary": "Understand bias-corrected Adam, global gradient clipping, contiguous or bounded-page state, and transactional updates.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Learners", "Framework users", "Backend authors"]
+    },
+    {
+      "source": "docs/API_REFERENCE.md",
+      "section": "reference",
+      "type": "Reference",
+      "order": 1,
+      "summary": "Look up the supported C++, stable C ABI, and Python public surfaces by subsystem and lifecycle.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["API consumers", "C++ developers", "Python developers"]
+    },
+    {
+      "source": "docs/CONFIGURATION_REFERENCE.md",
+      "section": "reference",
+      "type": "Reference",
+      "order": 2,
+      "summary": "Look up native configuration keys, stage options, defaults, validation rules, and backend availability requirements.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "API consumers"]
+    },
+    {
+      "source": "docs/CLI_REFERENCE.md",
+      "section": "reference",
+      "type": "Reference",
+      "order": 3,
+      "summary": "Look up training, experiment, data preparation, fine-tuning, and serving commands and their options.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "Researchers"]
+    },
+    {
+      "source": "docs/GLOSSARY.md",
+      "section": "reference",
+      "type": "Reference",
+      "order": 4,
+      "summary": "Find concise definitions for tensor, model, training, backend, quantization, serving, compiler, and analysis terms.",
+      "stability": "Stable",
+      "backends": ["Backend-neutral"],
+      "audience": ["New users", "Learners", "Contributors"]
+    },
+    {
+      "source": "docs/PROJECT_STRUCTURE.md",
+      "section": "internals",
+      "type": "Explanation",
+      "order": 1,
+      "summary": "Understand dependency direction, interface and implementation pairing, component ownership, and extension seams.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Contributors", "Framework contributors"]
+    },
+    {
+      "source": "docs/BACKENDS_AND_PYTHON.md",
+      "section": "internals",
+      "type": "Explanation",
+      "order": 2,
+      "summary": "Inspect backend selection, adapter contracts, accelerator scope, stable C ABI behavior, and the dependency-free Python client.",
+      "stability": "Experimental",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Backend authors", "C++ developers", "Python developers"]
+    },
+    {
+      "source": "docs/COMPILING_TO_TRANSFORMERS.md",
+      "section": "internals",
+      "type": "Explanation",
+      "order": 3,
+      "summary": "Follow finite Cajal-style syntax through checking, interpretation, multilinear compilation, neural lowering, and conditional-reversal analysis.",
+      "stability": "Active",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Researchers", "Compiler contributors", "Framework contributors"]
+    },
+    {
+      "source": "docs/DATASETS_AND_LORA_EXPERIMENTS.md",
+      "section": "experiments",
+      "type": "Tutorial",
+      "order": 1,
+      "summary": "Prepare audited Hugging Face data and run controlled TinyStories, Dolly, LoRA-rank, and fine-tuning comparisons.",
+      "stability": "Experimental",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Researchers", "Python developers"]
+    },
+    {
+      "source": "docs/GENERALIZATION.md",
+      "section": "experiments",
+      "type": "How-to",
+      "order": 2,
+      "summary": "Measure train, validation, and held-out test behavior without using the test split for model or rank selection.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Researchers", "Framework users"]
+    },
+    {
+      "source": "docs/ROADMAP.md",
+      "section": "contribute",
+      "type": "Overview",
+      "order": 1,
+      "summary": "Track completed learning milestones, active slices, acceptance checks, and explicitly deferred work.",
+      "stability": "Active",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Contributors", "Learners"]
+    },
+    {
+      "source": "docs/CONTRIBUTING.md",
+      "section": "contribute",
+      "type": "How-to",
+      "order": 2,
+      "summary": "Place changes at the right ownership boundary, add evidence-driven tests, validate proportionately, and prepare an honest handoff.",
+      "stability": "Stable",
+      "backends": ["Backend-neutral"],
+      "audience": ["Contributors", "Backend authors", "Framework contributors"]
+    },
+    {
+      "source": "docs/DOCUMENTATION_STYLE.md",
+      "section": "contribute",
+      "type": "Reference",
+      "order": 3,
+      "summary": "Author professional tutorials, how-to guides, concepts, references, explanations, and source-grounded experiment reports.",
+      "stability": "Stable",
+      "backends": ["Backend-neutral"],
+      "audience": ["Documentation contributors", "Contributors"]
+    }
+  ]
+}

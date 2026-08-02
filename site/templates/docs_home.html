@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Learn, build, extend, and analyze Riftco Transformer with task-oriented tutorials, concepts, references, and internals.">
+    <meta name="theme-color" content="#07110f">
+    <meta name="riftco-doc-version" content="{{VERSION_ATTRIBUTE}}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Riftco Transformer">
+    <meta property="og:title" content="Documentation · Riftco Transformer">
+    <meta property="og:description" content="Task-oriented documentation for the dependency-free C++ transformer framework.">
+    <meta property="og:image" content="{{OG_IMAGE_URL_ATTRIBUTE}}">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="canonical" href="{{CANONICAL_URL_ATTRIBUTE}}">
+    <link rel="stylesheet" href="../assets/styles.css">
+    <script defer src="../assets/app.js"></script>
+    <title>Documentation · Riftco Transformer</title>
+  </head>
+  <body class="guide-body docs-home" data-site-root=".." data-page-kind="docs-home">
+    <a class="skip-link" href="#docs-content">Skip to documentation</a>
+    <header class="site-header guide-header" data-header>
+      <div class="shell header-inner">
+        <a class="brand" href="../" aria-label="Riftco Transformer home">
+          <span class="brand-mark" aria-hidden="true">R</span>
+          <span class="brand-name">riftco<span>/transformer</span></span>
+        </a>
+        <button class="mobile-nav-toggle icon-button" type="button" aria-label="Open navigation" aria-expanded="false" data-nav-toggle><span></span><span></span></button>
+        <nav class="site-nav" aria-label="Primary navigation" data-site-nav>
+          <a href="../#framework">Framework</a>
+          <a href="../#backends">Backends</a>
+          <a href="../#experiment">Experiment</a>
+          <a href="./" aria-current="page">Docs</a>
+        </nav>
+        <div class="header-actions">
+          <span class="docs-version" title="Documentation version">v{{VERSION}}</span>
+          <button class="search-trigger" type="button" data-search-open aria-label="Search documentation"><span aria-hidden="true">⌕</span><span>Search</span><kbd>⌘ K</kbd></button>
+          <button class="icon-button theme-toggle" type="button" data-theme-toggle aria-label="Switch color theme"><span class="theme-icon" aria-hidden="true">◐</span></button>
+          <a class="github-link" href="https://github.com/quangng2000/riftco-transformer" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </header>
+
+    <main id="docs-content">
+      <section class="docs-hero">
+        <div class="shell docs-hero-inner">
+          <nav class="docs-breadcrumbs" aria-label="Breadcrumb"><ol><li><a href="../">Home</a></li><li aria-current="page">Docs</li></ol></nav>
+          <div class="docs-hero-copy">
+            <span class="section-label">Documentation · v{{VERSION}}</span>
+            <h1>Build with the framework.<br><span>Understand every layer.</span></h1>
+            <p>Follow a learning path, complete a task, inspect an API contract, or go inside the runtime. Every page maps back to the source you can read and change.</p>
+            <div class="docs-hero-actions">
+              <a class="button button-primary" href="{{FIRST_SECTION_URL_ATTRIBUTE}}/">Start with {{FIRST_SECTION_TITLE}} <span aria-hidden="true">→</span></a>
+              <button class="button button-secondary" type="button" data-search-open>Search all docs <span aria-hidden="true">⌕</span></button>
+            </div>
+          </div>
+          <dl class="docs-hero-stats">
+            <div><dt>{{GUIDE_COUNT}}</dt><dd>maintained guides</dd></div>
+            <div><dt>{{SECTION_COUNT}}</dt><dd>reader paths</dd></div>
+            <div><dt>0</dt><dd>runtime dependencies</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="docs-catalog shell" aria-labelledby="documentation-paths">
+        <div class="section-heading docs-catalog-heading">
+          <span class="section-label">Choose your path</span>
+          <h2 id="documentation-paths">Documentation organized by intent</h2>
+          <p>Learn the system in order, accomplish a concrete task, look up a contract, or understand implementation details.</p>
+        </div>
+        <div class="docs-section-grid">{{SECTION_CARDS}}</div>
+      </section>
+
+      <section class="docs-type-band">
+        <div class="shell docs-type-band-inner">
+          <div><span class="section-label">Content model</span><h2>Know what kind of page you are reading.</h2></div>
+          <div class="docs-type-summary">{{TYPE_SUMMARY}}</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer"><div class="shell footer-grid"><div class="footer-brand"><a class="brand" href="../"><span class="brand-mark" aria-hidden="true">R</span><span class="brand-name">riftco<span>/transformer</span></span></a><p>A transformer framework you can inspect end to end.</p></div><div class="footer-links"><strong>Documentation</strong>{{FOOTER_SECTION_LINKS}}</div><div class="footer-links"><strong>Project</strong><a href="https://github.com/quangng2000/riftco-transformer">GitHub</a><a href="https://github.com/quangng2000/riftco-transformer/issues">Issues</a></div></div></footer>
+
+    <dialog class="search-dialog" data-search-dialog aria-label="Search documentation"><div class="search-box"><div class="search-input-row"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search concepts, tasks, APIs…" autocomplete="off" data-search-input aria-label="Search documentation"><button type="button" data-search-close aria-label="Close search">Esc</button></div><div class="search-results" data-search-results aria-live="polite"><div class="search-empty"><strong>Search the complete framework</strong><span>Try “strides”, “paged Adam”, “Metal”, or “compiled attention”.</span></div></div><div class="search-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span></div></div></dialog>
+  </body>
+</html>

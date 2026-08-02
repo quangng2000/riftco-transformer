@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="{{DESCRIPTION_ATTRIBUTE}}">
     <meta name="theme-color" content="#07110f">
+    <meta name="riftco-doc-version" content="{{VERSION_ATTRIBUTE}}">
     <meta property="og:type" content="article">
     <meta property="og:site_name" content="Riftco Transformer">
     <meta property="og:title" content="{{TITLE_ATTRIBUTE}} · Riftco Transformer">
@@ -12,16 +13,16 @@
     <meta property="og:image" content="{{OG_IMAGE_URL_ATTRIBUTE}}">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="canonical" href="{{CANONICAL_URL_ATTRIBUTE}}">
-    <link rel="stylesheet" href="../assets/styles.css">
-    <script defer src="../assets/app.js"></script>
+    <link rel="stylesheet" href="../../assets/styles.css">
+    <script defer src="../../assets/app.js"></script>
     <title>{{TITLE}} · Riftco Transformer</title>
   </head>
-  <body class="guide-body" data-site-root=".." data-page-kind="guide">
-    <a class="skip-link" href="#guide-content">Skip to guide</a>
+  <body class="guide-body" data-site-root="../.." data-page-kind="guide">
+    <a class="skip-link" href="#guide-content">Skip to documentation</a>
     <div class="reading-progress" aria-hidden="true"><span></span></div>
     <header class="site-header guide-header" data-header>
       <div class="shell header-inner">
-        <a class="brand" href="../" aria-label="Riftco Transformer home">
+        <a class="brand" href="../../" aria-label="Riftco Transformer home">
           <span class="brand-mark" aria-hidden="true">R</span>
           <span class="brand-name">riftco<span>/transformer</span></span>
         </a>
@@ -29,12 +30,13 @@
           <span></span><span></span>
         </button>
         <nav class="site-nav" aria-label="Primary navigation" data-site-nav>
-          <a href="../#framework">Framework</a>
-          <a href="../#backends">Backends</a>
-          <a href="../#experiment">Experiment</a>
-          <a href="readme.html">Docs</a>
+          <a href="../../#framework">Framework</a>
+          <a href="../../#backends">Backends</a>
+          <a href="../../#experiment">Experiment</a>
+          <a href="../" aria-current="page">Docs</a>
         </nav>
         <div class="header-actions">
+          <span class="docs-version" title="Documentation version">v{{VERSION}}</span>
           <button class="search-trigger" type="button" data-search-open aria-label="Search documentation">
             <span aria-hidden="true">⌕</span><span>Search</span><kbd>⌘ K</kbd>
           </button>
@@ -47,19 +49,34 @@
     </header>
 
     <div class="guide-layout">
-      <aside class="guide-sidebar" aria-label="Guide navigation">
-        <span class="guide-sidebar-title">Framework guides</span>
+      <aside class="guide-sidebar" aria-label="Documentation navigation">
+        <div class="guide-sidebar-heading">
+          <span class="guide-sidebar-title">Documentation · v{{VERSION}}</span>
+          <button class="guide-menu-toggle" type="button" data-guide-menu aria-expanded="false">Browse sections <span aria-hidden="true">⌄</span></button>
+        </div>
         {{GUIDE_NAVIGATION}}
       </aside>
 
       <main class="guide-main" id="guide-content">
+        {{BREADCRUMBS}}
+        <header class="guide-intro">
+          <div class="guide-kicker"><span>{{SECTION_TITLE}}</span><span aria-hidden="true">/</span><span>{{GUIDE_TYPE}}</span></div>
+          <h1 id="{{TITLE_ANCHOR_ATTRIBUTE}}">{{TITLE}}</h1>
+          <p class="guide-summary">{{SUMMARY}}</p>
+          {{GUIDE_METADATA}}
+        </header>
         <div class="guide-source">
           <span>{{SOURCE_PATH}}</span>
-          <a href="{{SOURCE_URL_ATTRIBUTE}}" rel="noopener noreferrer">View source</a>
+          <div class="guide-actions">
+            <a href="{{SOURCE_URL_ATTRIBUTE}}" target="_blank" rel="noopener noreferrer">View source</a>
+            <a href="{{EDIT_URL_ATTRIBUTE}}" target="_blank" rel="noopener noreferrer">Edit page</a>
+            <a href="{{ISSUE_URL_ATTRIBUTE}}" target="_blank" rel="noopener noreferrer">Report issue</a>
+          </div>
         </div>
         <article class="markdown-body">
           {{CONTENT}}
         </article>
+        {{RELATED_GUIDES}}
         <nav class="guide-pagination" aria-label="Adjacent guides">
           {{PREVIOUS_GUIDE}}
           {{NEXT_GUIDE}}
@@ -69,6 +86,10 @@
       <aside class="guide-toc" aria-label="On this page">
         <span class="guide-toc-title">On this page</span>
         {{TABLE_OF_CONTENTS}}
+        <div class="guide-toc-feedback">
+          <span>Found a docs problem?</span>
+          <a href="{{ISSUE_URL_ATTRIBUTE}}" target="_blank" rel="noopener noreferrer">Report it <span aria-hidden="true">↗</span></a>
+        </div>
       </aside>
     </div>
 
@@ -76,7 +97,7 @@
       <div class="search-box">
         <div class="search-input-row">
           <span aria-hidden="true">⌕</span>
-          <input type="search" placeholder="Search tensors, QLoRA, attention…" autocomplete="off" data-search-input aria-label="Search documentation">
+          <input type="search" placeholder="Search concepts, tasks, APIs…" autocomplete="off" data-search-input aria-label="Search documentation">
           <button type="button" data-search-close aria-label="Close search">Esc</button>
         </div>
         <div class="search-results" data-search-results aria-live="polite">
