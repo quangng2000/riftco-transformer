@@ -19,6 +19,7 @@ The small scripts under `examples/python/` demonstrate supported public APIs:
 python3 examples/python/train_tiny.py --help
 python3 examples/python/pretrain_stage.py --help
 python3 examples/python/post_train_stage.py --help
+python3 examples/python/convert_model.py --help
 python3 examples/python/serve_stage.py --help
 python3 examples/python/prepare_huggingface_data.py --help
 ```
@@ -28,6 +29,9 @@ python3 examples/python/prepare_huggingface_data.py --help
 - `pretrain_stage.py` creates an immutable base `.rift` bundle.
 - `post_train_stage.py` applies Full, LoRA, or QLoRA training and creates a
   child bundle.
+- `convert_model.py` explicitly converts complete `.rift`, Riftco Hugging
+  Face-style, GGUF, and canonical Riftco ONNX models. ONNX import requires its
+  generated adjacent tokenizer/artifact sidecar.
 - `serve_stage.py` starts the dependency-free local chat and JSON service.
 - `prepare_huggingface_data.py` prepares verified, content-hash-split data.
 

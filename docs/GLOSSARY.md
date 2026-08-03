@@ -80,9 +80,10 @@ greater than `t`.
 **Checkpoint**
 
 Potentially ambiguous. Activation checkpointing replays computation during
-backward. A future training checkpoint would preserve optimizer/RNG/progress.
-The current `ModelSnapshot` and Python `ModelBundle` are model handoffs, not
-exact-resume training checkpoints.
+backward. A `.riftckpt` `TrainingCheckpoint` preserves model/optimizer state,
+RNG state, and built-in batch-source progress for exact continuation. A
+`ModelSnapshot` or `.rift` `ModelBundle` is a model handoff, not an
+exact-resume training checkpoint.
 
 **Context length**
 

@@ -15,6 +15,7 @@ examples/python/
 ├── prepare_huggingface_data.py
 ├── pretrain_stage.py
 ├── post_train_stage.py
+├── convert_model.py
 └── serve_stage.py
 ```
 
@@ -86,8 +87,24 @@ assets or packages.
 
 They hand off immutable `.rift` bundles under `results/stages/`. See
 [the staged pipeline guide](../../docs/PIPELINE.md) for the artifact contract,
-HTTP request examples, and the distinction between a model bundle and a
-future resumable training checkpoint.
+HTTP request examples, and the distinction between a model bundle and an
+exact-resume `.riftckpt` training checkpoint.
+
+Convert a complete model by naming both formats explicitly:
+
+```bash
+python3 examples/python/convert_model.py \
+  results/stages/tiny_pretrained.rift \
+  results/stages/tiny_pretrained.onnx \
+  --from rift --to onnx
+```
+
+The same command imports or exports the current Riftco Hugging Face-style,
+GGUF, and canonical ONNX representations. SafeTensors is available as a
+lower-level named-tensor container. ONNX import requires the generated
+adjacent `.onnx.riftco.json` tokenizer/artifact sidecar and rejects rewritten
+or foreign graphs. See the
+[model interchange guide](../../docs/MODEL_INTERCHANGE.md).
 
 ## Prepare real learning data
 
@@ -205,7 +222,9 @@ python3 examples/python/post_train_stage.py \
 The stage optimizes only query/value LoRA factors, merges them into the base
 weights, and then saves the ordinary child `.rift` bundle. See
 [the LoRA guide](../../docs/LORA.md) for target selection, direct APIs, and
-the current adapter-checkpoint limitation.
+the adapter lifecycle. Active FP32 LoRA runs can be resumed with
+`TrainingCheckpoint`; still-packed QLoRA state is not supported by checkpoint
+v1.
 
 For a packed frozen base, select QLoRA:
 

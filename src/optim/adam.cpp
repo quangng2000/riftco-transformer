@@ -173,6 +173,89 @@ void require_parameter_backend(
     }
 }
 
+std::size_t total_parameter_values(const ParameterList& parameters) {
+    std::size_t total = 0;
+    for (const auto& named_parameter : parameters) {
+        const std::size_t count =
+            named_parameter.parameter->value().numel();
+        if (count > std::numeric_limits<std::size_t>::max() - total) {
+            throw std::overflow_error("Adam state value count overflow");
+        }
+        total += count;
+    }
+    return total;
+}
+
+void require_finite_state_values(
+    const std::vector<float>& values,
+    const char* description
+) {
+    if (!std::all_of(
+            values.begin(),
+            values.end(),
+            [](float value) { return std::isfinite(value); }
+        )) {
+        throw std::invalid_argument(
+            std::string("Adam ") + description +
+            " must contain only finite values"
+        );
+    }
+}
+
+void require_clean_step_boundary(const ParameterList& parameters) {
+    for (const auto& named_parameter : parameters) {
+        if (named_parameter.parameter->has_pending_gradient()) {
+            throw std::logic_error(
+                "Adam state can only be captured at a clean "
+                "post-step boundary"
+            );
+        }
+    }
+}
+
+void require_valid_beta_power(
+    double power,
+    std::size_t step_count,
+    float beta,
+    const char* description
+) {
+    if (!std::isfinite(power) || power < 0.0 || power > 1.0 ||
+        (step_count == 0 && power != 1.0) ||
+        (step_count != 0 && power == 1.0)) {
+        throw std::invalid_argument(
+            std::string("Adam ") + description +
+            " is inconsistent with the step count"
+        );
+    }
+    const double expected = std::pow(
+        static_cast<double>(beta),
+        static_cast<double>(step_count)
+    );
+    if (expected <= std::numeric_limits<double>::min()) {
+        // Adam advances this value by repeated multiplication. Once the
+        // mathematical value is subnormal, pow() and the recurrence can
+        // round differently or settle at different subnormal values.
+        if (power > std::numeric_limits<double>::min()) {
+            throw std::invalid_argument(
+                std::string("Adam ") + description +
+                " does not match beta raised to the step count"
+            );
+        }
+        return;
+    }
+    constexpr double relative_tolerance = 1.0e-12;
+    const double absolute_tolerance = std::max(
+        expected * relative_tolerance,
+        8.0 * std::numeric_limits<double>::denorm_min()
+    );
+    if (std::fabs(power - expected) > absolute_tolerance) {
+        throw std::invalid_argument(
+            std::string("Adam ") + description +
+            " does not match beta raised to the step count"
+        );
+    }
+}
+
 }  // namespace
 
 double global_gradient_norm(const ParameterList& parameters) {
@@ -302,6 +385,234 @@ std::size_t Adam::state_page_count() const noexcept {
 
 std::size_t Adam::state_payload_bytes() const noexcept {
     return state_payload_bytes_;
+}
+
+std::size_t Adam::state_value_count() const noexcept {
+    return state_payload_bytes_ / (2 * sizeof(float));
+}
+
+double Adam::beta1_power() const noexcept {
+    return beta1_power_;
+}
+
+double Adam::beta2_power() const noexcept {
+    return beta2_power_;
+}
+
+AdamState Adam::state() const {
+    require_clean_step_boundary(parameters_);
+    const std::size_t total = total_parameter_values(parameters_);
+    AdamState result;
+    result.step_count = step_count_;
+    result.beta1_power = beta1_power_;
+    result.beta2_power = beta2_power_;
+    result.parameter_values.reserve(total);
+    result.first_moments.reserve(total);
+    result.second_moments.reserve(total);
+
+    for (std::size_t parameter_index = 0;
+         parameter_index < parameters_.size();
+         ++parameter_index) {
+        const auto& parameter = *parameters_[parameter_index].parameter;
+        require_parameter_backend(parameters_[parameter_index], backend_);
+        require_finite_parameter_values(parameters_[parameter_index]);
+        const auto values = parameter.value().data();
+        result.parameter_values.insert(
+            result.parameter_values.end(),
+            values.begin(),
+            values.end()
+        );
+
+        if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+            const auto first = first_moments_[parameter_index].data();
+            const auto second = second_moments_[parameter_index].data();
+            result.first_moments.insert(
+                result.first_moments.end(), first.begin(), first.end()
+            );
+            result.second_moments.insert(
+                result.second_moments.end(), second.begin(), second.end()
+            );
+            continue;
+        }
+
+        std::size_t expected_offset = 0;
+        for (const auto& page : state_pages_[parameter_index]) {
+            if (page.offset != expected_offset ||
+                page.first_moment.numel() !=
+                    page.second_moment.numel()) {
+                throw std::logic_error(
+                    "Adam paged state is not contiguous"
+                );
+            }
+            const auto first = page.first_moment.data();
+            const auto second = page.second_moment.data();
+            result.first_moments.insert(
+                result.first_moments.end(), first.begin(), first.end()
+            );
+            result.second_moments.insert(
+                result.second_moments.end(), second.begin(), second.end()
+            );
+            expected_offset += first.size();
+        }
+        if (expected_offset != parameter.value().numel()) {
+            throw std::logic_error(
+                "Adam paged state does not match its parameter"
+            );
+        }
+    }
+    require_finite_state_values(result.first_moments, "first moments");
+    require_finite_state_values(result.second_moments, "second moments");
+    return result;
+}
+
+void Adam::load_state(AdamState state) {
+    require_clean_step_boundary(parameters_);
+    const std::size_t total = total_parameter_values(parameters_);
+    if (state.parameter_values.size() != total ||
+        state.first_moments.size() != total ||
+        state.second_moments.size() != total) {
+        throw std::invalid_argument(
+            "Adam state value counts do not match the parameter list"
+        );
+    }
+    require_valid_beta_power(
+        state.beta1_power,
+        state.step_count,
+        options_.beta1,
+        "beta1 power"
+    );
+    require_valid_beta_power(
+        state.beta2_power,
+        state.step_count,
+        options_.beta2,
+        "beta2 power"
+    );
+    require_finite_state_values(
+        state.parameter_values, "parameter values"
+    );
+    require_finite_state_values(state.first_moments, "first moments");
+    require_finite_state_values(state.second_moments, "second moments");
+
+    std::vector<Tensor> next_values;
+    std::vector<Tensor> next_gradients;
+    std::vector<Tensor> next_first_moments;
+    std::vector<Tensor> next_second_moments;
+    std::vector<std::vector<StatePage>> next_state_pages;
+    next_values.reserve(parameters_.size());
+    next_gradients.reserve(parameters_.size());
+    if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+        next_first_moments.reserve(parameters_.size());
+        next_second_moments.reserve(parameters_.size());
+    } else {
+        next_state_pages.resize(parameters_.size());
+    }
+
+    std::size_t offset = 0;
+    for (std::size_t parameter_index = 0;
+         parameter_index < parameters_.size();
+         ++parameter_index) {
+        const auto& named_parameter = parameters_[parameter_index];
+        require_parameter_backend(named_parameter, backend_);
+        const auto& old_value = named_parameter.parameter->value();
+        const std::size_t count = old_value.numel();
+        next_values.emplace_back(
+            old_value.shape(),
+            std::vector<float>(
+                state.parameter_values.begin() +
+                    static_cast<std::ptrdiff_t>(offset),
+                state.parameter_values.begin() +
+                    static_cast<std::ptrdiff_t>(offset + count)
+            ),
+            backend_
+        );
+        next_gradients.push_back(
+            Tensor::zeros(old_value.shape(), backend_)
+        );
+
+        if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+            next_first_moments.emplace_back(
+                old_value.shape(),
+                std::vector<float>(
+                    state.first_moments.begin() +
+                        static_cast<std::ptrdiff_t>(offset),
+                    state.first_moments.begin() +
+                        static_cast<std::ptrdiff_t>(offset + count)
+                ),
+                backend_
+            );
+            next_second_moments.emplace_back(
+                old_value.shape(),
+                std::vector<float>(
+                    state.second_moments.begin() +
+                        static_cast<std::ptrdiff_t>(offset),
+                    state.second_moments.begin() +
+                        static_cast<std::ptrdiff_t>(offset + count)
+                ),
+                backend_
+            );
+        } else {
+            auto& pages = next_state_pages[parameter_index];
+            const std::size_t page_count =
+                1 + (count - 1) / options_.page_size;
+            pages.reserve(page_count);
+            for (std::size_t page_offset = 0;
+                 page_offset < count;) {
+                const std::size_t length = std::min(
+                    options_.page_size, count - page_offset
+                );
+                const std::size_t flat_offset = offset + page_offset;
+                pages.push_back({
+                    page_offset,
+                    Tensor(
+                        {length},
+                        std::vector<float>(
+                            state.first_moments.begin() +
+                                static_cast<std::ptrdiff_t>(flat_offset),
+                            state.first_moments.begin() +
+                                static_cast<std::ptrdiff_t>(
+                                    flat_offset + length
+                                )
+                        ),
+                        backend_
+                    ),
+                    Tensor(
+                        {length},
+                        std::vector<float>(
+                            state.second_moments.begin() +
+                                static_cast<std::ptrdiff_t>(flat_offset),
+                            state.second_moments.begin() +
+                                static_cast<std::ptrdiff_t>(
+                                    flat_offset + length
+                                )
+                        ),
+                        backend_
+                    ),
+                });
+                page_offset += length;
+            }
+        }
+        offset += count;
+    }
+
+    // Validation and every allocation are complete. Parameter replacement
+    // and vector moves below are non-allocating commits.
+    for (std::size_t parameter_index = 0;
+         parameter_index < parameters_.size();
+         ++parameter_index) {
+        parameters_[parameter_index].parameter->replace_state(
+            std::move(next_values[parameter_index]),
+            std::move(next_gradients[parameter_index])
+        );
+    }
+    if (options_.state_storage == AdamStateStorageKind::Contiguous) {
+        first_moments_ = std::move(next_first_moments);
+        second_moments_ = std::move(next_second_moments);
+    } else {
+        state_pages_ = std::move(next_state_pages);
+    }
+    step_count_ = state.step_count;
+    beta1_power_ = state.beta1_power;
+    beta2_power_ = state.beta2_power;
 }
 
 AdamStepStats Adam::step() {

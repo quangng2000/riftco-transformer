@@ -50,6 +50,7 @@ skip them.
 | `sanitize` | `build/sanitize` | Debug, tests, ASan + UBSan; unavailable on Windows |
 | `cuda-release` | `build/cuda-release` | Release, tests, CUDA on; hidden on macOS |
 | `tpu-release` | `build/tpu-release` | Release, tests, TPU on, Metal off; Linux only |
+| `tpu-hardware` | `build/tpu-hardware` | Inherits TPU release, requires an addressable TPU, and rejects the repository fake plugin |
 
 ```bash
 cmake --preset release
@@ -72,6 +73,21 @@ objects capture the calling thread's construction default. Use `Tensor::to`,
 
 Backend limitations and availability probes are documented in
 [Backends and Python ABI](BACKENDS_AND_PYTHON.md).
+
+## Native dense Llama/Mistral settings
+
+`LlamaMistralConfig` selects the architecture identity plus vocabulary,
+maximum context, model/feed-forward widths, block count, query/KV head counts,
+RMSNorm epsilon, and RoPE theta. All dimensions are positive; model width must
+divide by query heads, query heads by KV heads, and the resulting head width
+must be even. Epsilon and theta are finite and positive.
+
+An optional sliding window is accepted only when it covers the complete
+maximum context, where dense causal attention is equivalent. Smaller windows
+are rejected. The current full-sequence runtime is exposed through native C++,
+C ABI 2.8, and Python. These surfaces are not external checkpoint or tokenizer
+loaders and do not add incremental decode semantics. See the complete
+[Llama/Mistral support matrix](LLAMA_MISTRAL.md).
 
 ## Native C++ serving settings
 
@@ -210,6 +226,7 @@ model.
 | `RIFTCO_TRANSFORMER_LIBRARY` | Exact native shared-library path used by the Python loader. |
 | `RIFTCO_TRANSFORMER_TPU_LIBRARY` | Preferred exact `libtpu.so` path. |
 | `TPU_LIBRARY_PATH` | TPU loader fallback before the system `libtpu.so` lookup. |
+| `RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN` | Hardware-evidence guard set to `1` by the `tpu-hardware` test preset; ordinary users should select the preset rather than set it manually. |
 | `CMAKE_ARGS` | Standard build-backend mechanism for passing options while installing the Python package from source. |
 
 Example CUDA wheel build:

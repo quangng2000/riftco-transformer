@@ -68,6 +68,7 @@ public:
     [[nodiscard]] const Variable& variable() const noexcept;
     [[nodiscard]] const Tensor& value() const noexcept;
     [[nodiscard]] const Tensor& gradient() const noexcept;
+    [[nodiscard]] bool has_pending_gradient() const noexcept;
     [[nodiscard]] ParameterHandle handle();
 
     void zero_gradient() const;
@@ -98,6 +99,7 @@ private:
     friend class ParameterHandle;
     friend class ParameterState;
     friend class Module;
+    friend class Adam;
 
     friend void move_parameters_to(
         const ParameterList&,

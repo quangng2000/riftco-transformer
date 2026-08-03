@@ -622,6 +622,65 @@ DecoderOnlyTransformer::quantized_memory_usage() const noexcept {
     return result;
 }
 
+std::vector<PackedLinearWeightState>
+DecoderOnlyTransformer::packed_linear_weight_state() const {
+    const std::vector<const Linear*> projections = all_linear_projections();
+    std::vector<PackedLinearWeightState> result;
+    result.reserve(projections.size());
+    for (const Linear* projection : projections) {
+        if (projection == nullptr || !projection->has_quantized_weight()) {
+            throw std::logic_error(
+                "packed model state requires every Linear base weight to be NF4"
+            );
+        }
+        const QuantizedWeight& weight = projection->quantized_weight();
+        result.push_back(PackedLinearWeightState{
+            weight.shape(),
+            weight.block_size(),
+            weight.copy_payload_to_host(),
+        });
+    }
+    return result;
+}
+
+void DecoderOnlyTransformer::load_packed_linear_weight_state(
+    std::span<const PackedLinearWeightState> state
+) {
+    std::vector<Linear*> projections = all_linear_projections();
+    if (state.size() != projections.size()) {
+        throw std::invalid_argument(
+            "packed model state weight count does not match the decoder"
+        );
+    }
+
+    std::vector<QuantizedWeight> candidates;
+    candidates.reserve(projections.size());
+    for (std::size_t index = 0; index < projections.size(); ++index) {
+        Linear* projection = projections[index];
+        if (projection == nullptr || !projection->has_quantized_weight()) {
+            throw std::invalid_argument(
+                "packed model state can only restore into a fully quantized decoder"
+            );
+        }
+        const QuantizedWeight& current = projection->quantized_weight();
+        if (state[index].shape != current.shape()) {
+            throw std::invalid_argument(
+                "packed model state weight shape does not match the decoder"
+            );
+        }
+        candidates.push_back(QuantizedWeight::from_packed_nf4(
+            state[index].shape,
+            state[index].block_size,
+            state[index].payload,
+            current.backend()
+        ));
+    }
+
+    for (std::size_t index = 0; index < projections.size(); ++index) {
+        projections[index]->quantized_weight_ = std::move(candidates[index]);
+    }
+}
+
 void DecoderOnlyTransformer::attach_lora(
     const LoraConfig& config
 ) {

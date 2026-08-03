@@ -32,6 +32,20 @@ struct AdamStepStats {
     double clip_scale;
 };
 
+// Backend-neutral logical state at a clean optimizer-step boundary. Moment
+// values and trainable parameter values use deterministic parameter-list
+// order followed by each tensor's native flat order. Physical page layout and
+// device residency are deliberately excluded so a state can be restored on a
+// different backend or with a different state-storage layout.
+struct AdamState {
+    std::size_t step_count = 0;
+    double beta1_power = 1.0;
+    double beta2_power = 1.0;
+    std::vector<float> parameter_values;
+    std::vector<float> first_moments;
+    std::vector<float> second_moments;
+};
+
 [[nodiscard]] double global_gradient_norm(
     const ParameterList& parameters
 );
@@ -57,6 +71,15 @@ public:
     [[nodiscard]] std::size_t state_page_size() const noexcept;
     [[nodiscard]] std::size_t state_page_count() const noexcept;
     [[nodiscard]] std::size_t state_payload_bytes() const noexcept;
+    [[nodiscard]] std::size_t state_value_count() const noexcept;
+    [[nodiscard]] double beta1_power() const noexcept;
+    [[nodiscard]] double beta2_power() const noexcept;
+
+    // Capture is rejected when gradients have been accumulated but not yet
+    // consumed by step(). Loading validates and allocates the complete
+    // replacement before changing parameters or optimizer state.
+    [[nodiscard]] AdamState state() const;
+    void load_state(AdamState state);
 
     // Applies global gradient clipping and one transactional, bias-corrected
     // Adam update. Replacing the leaf values clears consumed gradients.

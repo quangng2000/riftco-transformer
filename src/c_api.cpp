@@ -8,6 +8,7 @@
 #include "riftco_transformer/data/tokenizer.hpp"
 #include "riftco_transformer/lowering/strategy.hpp"
 #include "riftco_transformer/model/decoder_only_transformer.hpp"
+#include "riftco_transformer/model/llama_mistral_transformer.hpp"
 #include "riftco_transformer/model/lora.hpp"
 #include "riftco_transformer/nn/loss.hpp"
 #include "riftco_transformer/nn/parameter.hpp"
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +27,7 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <optional>
 #include <random>
 #include <span>
 #include <stdexcept>
@@ -34,6 +37,7 @@
 #include <vector>
 
 static_assert(sizeof(rt_transformer_config) == 64);
+static_assert(sizeof(rt_llama_mistral_config) == 88);
 static_assert(sizeof(rt_lora_config) == 40);
 static_assert(sizeof(rt_quantized_memory_stats) == 96);
 static_assert(sizeof(rt_decode_session_options) == 24);
@@ -135,8 +139,21 @@ struct ModelState final : TrainableOwnerState {
     riftco_transformer::DecoderOnlyTransformer value;
 };
 
+struct LlamaMistralState final : TrainableOwnerState {
+    LlamaMistralState(
+        riftco_transformer::LlamaMistralConfig config,
+        std::mt19937& random
+    ) : value(std::move(config), random) {}
+
+    riftco_transformer::LlamaMistralTransformer value;
+};
+
 struct rt_model {
     std::shared_ptr<ModelState> state;
+};
+
+struct rt_llama_mistral_model {
+    std::shared_ptr<LlamaMistralState> state;
 };
 
 struct ProgramAugmentedState final : TrainableOwnerState {
@@ -282,6 +299,7 @@ struct rt_adam {
         riftco_transformer::AdamOptions options
     )
         : owner(std::move(model_owner)),
+          parameter_identity(parameters),
           value(std::move(parameters), options) {
         owner->active_optimizers.fetch_add(
             1,
@@ -297,6 +315,7 @@ struct rt_adam {
     }
 
     std::shared_ptr<TrainableOwnerState> owner;
+    riftco_transformer::ParameterList parameter_identity;
     riftco_transformer::Adam value;
 };
 
@@ -577,6 +596,22 @@ rt_activation_checkpointing_kind c_activation_checkpointing(
     throw std::invalid_argument(
         "unknown native activation checkpointing kind"
     );
+}
+
+riftco_transformer::LlamaMistralArchitecture
+checked_llama_mistral_architecture(
+    rt_llama_mistral_architecture architecture
+) {
+    switch (architecture) {
+        case RT_LLAMA_MISTRAL_ARCHITECTURE_LLAMA:
+            return riftco_transformer::LlamaMistralArchitecture::Llama;
+        case RT_LLAMA_MISTRAL_ARCHITECTURE_MISTRAL:
+            return riftco_transformer::LlamaMistralArchitecture::Mistral;
+        default:
+            throw std::invalid_argument(
+                "unknown C API Llama/Mistral architecture"
+            );
+    }
 }
 
 std::size_t checked_size(
@@ -958,6 +993,16 @@ void require_model(const rt_model* model) {
     }
 }
 
+void require_llama_mistral_model(
+    const rt_llama_mistral_model* model
+) {
+    if (model == nullptr || model->state == nullptr) {
+        throw std::invalid_argument(
+            "Llama/Mistral model handle must not be null"
+        );
+    }
+}
+
 void require_program_augmented_model(
     const rt_program_augmented_model* model
 ) {
@@ -1199,6 +1244,49 @@ riftco_transformer::ExecutionBackend model_backend(
     return parameters.front().parameter->value().backend();
 }
 
+riftco_transformer::LlamaMistralConfig checked_llama_mistral_config(
+    const rt_llama_mistral_config* config
+) {
+    if (config == nullptr) {
+        throw std::invalid_argument(
+            "Llama/Mistral config must not be null"
+        );
+    }
+    checked_structure_size(
+        config->struct_size,
+        sizeof(rt_llama_mistral_config),
+        "Llama/Mistral config structure"
+    );
+    riftco_transformer::LlamaMistralConfig result{
+        checked_llama_mistral_architecture(config->architecture),
+        checked_size(config->vocabulary_size, "vocabulary size"),
+        checked_size(config->maximum_context, "maximum context"),
+        checked_size(config->model_width, "model width"),
+        checked_size(config->query_head_count, "query head count"),
+        checked_size(
+            config->key_value_head_count,
+            "key/value head count"
+        ),
+        checked_size(config->block_count, "block count"),
+        checked_size(
+            config->feed_forward_width,
+            "feed-forward width"
+        ),
+        config->rms_norm_epsilon,
+        config->rope_theta,
+        std::nullopt,
+    };
+    if (config->sliding_window != 0) {
+        result.sliding_window = checked_size(
+            config->sliding_window,
+            "sliding window"
+        );
+    }
+    return riftco_transformer::validate_llama_mistral_config(
+        std::move(result)
+    );
+}
+
 riftco_transformer::programmed::ProgramAugmentedModelConfig
 checked_program_augmented_model_config(
     const rt_program_augmented_model_config* config
@@ -1389,6 +1477,88 @@ std::vector<float> checked_f32_values(
         result.push_back(values[index]);
     }
     return result;
+}
+
+bool same_parameter_identity(
+    const riftco_transformer::ParameterList& first,
+    const riftco_transformer::ParameterList& second
+) {
+    if (first.size() != second.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < first.size(); ++index) {
+        if (first[index].name != second[index].name ||
+            first[index].parameter != second[index].parameter) {
+            return false;
+        }
+    }
+    return true;
+}
+
+struct ParameterReplacement {
+    riftco_transformer::Parameter* parameter;
+    riftco_transformer::Tensor value;
+};
+
+std::vector<ParameterReplacement> prepare_parameter_replacements(
+    const riftco_transformer::ParameterList& parameters,
+    const float* values,
+    std::uint64_t value_count,
+    const char* description
+) {
+    const std::size_t expected =
+        riftco_transformer::parameter_count(parameters);
+    const std::size_t count = checked_size(value_count, description);
+    if (count != expected) {
+        throw std::invalid_argument(
+            std::string(description) +
+            " must exactly match the parameter list"
+        );
+    }
+    const std::vector<float> checked = checked_f32_values(
+        values,
+        value_count,
+        description
+    );
+
+    std::vector<ParameterReplacement> replacements;
+    replacements.reserve(parameters.size());
+    std::size_t offset = 0;
+    for (const auto& named_parameter : parameters) {
+        auto* parameter = named_parameter.parameter;
+        if (parameter == nullptr) {
+            throw std::invalid_argument(
+                "parameter list contains a null parameter"
+            );
+        }
+        const auto& old_value = parameter->value();
+        const std::size_t parameter_size = old_value.numel();
+        replacements.push_back({
+            parameter,
+            riftco_transformer::Tensor(
+                old_value.shape(),
+                std::vector<float>(
+                    checked.begin() + static_cast<std::ptrdiff_t>(offset),
+                    checked.begin() + static_cast<std::ptrdiff_t>(
+                        offset + parameter_size
+                    )
+                ),
+                old_value.backend()
+            ),
+        });
+        offset += parameter_size;
+    }
+    return replacements;
+}
+
+void commit_parameter_replacements(
+    std::vector<ParameterReplacement> replacements
+) {
+    // All validation and allocations have completed. Same-shape,
+    // same-backend replacement is non-allocating and clears gradients.
+    for (auto& replacement : replacements) {
+        replacement.parameter->set_value(std::move(replacement.value));
+    }
 }
 
 riftco_transformer::programmed::ProgramAugmentedForwardOptions
@@ -1610,6 +1780,300 @@ void write_lora_config(
         static_cast<rt_lora_target_mask>(config.targets),
         0,
     };
+}
+
+constexpr std::array<std::uint8_t, 8> kPackedModelStateMagic{
+    'R', 'T', 'N', 'F', '4', 'S', '1', '\0'
+};
+
+void append_u32_le(std::vector<std::uint8_t>& output, std::uint32_t value) {
+    for (unsigned int shift = 0; shift < 32; shift += 8) {
+        output.push_back(static_cast<std::uint8_t>(value >> shift));
+    }
+}
+
+void append_u64_le(std::vector<std::uint8_t>& output, std::uint64_t value) {
+    for (unsigned int shift = 0; shift < 64; shift += 8) {
+        output.push_back(static_cast<std::uint8_t>(value >> shift));
+    }
+}
+
+void append_f32_le(std::vector<std::uint8_t>& output, float value) {
+    append_u32_le(output, std::bit_cast<std::uint32_t>(value));
+}
+
+void append_f32_values_le(
+    std::vector<std::uint8_t>& output,
+    std::span<const float> values
+) {
+    for (const float value : values) {
+        append_f32_le(output, value);
+    }
+}
+
+std::vector<std::uint8_t> packed_model_state_bytes(
+    const riftco_transformer::DecoderOnlyTransformer& model
+) {
+    const auto weights = model.packed_linear_weight_state();
+    std::vector<std::uint8_t> output(
+        kPackedModelStateMagic.begin(),
+        kPackedModelStateMagic.end()
+    );
+    append_u64_le(
+        output,
+        checked_u64(weights.size(), "packed model weight count")
+    );
+    for (const auto& weight : weights) {
+        const auto& payload = weight.payload;
+        const bool double_quantized =
+            payload.double_quantized_scales.has_value();
+        const auto scale_code_count = double_quantized
+                                          ? payload.double_quantized_scales
+                                                ->scale_codes.size()
+                                          : 0U;
+        const auto second_scale_count = double_quantized
+                                            ? payload
+                                                  .double_quantized_scales
+                                                  ->second_level_scales.size()
+                                            : 0U;
+        const auto scale_block_size = double_quantized
+                                          ? payload.double_quantized_scales
+                                                ->scale_block_size
+                                          : 0U;
+        const float offset = double_quantized
+                                 ? payload.double_quantized_scales->offset
+                                 : 0.0F;
+        append_u64_le(output, checked_u64(weight.shape.size(), "NF4 rank"));
+        append_u64_le(
+            output,
+            checked_u64(weight.block_size, "NF4 block size")
+        );
+        append_u64_le(
+            output,
+            checked_u64(payload.packed_codes.size(), "NF4 packed code count")
+        );
+        append_u64_le(
+            output,
+            checked_u64(payload.block_scales.size(), "NF4 block scale count")
+        );
+        append_u64_le(
+            output,
+            checked_u64(scale_code_count, "NF4 scale code count")
+        );
+        append_u64_le(
+            output,
+            checked_u64(second_scale_count, "NF4 second-level scale count")
+        );
+        append_u64_le(
+            output,
+            checked_u64(scale_block_size, "NF4 scale block size")
+        );
+        append_f32_le(output, offset);
+        append_u32_le(output, double_quantized ? 1U : 0U);
+        for (const std::size_t dimension : weight.shape) {
+            append_u64_le(output, checked_u64(dimension, "NF4 dimension"));
+        }
+        output.insert(
+            output.end(),
+            payload.packed_codes.begin(),
+            payload.packed_codes.end()
+        );
+        append_f32_values_le(output, payload.block_scales);
+        if (double_quantized) {
+            const auto& nested = *payload.double_quantized_scales;
+            output.insert(
+                output.end(),
+                nested.scale_codes.begin(),
+                nested.scale_codes.end()
+            );
+            append_f32_values_le(output, nested.second_level_scales);
+        }
+    }
+    return output;
+}
+
+class PackedModelStateReader {
+public:
+    explicit PackedModelStateReader(std::span<const std::uint8_t> bytes)
+        : remaining_(bytes) {}
+
+    [[nodiscard]] std::span<const std::uint8_t> take(
+        std::size_t count,
+        const char* description
+    ) {
+        if (count > remaining_.size()) {
+            throw std::invalid_argument(
+                std::string("truncated packed model state: ") + description
+            );
+        }
+        const auto result = remaining_.first(count);
+        remaining_ = remaining_.subspan(count);
+        return result;
+    }
+
+    [[nodiscard]] std::uint32_t u32(const char* description) {
+        const auto bytes = take(4, description);
+        std::uint32_t value = 0;
+        for (std::size_t index = 0; index < bytes.size(); ++index) {
+            value |= static_cast<std::uint32_t>(bytes[index]) << (index * 8U);
+        }
+        return value;
+    }
+
+    [[nodiscard]] std::uint64_t u64(const char* description) {
+        const auto bytes = take(8, description);
+        std::uint64_t value = 0;
+        for (std::size_t index = 0; index < bytes.size(); ++index) {
+            value |= static_cast<std::uint64_t>(bytes[index]) << (index * 8U);
+        }
+        return value;
+    }
+
+    [[nodiscard]] float f32(const char* description) {
+        return std::bit_cast<float>(u32(description));
+    }
+
+    [[nodiscard]] bool empty() const noexcept { return remaining_.empty(); }
+    [[nodiscard]] std::size_t remaining_size() const noexcept {
+        return remaining_.size();
+    }
+
+private:
+    std::span<const std::uint8_t> remaining_;
+};
+
+std::vector<riftco_transformer::PackedLinearWeightState>
+parse_packed_model_state(std::span<const std::uint8_t> bytes) {
+    PackedModelStateReader reader(bytes);
+    const auto magic = reader.take(
+        kPackedModelStateMagic.size(),
+        "magic"
+    );
+    if (!std::equal(
+            magic.begin(), magic.end(), kPackedModelStateMagic.begin()
+        )) {
+        throw std::invalid_argument("unknown packed model state format");
+    }
+    const std::size_t count = checked_size(
+        reader.u64("weight count"),
+        "packed model weight count"
+    );
+    constexpr std::size_t minimum_entry_bytes = 80;
+    if (count == 0 || count > reader.remaining_size() / minimum_entry_bytes) {
+        throw std::invalid_argument(
+            "packed model state weight count is inconsistent with its size"
+        );
+    }
+    std::vector<riftco_transformer::PackedLinearWeightState> result;
+    result.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::size_t rank = checked_size(
+            reader.u64("rank"), "NF4 rank"
+        );
+        if (rank != 2) {
+            throw std::invalid_argument(
+                "packed decoder Linear weights must have rank two"
+            );
+        }
+        const std::size_t block_size = checked_size(
+            reader.u64("block size"), "NF4 block size"
+        );
+        const std::size_t packed_count = checked_size(
+            reader.u64("packed code count"), "NF4 packed code count"
+        );
+        const std::size_t block_scale_count = checked_size(
+            reader.u64("block scale count"), "NF4 block scale count"
+        );
+        const std::size_t scale_code_count = checked_size(
+            reader.u64("scale code count"), "NF4 scale code count"
+        );
+        const std::size_t second_scale_count = checked_size(
+            reader.u64("second-level scale count"),
+            "NF4 second-level scale count"
+        );
+        const std::size_t scale_block_size = checked_size(
+            reader.u64("scale block size"), "NF4 scale block size"
+        );
+        const std::uint32_t offset_bits = reader.u32("scale offset");
+        const float offset = std::bit_cast<float>(offset_bits);
+        const std::uint32_t flags = reader.u32("flags");
+        if (flags > 1U) {
+            throw std::invalid_argument("packed model state has unknown flags");
+        }
+        const bool double_quantized = flags == 1U;
+        if ((!double_quantized &&
+             (scale_code_count != 0 || second_scale_count != 0 ||
+              scale_block_size != 0 || offset_bits != 0U)) ||
+            (double_quantized &&
+             (block_scale_count != 0 || scale_block_size == 0))) {
+            throw std::invalid_argument(
+                "packed model state has inconsistent NF4 scale metadata"
+            );
+        }
+
+        std::size_t required_payload_bytes = rank * sizeof(std::uint64_t);
+        const auto add_required = [&](std::size_t value,
+                                      std::size_t element_size) {
+            if (value >
+                (std::numeric_limits<std::size_t>::max() -
+                 required_payload_bytes) /
+                    element_size) {
+                throw std::overflow_error(
+                    "packed model state entry size exceeds addressable memory"
+                );
+            }
+            required_payload_bytes += value * element_size;
+        };
+        add_required(packed_count, sizeof(std::uint8_t));
+        add_required(block_scale_count, sizeof(float));
+        add_required(scale_code_count, sizeof(std::uint8_t));
+        add_required(second_scale_count, sizeof(float));
+        if (required_payload_bytes > reader.remaining_size()) {
+            throw std::invalid_argument(
+                "truncated packed model state: weight payload"
+            );
+        }
+
+        riftco_transformer::QuantizedWeight::Shape shape;
+        shape.reserve(rank);
+        for (std::size_t dimension = 0; dimension < rank; ++dimension) {
+            shape.push_back(checked_size(
+                reader.u64("dimension"), "NF4 dimension"
+            ));
+        }
+        const auto packed = reader.take(packed_count, "packed codes");
+        riftco_transformer::Nf4Payload payload;
+        payload.packed_codes.assign(packed.begin(), packed.end());
+        payload.block_scales.reserve(block_scale_count);
+        for (std::size_t scale = 0; scale < block_scale_count; ++scale) {
+            payload.block_scales.push_back(reader.f32("block scale"));
+        }
+        if (double_quantized) {
+            riftco_transformer::Nf4DoubleQuantizedScales nested;
+            const auto scale_codes = reader.take(
+                scale_code_count, "scale codes"
+            );
+            nested.scale_codes.assign(scale_codes.begin(), scale_codes.end());
+            nested.second_level_scales.reserve(second_scale_count);
+            for (std::size_t scale = 0; scale < second_scale_count; ++scale) {
+                nested.second_level_scales.push_back(
+                    reader.f32("second-level scale")
+                );
+            }
+            nested.scale_block_size = scale_block_size;
+            nested.offset = offset;
+            payload.double_quantized_scales.emplace(std::move(nested));
+        }
+        result.push_back({
+            std::move(shape), block_size, std::move(payload)
+        });
+    }
+    if (!reader.empty()) {
+        throw std::invalid_argument(
+            "packed model state contains trailing bytes"
+        );
+    }
+    return result;
 }
 
 }  // namespace
@@ -2875,6 +3339,178 @@ rt_status RT_CALL rt_transformer_config_init(
     });
 }
 
+rt_status RT_CALL rt_llama_mistral_config_init(
+    rt_llama_mistral_config* config,
+    uint64_t config_size
+) {
+    return guard([&] {
+        if (config == nullptr) {
+            throw std::invalid_argument(
+                "Llama/Mistral config must not be null"
+            );
+        }
+        checked_structure_size(
+            config_size,
+            sizeof(rt_llama_mistral_config),
+            "Llama/Mistral config structure"
+        );
+        *config = {
+            config_size,
+            RT_LLAMA_MISTRAL_ARCHITECTURE_LLAMA,
+            5489U,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1.0e-5F,
+            10000.0F,
+            0,
+        };
+    });
+}
+
+rt_status RT_CALL rt_llama_mistral_model_create(
+    const rt_llama_mistral_config* config,
+    rt_llama_mistral_model** output
+) {
+    return guard([&] {
+        require_output(output);
+        auto native_config = checked_llama_mistral_config(config);
+        std::mt19937 random(config->random_seed);
+        const riftco_transformer::ScopedExecutionBackend
+            construction_backend(
+                riftco_transformer::ExecutionBackend::Cpu
+            );
+        auto state = std::make_shared<LlamaMistralState>(
+            std::move(native_config),
+            random
+        );
+        auto result = std::make_unique<rt_llama_mistral_model>(
+            rt_llama_mistral_model{std::move(state)}
+        );
+        *output = result.release();
+    });
+}
+
+void RT_CALL rt_llama_mistral_model_release(
+    rt_llama_mistral_model* model
+) {
+    delete model;
+}
+
+rt_status RT_CALL rt_llama_mistral_model_to(
+    rt_llama_mistral_model* model,
+    rt_backend backend
+) {
+    return guard([&] {
+        require_llama_mistral_model(model);
+        if (model->state->active_variables.load(
+                std::memory_order_relaxed
+            ) != 0) {
+            throw std::invalid_argument(
+                "cannot move a Llama/Mistral model while variable graphs "
+                "are alive"
+            );
+        }
+        if (model->state->active_optimizers.load(
+                std::memory_order_relaxed
+            ) != 0) {
+            throw std::invalid_argument(
+                "cannot move a Llama/Mistral model while optimizers are alive"
+            );
+        }
+        require_epoch_increment_available(*model->state);
+        model->state->value.to(checked_backend(backend));
+        model->state->parameter_epoch.fetch_add(
+            1,
+            std::memory_order_relaxed
+        );
+    });
+}
+
+rt_status RT_CALL rt_llama_mistral_model_backend(
+    const rt_llama_mistral_model* model,
+    rt_backend* output
+) {
+    return guard([&] {
+        require_llama_mistral_model(model);
+        if (output == nullptr) {
+            throw std::invalid_argument("backend output must not be null");
+        }
+        *output = c_backend(model->state->value.backend());
+    });
+}
+
+rt_status RT_CALL rt_llama_mistral_model_forward(
+    const rt_llama_mistral_model* model,
+    const uint32_t* token_ids,
+    uint64_t token_count,
+    uint64_t batch_size,
+    uint64_t sequence_length,
+    rt_variable** output
+) {
+    return guard([&] {
+        require_output(output);
+        require_llama_mistral_model(model);
+        const std::size_t native_batch = checked_size(
+            batch_size,
+            "batch size"
+        );
+        const std::size_t native_sequence = checked_size(
+            sequence_length,
+            "sequence length"
+        );
+        const std::size_t expected_count = checked_product(
+            native_batch,
+            native_sequence,
+            "token shape"
+        );
+        const auto values = checked_token_ids(
+            token_ids,
+            token_count,
+            "token IDs"
+        );
+        if (values.size() != expected_count) {
+            throw std::invalid_argument(
+                "token count must match batch and sequence sizes"
+            );
+        }
+        auto graph = std::make_shared<VariableGraphState>(
+            model->state->parameter_epoch.load(
+                std::memory_order_relaxed
+            )
+        );
+        auto result = std::make_unique<rt_variable>(
+            model->state,
+            std::move(graph),
+            model->state->value.forward(
+                values,
+                {native_batch, native_sequence}
+            )
+        );
+        *output = result.release();
+    });
+}
+
+rt_status RT_CALL rt_llama_mistral_model_parameters(
+    rt_llama_mistral_model* model,
+    rt_parameter_list** output
+) {
+    return guard([&] {
+        require_output(output);
+        require_llama_mistral_model(model);
+        auto result = std::make_unique<rt_parameter_list>(
+            model->state,
+            model->state->value.parameters(),
+            false
+        );
+        *output = result.release();
+    });
+}
+
 rt_status RT_CALL rt_decode_session_options_init(
     rt_decode_session_options* options,
     uint64_t options_size
@@ -3310,6 +3946,80 @@ rt_status RT_CALL rt_model_quantized_memory_stats(
     });
 }
 
+rt_status RT_CALL rt_model_packed_state_size(
+    const rt_model* model,
+    uint64_t* output
+) {
+    return guard([&] {
+        require_model(model);
+        if (output == nullptr) {
+            throw std::invalid_argument(
+                "packed model state size output must not be null"
+            );
+        }
+        const auto bytes = packed_model_state_bytes(model->state->value);
+        *output = checked_u64(bytes.size(), "packed model state size");
+    });
+}
+
+rt_status RT_CALL rt_model_packed_state_copy(
+    const rt_model* model,
+    uint8_t* output,
+    uint64_t output_size
+) {
+    return guard([&] {
+        require_model(model);
+        const auto bytes = packed_model_state_bytes(model->state->value);
+        const std::size_t native_size = checked_size(
+            output_size, "packed model state output size"
+        );
+        if (native_size != bytes.size()) {
+            throw std::invalid_argument(
+                "packed model state output size does not match"
+            );
+        }
+        if (output == nullptr && native_size != 0) {
+            throw std::invalid_argument(
+                "packed model state output must not be null"
+            );
+        }
+        std::copy(bytes.begin(), bytes.end(), output);
+    });
+}
+
+rt_status RT_CALL rt_model_packed_state_load(
+    rt_model* model,
+    const uint8_t* state,
+    uint64_t state_size
+) {
+    return guard([&] {
+        require_model(model);
+        const std::size_t native_size = checked_size(
+            state_size, "packed model state size"
+        );
+        if (state == nullptr && native_size != 0) {
+            throw std::invalid_argument(
+                "packed model state input must not be null"
+            );
+        }
+        if (model->state->active_variables.load(
+                std::memory_order_relaxed
+            ) != 0) {
+            throw std::invalid_argument(
+                "cannot restore packed model state while variable graphs are alive"
+            );
+        }
+        require_no_active_decode_sessions(
+            *model->state,
+            "restore packed model state"
+        );
+        const auto parsed = parse_packed_model_state(
+            std::span<const std::uint8_t>(state, native_size)
+        );
+        model->state->value.load_packed_linear_weight_state(parsed);
+    });
+}
+
 rt_status RT_CALL rt_model_forward(
     const rt_model* model,
     const uint32_t* token_ids,
@@ -3599,6 +4309,71 @@ rt_status RT_CALL rt_model_lora_parameters(
     });
 }
 
+rt_status RT_CALL rt_model_frozen_parameters_load_from_host_f32(
+    rt_model* model,
+    const rt_adam* adapter_optimizer,
+    const float* values,
+    uint64_t value_count
+) {
+    return guard([&] {
+        require_model(model);
+        require_adam(adapter_optimizer);
+        if (adapter_optimizer->owner != model->state) {
+            throw std::invalid_argument(
+                "adapter Adam and model must share the same owner"
+            );
+        }
+        if (!model->state->value.has_lora()) {
+            throw std::invalid_argument(
+                "frozen-parameter restore requires an attached LoRA adapter"
+            );
+        }
+        if (model->state->active_optimizers.load(
+                std::memory_order_relaxed
+            ) != 1) {
+            throw std::invalid_argument(
+                "frozen-parameter restore requires the supplied Adam to be "
+                "the model's sole live optimizer"
+            );
+        }
+        const auto adapter_parameters =
+            model->state->value.lora_parameters();
+        if (!same_parameter_identity(
+                adapter_optimizer->parameter_identity,
+                adapter_parameters
+            )) {
+            throw std::invalid_argument(
+                "Adam must own the model's complete LoRA parameter list"
+            );
+        }
+        if (model->state->active_variables.load(
+                std::memory_order_relaxed
+            ) != 0) {
+            throw std::invalid_argument(
+                "cannot restore frozen parameters while variable graphs are alive"
+            );
+        }
+        require_no_active_decode_sessions(
+            *model->state,
+            "restore frozen parameters"
+        );
+        require_epoch_increment_available(*model->state);
+
+        auto base_parameters = model->state->value.parameters();
+        auto replacements = prepare_parameter_replacements(
+            base_parameters,
+            values,
+            value_count,
+            "frozen parameter value count"
+        );
+        commit_parameter_replacements(std::move(replacements));
+        model->state->parameter_epoch.fetch_add(
+            1,
+            std::memory_order_relaxed
+        );
+    });
+}
+
 rt_status RT_CALL rt_model_merge_lora(rt_model* model) {
     return guard([&] {
         require_model(model);
@@ -3864,35 +4639,6 @@ rt_status RT_CALL rt_parameter_list_load_from_host_f32(
 ) {
     return guard([&] {
         require_parameter_list(parameters);
-        const std::size_t total =
-            riftco_transformer::parameter_count(parameters->value);
-        const std::size_t count = checked_size(
-            value_count,
-            "parameter value count"
-        );
-        if (count != total) {
-            throw std::invalid_argument(
-                "parameter value count must exactly match the "
-                "parameter list"
-            );
-        }
-        if (total != 0 && values == nullptr) {
-            throw std::invalid_argument(
-                "parameter values must not be null"
-            );
-        }
-        if (total != 0 &&
-            !std::all_of(
-                values,
-                values + total,
-                [](float value) {
-                    return std::isfinite(value);
-                }
-            )) {
-            throw std::invalid_argument(
-                "parameter values must all be finite"
-            );
-        }
         if (parameters->owner->active_variables.load(
                 std::memory_order_relaxed
             ) != 0) {
@@ -3912,41 +4658,13 @@ rt_status RT_CALL rt_parameter_list_load_from_host_f32(
             "load parameters"
         );
         require_epoch_increment_available(*parameters->owner);
-
-        struct Replacement {
-            riftco_transformer::Parameter* parameter;
-            riftco_transformer::Tensor value;
-        };
-        std::vector<Replacement> replacements;
-        replacements.reserve(parameters->value.size());
-
-        std::size_t offset = 0;
-        for (const auto& named_parameter : parameters->value) {
-            auto* parameter = named_parameter.parameter;
-            const auto& old_value = parameter->value();
-            const std::size_t parameter_size = old_value.numel();
-            std::vector<float> replacement_values(
-                values + offset,
-                values + offset + parameter_size
-            );
-            replacements.push_back({
-                parameter,
-                riftco_transformer::Tensor(
-                    old_value.shape(),
-                    std::move(replacement_values),
-                    old_value.backend()
-                ),
-            });
-            offset += parameter_size;
-        }
-
-        // All validation and allocations have completed. Same-shape,
-        // same-backend replacement is non-allocating and clears the gradient.
-        for (auto& replacement : replacements) {
-            replacement.parameter->set_value(
-                std::move(replacement.value)
-            );
-        }
+        auto replacements = prepare_parameter_replacements(
+            parameters->value,
+            values,
+            value_count,
+            "parameter value count"
+        );
+        commit_parameter_replacements(std::move(replacements));
         parameters->owner->parameter_epoch.fetch_add(
             1,
             std::memory_order_relaxed
@@ -4320,6 +5038,165 @@ rt_status RT_CALL rt_adam_state_payload_bytes(
         *output = checked_u64(
             adam->value.state_payload_bytes(),
             "Adam state payload bytes"
+        );
+    });
+}
+
+rt_status RT_CALL rt_adam_state_get(
+    const rt_adam* adam,
+    rt_adam_state* output_state
+) {
+    return guard([&] {
+        require_adam(adam);
+        if (output_state == nullptr) {
+            throw std::invalid_argument(
+                "Adam state output must not be null"
+            );
+        }
+        checked_structure_size(
+            output_state->struct_size,
+            sizeof(rt_adam_state),
+            "Adam state structure"
+        );
+        const std::uint64_t structure_size =
+            output_state->struct_size;
+        *output_state = {
+            structure_size,
+            checked_u64(
+                adam->value.step_count(), "Adam state step count"
+            ),
+            adam->value.beta1_power(),
+            adam->value.beta2_power(),
+            checked_u64(
+                adam->value.state_value_count(),
+                "Adam state value count"
+            ),
+        };
+    });
+}
+
+rt_status RT_CALL rt_adam_state_copy_to_host_f32(
+    const rt_adam* adam,
+    float* output_parameter_values,
+    float* output_first_moments,
+    float* output_second_moments,
+    uint64_t value_capacity
+) {
+    return guard([&] {
+        require_adam(adam);
+        if (adam->owner->active_variables.load(
+                std::memory_order_relaxed
+            ) != 0) {
+            throw std::invalid_argument(
+                "cannot capture Adam state while variable graphs are alive"
+            );
+        }
+        const std::size_t capacity = checked_size(
+            value_capacity, "Adam state output capacity"
+        );
+        const std::size_t required =
+            adam->value.state_value_count();
+        if (capacity < required) {
+            throw std::invalid_argument(
+                "Adam state output capacity is too small"
+            );
+        }
+        if (required != 0 &&
+            (output_parameter_values == nullptr ||
+             output_first_moments == nullptr ||
+             output_second_moments == nullptr)) {
+            throw std::invalid_argument(
+                "Adam state outputs must not be null"
+            );
+        }
+        const riftco_transformer::AdamState state =
+            adam->value.state();
+        std::copy(
+            state.parameter_values.begin(),
+            state.parameter_values.end(),
+            output_parameter_values
+        );
+        std::copy(
+            state.first_moments.begin(),
+            state.first_moments.end(),
+            output_first_moments
+        );
+        std::copy(
+            state.second_moments.begin(),
+            state.second_moments.end(),
+            output_second_moments
+        );
+    });
+}
+
+rt_status RT_CALL rt_adam_state_load_from_host_f32(
+    rt_adam* adam,
+    const rt_adam_state* state,
+    const float* parameter_values,
+    const float* first_moments,
+    const float* second_moments,
+    uint64_t value_count
+) {
+    return guard([&] {
+        require_adam(adam);
+        if (state == nullptr) {
+            throw std::invalid_argument(
+                "Adam state input must not be null"
+            );
+        }
+        checked_structure_size(
+            state->struct_size,
+            sizeof(rt_adam_state),
+            "Adam state structure"
+        );
+        const std::size_t count = checked_size(
+            value_count, "Adam state value count"
+        );
+        if (checked_size(
+                state->value_count,
+                "Adam state declared value count"
+            ) != count ||
+            count != adam->value.state_value_count()) {
+            throw std::invalid_argument(
+                "Adam state value count does not match the optimizer"
+            );
+        }
+        if (adam->owner->active_variables.load(
+                std::memory_order_relaxed
+            ) != 0) {
+            throw std::invalid_argument(
+                "cannot restore Adam state while variable graphs are alive"
+            );
+        }
+        require_no_active_decode_sessions(
+            *adam->owner, "restore Adam state"
+        );
+        require_epoch_increment_available(*adam->owner);
+
+        riftco_transformer::AdamState native_state;
+        native_state.step_count = checked_size(
+            state->step_count, "Adam state step count"
+        );
+        native_state.beta1_power = state->beta1_power;
+        native_state.beta2_power = state->beta2_power;
+        native_state.parameter_values = checked_f32_values(
+            parameter_values,
+            value_count,
+            "Adam state parameter values"
+        );
+        native_state.first_moments = checked_f32_values(
+            first_moments,
+            value_count,
+            "Adam state first moments"
+        );
+        native_state.second_moments = checked_f32_values(
+            second_moments,
+            value_count,
+            "Adam state second moments"
+        );
+        adam->value.load_state(std::move(native_state));
+        adam->owner->parameter_epoch.fetch_add(
+            1, std::memory_order_relaxed
         );
     });
 }

@@ -36,6 +36,7 @@
         <a href="#backends">Backends</a>
         <a href="#experiment">Experiment</a>
         <a href="#interfaces">Composition</a>
+        <a href="docs/experiments/research_portfolio.html">Research</a>
         <a href="docs/">Docs</a>
       </nav>
       <div class="header-actions">
@@ -55,7 +56,7 @@
   <main id="main">
     <section class="hero shell">
       <div class="hero-copy" data-reveal>
-        <div class="eyebrow"><span class="status-dot"></span> Version 0.5.0 · C++20 · Apache-2.0</div>
+        <div class="eyebrow"><span class="status-dot"></span> Version 0.6.0 · C++20 · Apache-2.0</div>
         <h1>Build the transformer stack.<br><span>See every layer.</span></h1>
         <p class="hero-lede">An auditable decoder-only Transformer stack: Python owns training and research orchestration, while the C++20 runtime owns tensor math, autograd, models, Adam, serving primitives, accelerators, and programs compiled into attention.</p>
         <div class="hero-actions">
@@ -254,7 +255,7 @@ ctest --preset debug</code></pre>
 
 # Verify current flags with --help.</code></pre>
           </div>
-          <div class="console-footer"><span>C ABI 2.5</span><span>C++ package · Python ctypes</span></div>
+          <div class="console-footer"><span>C ABI 2.8</span><span>C++ package · Python ctypes</span></div>
         </div>
       </div>
     </section>
@@ -299,14 +300,17 @@ ctest --preset debug</code></pre>
         <div class="experiment-copy" data-reveal>
           <span class="section-kicker">Conditional-reversal lab</span>
           <h2>Can a program become a Transformer head?</h2>
-          <p>The framework now exposes generic compilation, lowering, ProgramAugmentedModel execution, stable traces, interventions, and target-time-range loss through ABI 2.5 and <code>riftco_transformer.programmed</code>. The Python lab owns sparse F/P/T/I specifications, data, training, evaluation, analysis, and reports.</p>
+          <p>The framework now exposes generic compilation, lowering, ProgramAugmentedModel execution, stable traces, interventions, and target-time-range loss through ABI 2.8 and <code>riftco_transformer.programmed</code>. The Python lab owns sparse F/P/T/I specifications, data, training, evaluation, analysis, and reports.</p>
           <div class="variant-row" aria-label="Lab-defined variants">
             <span><b>F</b> frozen compiled</span>
             <span><b>P</b> reverse-only control</span>
             <span><b>T</b> trainable random</span>
             <span><b>I</b> no program</span>
           </div>
-          <a class="button button-primary" href="docs/internals/compiling_to_transformers.html">Read the experiment boundary</a>
+          <div class="hero-actions">
+            <a class="button button-primary" href="docs/internals/compiling_to_transformers.html">Read the experiment boundary</a>
+            <a class="button button-secondary" href="docs/experiments/research_portfolio.html">Research portfolio <span>→</span></a>
+          </div>
         </div>
 
         <article class="result-card" data-reveal data-delay="1">
@@ -341,7 +345,7 @@ ctest --preset debug</code></pre>
         <div class="target-column">
           <span>runtime</span>
           <code>riftco_transformer::library</code>
-          <code>riftco_transformer::c_api · ABI 2.5</code>
+          <code>riftco_transformer::c_api · ABI 2.8</code>
         </div>
         <div class="target-column">
           <span>programming</span>
@@ -411,7 +415,8 @@ ctest --preset debug</code></pre>
           <section class="docs-group" data-reveal>
             <div class="docs-group-heading"><span>07</span><div><h3>Experiments</h3><p>Read protocols, evidence, limitations, and interpretation results.</p></div></div>
             <div class="docs-links">
-              <a href="docs/experiments/"><strong>Review the labs</strong><span>compiler · PCA · ablations · steering →</span></a>
+              <a href="docs/experiments/research_portfolio.html"><strong>Research portfolio</strong><span>neuro-symbolic learning · compiler · interpretation →</span></a>
+              <a href="docs/experiments/"><strong>Review the labs</strong><span>protocols · PCA · ablations · steering →</span></a>
             </div>
           </section>
 
@@ -456,7 +461,7 @@ ctest --preset debug</code></pre>
       <div class="footer-links"><strong>Build</strong><a href="docs/how-to/">How-to guides</a><a href="docs/reference/">Reference</a><a href="docs/internals/">Internals</a></div>
       <div class="footer-links"><strong>Project</strong><a href="https://github.com/quangng2000/riftco-transformer">GitHub</a><a href="https://pypi.org/project/riftco-transformer/">PyPI</a><a href="https://github.com/quangng2000/riftco-transformer/blob/main/LICENSE">Apache-2.0</a></div>
     </div>
-    <div class="shell footer-bottom"><span>© 2026 Quang T Nguyen</span><span>Version 0.5.0 · C ABI 2.5</span></div>
+    <div class="shell footer-bottom"><span>© 2026 Quang T Nguyen</span><span>Version 0.6.0 · C ABI 2.8</span></div>
   </footer>
 
   <dialog class="search-dialog" data-search-dialog aria-label="Search documentation">

@@ -5,7 +5,7 @@
 
 int main(void) {
     if (rt_abi_version() != RT_ABI_VERSION ||
-        RT_ABI_VERSION_MINOR != UINT32_C(5) ||
+        RT_ABI_VERSION_MINOR != UINT32_C(8) ||
         RT_BACKEND_CUDA != (rt_backend)2 ||
         RT_BACKEND_TPU != (rt_backend)3 ||
         RT_ADAM_STATE_PAGED != (rt_adam_state_storage_kind)1) {
@@ -197,6 +197,31 @@ int main(void) {
         context == NULL) {
         return EXIT_FAILURE;
     }
+
+    rt_llama_mistral_config llama;
+    if (rt_llama_mistral_config_init(
+            &llama,
+            (uint64_t)sizeof(llama)
+        ) != RT_STATUS_OK) {
+        rt_context_release(context);
+        return EXIT_FAILURE;
+    }
+    llama.vocabulary_size = 8;
+    llama.maximum_context = 4;
+    llama.model_width = 8;
+    llama.query_head_count = 4;
+    llama.key_value_head_count = 2;
+    llama.block_count = 1;
+    llama.feed_forward_width = 12;
+    rt_llama_mistral_model* llama_model = NULL;
+    if (rt_llama_mistral_model_create(&llama, &llama_model) !=
+            RT_STATUS_OK ||
+        llama_model == NULL) {
+        rt_llama_mistral_model_release(llama_model);
+        rt_context_release(context);
+        return EXIT_FAILURE;
+    }
+    rt_llama_mistral_model_release(llama_model);
 
     rt_context_release(context);
     return EXIT_SUCCESS;

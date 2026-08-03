@@ -265,7 +265,8 @@ layout.
 The standard-library-only Cajal compiler produces backend-neutral multilinear
 maps. `riftco_transformer::lowering` is the one-way bridge into tensor/autograd
 modules, and `riftco_transformer::programmed` composes a lowered core with
-generic learned feed-forward and causal-attention paths. ABI 2.5 exposes dense
+generic learned feed-forward and causal-attention paths. The ABI 2.5 addition
+exposes dense
 or sparse map import, `ProgramAugmentedModel`, owning representation traces,
 interventions, and time-range cross entropy; the installed
 `riftco_transformer.programmed` package wraps that lifecycle.

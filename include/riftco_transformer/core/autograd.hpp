@@ -71,6 +71,7 @@ private:
   evaluate_gradients(const Tensor &seed_gradient) const;
   void replace_leaf_value(Tensor value);
   void replace_leaf_state(Tensor value, Tensor gradient) noexcept;
+  [[nodiscard]] bool has_pending_gradient() const noexcept;
 
   friend class Parameter;
   friend Variable operator+(const Variable &, const Variable &);

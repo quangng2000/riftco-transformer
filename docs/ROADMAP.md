@@ -166,11 +166,19 @@ seeded run reproduces its batch sequence.
   caching by default — complete slice
 - versioned `ModelBundle` save/load for configuration, named float32 weights,
   and exact byte/BPE tokenizer state — complete slice
+- strict F32 SafeTensors plus lossless current-architecture Hugging Face-style
+  directory and GGUF v3 import/export — complete slice
+- ONNX opset-18 inference export with dynamic batch/sequence axes, bounded
+  exact canonical Riftco re-import, input guards, and a required
+  tokenizer/artifact sidecar — complete slice; arbitrary graphs remain
+  intentionally unsupported; a pinned official-checker/shape-inference/ONNX
+  Runtime oracle lane remains release-infrastructure work
 - dependency-free in-process and local HTTP serving adapters — complete slice
 - a persistent native artifact contract with integrity and identity
 - response-only post-training loss masks
-- resumable `TrainingCheckpoint` state, including Adam moments/step and
-  data/random-generator progress
+- resumable `.riftckpt` `TrainingCheckpoint` state for FP32 full/LoRA and
+  packed QLoRA runs, including Adam moments/step, exact NF4 payload identity,
+  and data/random-generator progress — complete slice
 - reproducible saved sample artifacts
 
 Native handoff acceptance check: a captured `ModelSnapshot` restores exact
@@ -182,7 +190,8 @@ tokenizer state, parameter values, logits, and seeded token IDs. Persistent
 native-artifact acceptance criteria remain future work.
 
 Checkpoint acceptance check: a resumed `TrainingCheckpoint` produces the same
-next batch, loss, gradients, and Adam update as an uninterrupted run.
+next batch, loss, gradients, and Adam update as an uninterrupted run — complete
+for built-in batch sources and FP32 full/LoRA plus packed-QLoRA training.
 
 ## 10. Cajal-lite program compiler — active
 
@@ -293,13 +302,16 @@ Only after correctness:
 - immutable blockwise NF4 weights, optional FP32 or default double-quantized
   scales, backend-neutral quantized-linear forward and input backward, CPU
   reference, Metal/CUDA kernels, TPU StableHLO execution, adapter-only QLoRA,
-  packed-memory diagnostics, and explicit FP32 export — complete slice;
-  packed artifacts remain future work, and real CUDA/TPU hardware acceptance
-  remains pending
+  packed-memory diagnostics, explicit FP32 export, and exact-resume packed
+  checkpoint state — complete slice; real CUDA/TPU hardware acceptance remains
+  pending
 - contiguous or bounded-page Adam moment storage — complete slice; paged
   storage caps each moment allocation and update request, but retains two FP32
   moment values per trainable scalar and is not a general spill/page-fault
   manager
+- additive ABI logical Adam and packed-model state capture/restore plus
+  independently versioned exact-resume `.riftckpt` archives — complete slice
+  for FP32 full/LoRA and packed QLoRA runs
 - contiguous/paged incremental decode-session lifecycle — complete
   slice
 - dependency-free exact memory-linear Flash causal-attention forward/backward,

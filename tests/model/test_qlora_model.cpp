@@ -25,6 +25,7 @@ using riftco_transformer::DecoderOnlyTransformer;
 using riftco_transformer::LoraConfig;
 using riftco_transformer::Module;
 using riftco_transformer::ParameterList;
+using riftco_transformer::PackedLinearWeightState;
 using riftco_transformer::QuantizedMemoryUsage;
 using riftco_transformer::Tensor;
 using riftco_transformer::TokenId;
@@ -78,6 +79,38 @@ void require_tensor_close(
             message + " at index " + std::to_string(index)
         );
     }
+}
+
+bool same_packed_state(
+    const std::vector<PackedLinearWeightState>& left,
+    const std::vector<PackedLinearWeightState>& right
+) {
+    if (left.size() != right.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto& a = left[index];
+        const auto& b = right[index];
+        if (a.shape != b.shape || a.block_size != b.block_size ||
+            a.payload.packed_codes != b.payload.packed_codes ||
+            a.payload.block_scales != b.payload.block_scales ||
+            a.payload.double_quantized_scales.has_value() !=
+                b.payload.double_quantized_scales.has_value()) {
+            return false;
+        }
+        if (a.payload.double_quantized_scales.has_value()) {
+            const auto& a_nested = *a.payload.double_quantized_scales;
+            const auto& b_nested = *b.payload.double_quantized_scales;
+            if (a_nested.scale_codes != b_nested.scale_codes ||
+                a_nested.second_level_scales !=
+                    b_nested.second_level_scales ||
+                a_nested.scale_block_size != b_nested.scale_block_size ||
+                a_nested.offset != b_nested.offset) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 template <typename Function>
@@ -289,12 +322,49 @@ void test_polymorphic_model_transfer_if_metal_available() {
     );
 }
 
+void test_packed_model_state_restore_is_transactional() {
+    std::mt19937 source_random(601U);
+    DecoderOnlyTransformer source(kDimensions, source_random);
+    source.quantize_linear_weights_nf4_double_quantized(32, 32);
+    const auto expected = source.packed_linear_weight_state();
+
+    std::mt19937 target_random(607U);
+    DecoderOnlyTransformer target(kDimensions, target_random);
+    target.quantize_linear_weights_nf4(64);
+    target.attach_lora(LoraConfig{
+        2,
+        4.0F,
+        613U,
+        riftco_transformer::kLoraDefaultTargets,
+    });
+    target.load_packed_linear_weight_state(expected);
+    require(
+        same_packed_state(target.packed_linear_weight_state(), expected),
+        "packed model restore preserves every NF4 byte and scale field"
+    );
+
+    auto invalid = expected;
+    ++invalid.front().shape.front();
+    const auto before_failure = target.packed_linear_weight_state();
+    require_throws(
+        [&] { target.load_packed_linear_weight_state(invalid); },
+        "packed model restore rejects a mismatched weight shape"
+    );
+    require(
+        same_packed_state(
+            target.packed_linear_weight_state(), before_failure
+        ),
+        "failed packed model restore leaves every resident weight unchanged"
+    );
+}
+
 }  // namespace
 
 int main() {
     try {
         test_model_qlora_training_and_fp32_export();
         test_polymorphic_model_transfer_if_metal_available();
+        test_packed_model_state_restore_is_transactional();
         std::cout << "QLoRA model tests passed\n";
         return 0;
     } catch (const std::exception& error) {

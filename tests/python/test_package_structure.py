@@ -9,7 +9,9 @@ import unittest
 
 import riftco_transformer
 import riftco_transformer.artifacts
+import riftco_transformer.checkpoints
 import riftco_transformer.data
+import riftco_transformer.interchange
 import riftco_transformer.native
 import riftco_transformer.post_training
 import riftco_transformer.pretraining
@@ -18,7 +20,9 @@ import riftco_transformer.serving
 import riftco_transformer.training
 from riftco_transformer import Tensor
 from riftco_transformer.artifacts import ModelBundle
+from riftco_transformer.checkpoints import TrainingCheckpoint
 from riftco_transformer.data import HuggingFaceDatasetClient
+from riftco_transformer.interchange import Float32Tensor
 from riftco_transformer.native import Tensor as NativeTensor
 from riftco_transformer.post_training import (
     CausalEvaluation,
@@ -42,6 +46,10 @@ class PackageStructureTests(unittest.TestCase):
     def test_public_types_are_owned_by_responsibility_packages(self) -> None:
         expected_modules = {
             ModelBundle: "riftco_transformer.artifacts.bundle",
+            TrainingCheckpoint: (
+                "riftco_transformer.checkpoints.checkpoint"
+            ),
+            Float32Tensor: "riftco_transformer.interchange.contracts",
             HuggingFaceDatasetClient: "riftco_transformer.data.client",
             CausalLanguageModelTrainer: "riftco_transformer.training.engine",
             PretrainingConfig: "riftco_transformer.pretraining.pipeline",
@@ -77,7 +85,9 @@ class PackageStructureTests(unittest.TestCase):
         packages = (
             riftco_transformer.native,
             riftco_transformer.artifacts,
+            riftco_transformer.checkpoints,
             riftco_transformer.data,
+            riftco_transformer.interchange,
             riftco_transformer.training,
             riftco_transformer.pretraining,
             riftco_transformer.post_training,

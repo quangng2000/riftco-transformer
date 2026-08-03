@@ -72,17 +72,18 @@ runtime.
 
 **Cause:** the experimental PJRT adapter has that explicit platform boundary.
 
-**Fix:** build the default TPU stub locally, or configure `tpu-release` on a
-Linux x86-64 Cloud TPU host.
+**Fix:** build the default TPU stub locally, use `tpu-release` for the Linux
+source/fake-PJRT boundary, or use `tpu-hardware` on a Cloud TPU host.
 
 ```bash
 export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
-cmake --preset tpu-release
-cmake --build --preset tpu-release
+cmake --preset tpu-hardware
+cmake --build --preset tpu-hardware
 ```
 
-**Verify:** run `ctest --preset tpu-release`. Fake-PJRT tests validate the
-loader contract off-device; they are not real TPU hardware validation.
+**Verify:** run `ctest --preset tpu-hardware`. It requires an addressable
+device and rejects the repository fake plugin. `ctest --preset tpu-release`
+validates only the source/fake-PJRT boundary off-device.
 
 ## Native backend selection
 
@@ -310,7 +311,7 @@ Use `.so` on Linux or `.dll` on Windows.
 
 ### C ABI mismatch
 
-**Symptom:** Python reports that it requires ABI 2.5 or a newer compatible
+**Symptom:** Python reports that it requires ABI 2.8 or a newer compatible
 minor but loaded another library.
 
 **Cause:** `RIFTCO_TRANSFORMER_LIBRARY` or system search found a stale or

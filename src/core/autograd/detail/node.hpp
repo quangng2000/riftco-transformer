@@ -16,6 +16,10 @@ struct Variable::Node {
     Tensor value;
     Tensor gradient;
     bool requires_gradient;
+    // Distinguishes untouched zero storage from a successful backward that
+    // produced an exactly-zero gradient. Optimizers must consume or
+    // explicitly clear the latter before exact-resume state is captured.
+    bool gradient_pending = false;
     std::uint64_t sequence;
     std::uint64_t value_version = 0;
     std::vector<std::shared_ptr<Node>> parents;

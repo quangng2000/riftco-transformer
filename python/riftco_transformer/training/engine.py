@@ -5,8 +5,10 @@ from __future__ import annotations
 from bisect import bisect_right
 from collections import deque
 from dataclasses import dataclass
+import hashlib
 import math
 import random
+import struct
 from typing import Callable, Protocol, Sequence
 
 from ..native import (
@@ -80,6 +82,41 @@ class BatchSource(Protocol):
 
     def next_batch(self) -> TrainingBatch:
         """Return the next rectangular causal-language-model batch."""
+
+
+@dataclass(frozen=True, slots=True)
+class BatchSourceState:
+    """Portable position for one fingerprinted built-in batch source."""
+
+    source_type: str
+    fingerprint: str
+    batches_emitted: int
+    random_state: tuple[object, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_type, str) or not self.source_type:
+            raise ValueError("source_type must be a nonempty string")
+        if (
+            not isinstance(self.fingerprint, str)
+            or len(self.fingerprint) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in self.fingerprint
+            )
+        ):
+            raise ValueError("fingerprint must be a lowercase SHA-256 digest")
+        _nonnegative_integer(self.batches_emitted, "batches_emitted")
+        _validate_random_state(self.random_state)
+
+
+class CheckpointableBatchSource(BatchSource, Protocol):
+    """Optional exact-resume extension for a training batch source."""
+
+    def checkpoint_state(self) -> BatchSourceState:
+        """Capture the current dataset position and sampling RNG."""
+
+    def restore_checkpoint_state(self, state: BatchSourceState) -> None:
+        """Restore a state after validating its dataset fingerprint."""
 
 
 class MetricSink(Protocol):
@@ -168,7 +205,10 @@ class RandomWindowBatchSource:
         context_size: int,
         random_seed: int,
     ) -> None:
-        self._tokens = tuple(tokens)
+        self._tokens = tuple(
+            _token_id(token, f"tokens[{index}]")
+            for index, token in enumerate(tokens)
+        )
         self._batch_size = _positive_integer(batch_size, "batch_size")
         self._context_size = _positive_integer(
             context_size,
@@ -181,6 +221,13 @@ class RandomWindowBatchSource:
         self._random = random.Random(
             _nonnegative_integer(random_seed, "random_seed")
         )
+        self._batches_emitted = 0
+        self._fingerprint = _batch_source_fingerprint(
+            "random_window",
+            (self._tokens,),
+            self._batch_size,
+            self._context_size,
+        )
 
     def next_batch(self) -> TrainingBatch:
         start_count = len(self._tokens) - self._context_size
@@ -191,7 +238,28 @@ class RandomWindowBatchSource:
             stop = start + self._context_size
             inputs.append(self._tokens[start:stop])
             targets.append(self._tokens[start + 1 : stop + 1])
-        return TrainingBatch(tuple(inputs), tuple(targets))
+        batch = TrainingBatch(tuple(inputs), tuple(targets))
+        self._batches_emitted += 1
+        return batch
+
+    def checkpoint_state(self) -> BatchSourceState:
+        return BatchSourceState(
+            source_type="random_window",
+            fingerprint=self._fingerprint,
+            batches_emitted=self._batches_emitted,
+            random_state=self._random.getstate(),
+        )
+
+    def restore_checkpoint_state(self, state: BatchSourceState) -> None:
+        _restore_batch_source_state(
+            state,
+            expected_type="random_window",
+            expected_fingerprint=self._fingerprint,
+            random_generator=self._random,
+            set_position=lambda value: setattr(
+                self, "_batches_emitted", value
+            ),
+        )
 
 
 class SequenceWindowBatchSource:
@@ -218,7 +286,10 @@ class SequenceWindowBatchSource:
         cumulative_window_counts: list[int] = []
         total = 0
         for sequence in sequences:
-            copied = tuple(sequence)
+            copied = tuple(
+                _token_id(token, f"sequences[{len(usable_sequences)}][{index}]")
+                for index, token in enumerate(sequence)
+            )
             window_count = len(copied) - self._context_size
             if window_count <= 0:
                 continue
@@ -234,6 +305,13 @@ class SequenceWindowBatchSource:
             cumulative_window_counts
         )
         self._total_window_count = total
+        self._batches_emitted = 0
+        self._fingerprint = _batch_source_fingerprint(
+            "sequence_window",
+            self._sequences,
+            self._batch_size,
+            self._context_size,
+        )
 
     def next_batch(self) -> TrainingBatch:
         inputs: list[TokenRow] = []
@@ -254,7 +332,28 @@ class SequenceWindowBatchSource:
             sequence = self._sequences[sequence_index]
             inputs.append(sequence[start:stop])
             targets.append(sequence[start + 1 : stop + 1])
-        return TrainingBatch(tuple(inputs), tuple(targets))
+        batch = TrainingBatch(tuple(inputs), tuple(targets))
+        self._batches_emitted += 1
+        return batch
+
+    def checkpoint_state(self) -> BatchSourceState:
+        return BatchSourceState(
+            source_type="sequence_window",
+            fingerprint=self._fingerprint,
+            batches_emitted=self._batches_emitted,
+            random_state=self._random.getstate(),
+        )
+
+    def restore_checkpoint_state(self, state: BatchSourceState) -> None:
+        _restore_batch_source_state(
+            state,
+            expected_type="sequence_window",
+            expected_fingerprint=self._fingerprint,
+            random_generator=self._random,
+            set_position=lambda value: setattr(
+                self, "_batches_emitted", value
+            ),
+        )
 
 
 class ExampleWindowBatchSource:
@@ -281,8 +380,14 @@ class ExampleWindowBatchSource:
             _nonnegative_integer(random_seed, "random_seed")
         )
         usable_sequences: list[TokenRow] = []
-        for sequence in sequences:
-            copied = tuple(sequence)
+        for sequence_index, sequence in enumerate(sequences):
+            copied = tuple(
+                _token_id(
+                    token,
+                    f"sequences[{sequence_index}][{token_index}]",
+                )
+                for token_index, token in enumerate(sequence)
+            )
             if len(copied) > self._context_size:
                 usable_sequences.append(copied)
         self._sequences = tuple(usable_sequences)
@@ -290,6 +395,13 @@ class ExampleWindowBatchSource:
             raise ValueError(
                 "no sequence contains at least context_size + 1 tokens"
             )
+        self._batches_emitted = 0
+        self._fingerprint = _batch_source_fingerprint(
+            "example_window",
+            self._sequences,
+            self._batch_size,
+            self._context_size,
+        )
 
     def next_batch(self) -> TrainingBatch:
         inputs: list[TokenRow] = []
@@ -304,7 +416,28 @@ class ExampleWindowBatchSource:
             stop = start + self._context_size
             inputs.append(sequence[start:stop])
             targets.append(sequence[start + 1 : stop + 1])
-        return TrainingBatch(tuple(inputs), tuple(targets))
+        batch = TrainingBatch(tuple(inputs), tuple(targets))
+        self._batches_emitted += 1
+        return batch
+
+    def checkpoint_state(self) -> BatchSourceState:
+        return BatchSourceState(
+            source_type="example_window",
+            fingerprint=self._fingerprint,
+            batches_emitted=self._batches_emitted,
+            random_state=self._random.getstate(),
+        )
+
+    def restore_checkpoint_state(self, state: BatchSourceState) -> None:
+        _restore_batch_source_state(
+            state,
+            expected_type="example_window",
+            expected_fingerprint=self._fingerprint,
+            random_generator=self._random,
+            set_position=lambda value: setattr(
+                self, "_batches_emitted", value
+            ),
+        )
 
 
 def fixed_batches(source: BatchSource, count: int) -> tuple[TrainingBatch, ...]:
@@ -326,6 +459,10 @@ class CausalLanguageModelTrainer:
             raise TypeError("model must be a DecoderOnlyTransformer")
         if not isinstance(optimizer, Adam):
             raise TypeError("optimizer must be an Adam")
+        if not optimizer.owns_parameters_of(model):
+            raise ValueError(
+                "optimizer must own parameters from this exact model"
+            )
         if model.backend != optimizer.backend:
             raise ValueError("model and optimizer backends must match")
         self._model = model
@@ -440,9 +577,58 @@ def _token_id(value: object, name: str) -> int:
     return checked
 
 
+def _validate_random_state(state: object) -> None:
+    candidate = random.Random()
+    try:
+        candidate.setstate(state)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as error:
+        raise ValueError("random_state is not a valid Python RNG state") from error
+
+
+def _batch_source_fingerprint(
+    source_type: str,
+    sequences: Sequence[Sequence[int]],
+    batch_size: int,
+    context_size: int,
+) -> str:
+    digest = hashlib.sha256()
+    digest.update(b"riftco-transformer-batch-source-v1\0")
+    encoded_type = source_type.encode("ascii")
+    digest.update(struct.pack("<Q", len(encoded_type)))
+    digest.update(encoded_type)
+    digest.update(struct.pack("<QQQ", batch_size, context_size, len(sequences)))
+    for sequence in sequences:
+        digest.update(struct.pack("<Q", len(sequence)))
+        for token in sequence:
+            digest.update(struct.pack("<I", token))
+    return digest.hexdigest()
+
+
+def _restore_batch_source_state(
+    state: BatchSourceState,
+    *,
+    expected_type: str,
+    expected_fingerprint: str,
+    random_generator: random.Random,
+    set_position: Callable[[int], None],
+) -> None:
+    if not isinstance(state, BatchSourceState):
+        raise TypeError("state must be a BatchSourceState")
+    if state.source_type != expected_type:
+        raise ValueError("batch-source type does not match checkpoint")
+    if state.fingerprint != expected_fingerprint:
+        raise ValueError("batch-source dataset fingerprint does not match")
+    _validate_random_state(state.random_state)
+    # All validation has completed before either live field is changed.
+    random_generator.setstate(state.random_state)
+    set_position(state.batches_emitted)
+
+
 __all__ = [
     "BatchSource",
+    "BatchSourceState",
     "CausalLanguageModelTrainer",
+    "CheckpointableBatchSource",
     "ExampleWindowBatchSource",
     "MetricSink",
     "RandomWindowBatchSource",

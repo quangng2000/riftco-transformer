@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
+  "version": "0.6.0",
   "sections": [
     {
       "id": "get-started",
@@ -202,10 +202,40 @@
       "audience": ["Framework users", "Framework contributors"]
     },
     {
-      "source": "docs/TROUBLESHOOTING.md",
+      "source": "docs/TRAINING_CHECKPOINTS.md",
       "section": "how-to",
       "type": "How-to",
       "order": 6,
+      "summary": "Capture, validate, and restore exact FP32 full-training or LoRA Adam state, RNG state, and built-in batch-source position.",
+      "stability": "Stable",
+      "backends": ["CPU", "Metal", "CUDA", "TPU"],
+      "audience": ["Framework users", "Python developers"]
+    },
+    {
+      "source": "docs/MODEL_INTERCHANGE.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 7,
+      "summary": "Convert Riftco models through strict SafeTensors, Hugging Face-style, GGUF v3, and ONNX boundaries without hiding architecture incompatibility.",
+      "stability": "Experimental",
+      "backends": ["Backend-neutral"],
+      "audience": ["Framework users", "Python developers", "Deployment engineers"]
+    },
+    {
+      "source": "docs/TPU_VALIDATION.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 8,
+      "summary": "Run the Linux fake-PJRT source gate or the non-skippable real Cloud TPU hardware acceptance preset and record reproducible evidence.",
+      "stability": "Experimental",
+      "backends": ["TPU"],
+      "audience": ["Backend authors", "Framework contributors", "Release engineers"]
+    },
+    {
+      "source": "docs/TROUBLESHOOTING.md",
+      "section": "how-to",
+      "type": "How-to",
+      "order": 9,
       "summary": "Diagnose configuration, build, backend, shape, training, artifact, Python loading, and documentation failures.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
@@ -256,7 +286,7 @@
       "section": "reference",
       "type": "Reference",
       "order": 1,
-      "summary": "Look up C++ APIs, ABI 2.5 sparse maps/programmed models/traces/time-range loss, and the installed Python programmed surface.",
+      "summary": "Look up C++ APIs, ABI 2.8 model and optimizer surfaces, checkpoints, and model interchange.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["API consumers", "C++ developers", "Python developers"]
@@ -292,6 +322,16 @@
       "audience": ["New users", "Learners", "Contributors"]
     },
     {
+      "source": "docs/LLAMA_MISTRAL.md",
+      "section": "reference",
+      "type": "Reference",
+      "order": 5,
+      "summary": "Use the native dense Llama/Mistral topology and understand its strict config, sliding-window, tokenizer, checkpoint, and binding boundaries.",
+      "stability": "Experimental",
+      "backends": ["CPU reference"],
+      "audience": ["Framework users", "C++ developers", "Interchange contributors"]
+    },
+    {
       "source": "docs/PROJECT_STRUCTURE.md",
       "section": "internals",
       "type": "Explanation",
@@ -306,7 +346,7 @@
       "section": "internals",
       "type": "Explanation",
       "order": 2,
-      "summary": "Inspect backend selection, adapter contracts, ABI 2.5 programmed handles, accelerator scope, and the dependency-free Python client.",
+      "summary": "Inspect backend selection, adapter contracts, ABI 2.8 model/state handles, accelerator scope, and the dependency-free Python client.",
       "stability": "Experimental",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
       "audience": ["Backend authors", "C++ developers", "Python developers"]
@@ -322,10 +362,25 @@
       "audience": ["Researchers", "Compiler contributors", "Framework contributors"]
     },
     {
+      "source": "docs/RESEARCH_PORTFOLIO.md",
+      "section": "experiments",
+      "type": "Overview",
+      "order": 1,
+      "summary": "Trace Quang T. Nguyen's neuro-symbolic research direction from typed program compilation and neural lowering to transformer experiments, causal interpretation, and DreamCoder-inspired program learning.",
+      "stability": "Active",
+      "backends": ["Backend-neutral"],
+      "audience": ["Researchers", "Prospective collaborators", "Graduate admissions reviewers"],
+      "related": [
+        "docs/COMPILING_TO_TRANSFORMERS.md",
+        "docs/GENERALIZATION.md",
+        "docs/ROADMAP.md"
+      ]
+    },
+    {
       "source": "docs/DATASETS_AND_LORA_EXPERIMENTS.md",
       "section": "experiments",
       "type": "Tutorial",
-      "order": 1,
+      "order": 2,
       "summary": "Prepare audited Hugging Face data and run controlled TinyStories, Dolly, LoRA-rank, and fine-tuning comparisons.",
       "stability": "Experimental",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],
@@ -335,7 +390,7 @@
       "source": "docs/GENERALIZATION.md",
       "section": "experiments",
       "type": "How-to",
-      "order": 2,
+      "order": 3,
       "summary": "Measure train, validation, and held-out test behavior without using the test split for model or rank selection.",
       "stability": "Stable",
       "backends": ["CPU", "Metal", "CUDA", "TPU"],

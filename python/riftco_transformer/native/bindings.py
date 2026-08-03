@@ -13,9 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from .._numeric import positive_float32
+
 
 ABI_VERSION_MAJOR = 2
-ABI_VERSION_MINOR = 5
+ABI_VERSION_MINOR = 8
 ABI_VERSION = (ABI_VERSION_MAJOR << 16) | ABI_VERSION_MINOR
 
 STATUS_OK = 0
@@ -31,6 +33,9 @@ BACKEND_CPU = 0
 BACKEND_METAL = 1
 BACKEND_CUDA = 2
 BACKEND_TPU = 3
+
+LLAMA_MISTRAL_ARCHITECTURE_LLAMA = 0
+LLAMA_MISTRAL_ARCHITECTURE_MISTRAL = 1
 
 FULL_SEQUENCE_ATTENTION_MATERIALIZED = 0
 FULL_SEQUENCE_ATTENTION_FLASH = 1
@@ -80,6 +85,10 @@ _BACKEND_CODES = {
 }
 _BACKEND_NAMES = {
     value: key for key, value in _BACKEND_CODES.items()
+}
+_LLAMA_MISTRAL_ARCHITECTURE_CODES = {
+    "llama": LLAMA_MISTRAL_ARCHITECTURE_LLAMA,
+    "mistral": LLAMA_MISTRAL_ARCHITECTURE_MISTRAL,
 }
 _FULL_SEQUENCE_ATTENTION_CODES = {
     "materialized": FULL_SEQUENCE_ATTENTION_MATERIALIZED,
@@ -178,6 +187,10 @@ class _NativeModel(ctypes.Structure):
     pass
 
 
+class _NativeLlamaMistralModel(ctypes.Structure):
+    pass
+
+
 class _NativeDecodeSession(ctypes.Structure):
     pass
 
@@ -217,6 +230,24 @@ class _NativeTransformerConfig(ctypes.Structure):
         ("feed_forward_width", ctypes.c_uint64),
         ("random_seed", ctypes.c_uint32),
         ("layer_norm_epsilon", ctypes.c_float),
+    ]
+
+
+class _NativeLlamaMistralConfig(ctypes.Structure):
+    _fields_ = [
+        ("struct_size", ctypes.c_uint64),
+        ("architecture", ctypes.c_int32),
+        ("random_seed", ctypes.c_uint32),
+        ("vocabulary_size", ctypes.c_uint64),
+        ("maximum_context", ctypes.c_uint64),
+        ("model_width", ctypes.c_uint64),
+        ("query_head_count", ctypes.c_uint64),
+        ("key_value_head_count", ctypes.c_uint64),
+        ("block_count", ctypes.c_uint64),
+        ("feed_forward_width", ctypes.c_uint64),
+        ("rms_norm_epsilon", ctypes.c_float),
+        ("rope_theta", ctypes.c_float),
+        ("sliding_window", ctypes.c_uint64),
     ]
 
 
@@ -296,6 +327,16 @@ class _NativeAdamStepStats(ctypes.Structure):
         ("step", ctypes.c_uint64),
         ("gradient_norm", ctypes.c_double),
         ("clip_scale", ctypes.c_double),
+    ]
+
+
+class _NativeAdamState(ctypes.Structure):
+    _fields_ = [
+        ("struct_size", ctypes.c_uint64),
+        ("step_count", ctypes.c_uint64),
+        ("beta1_power", ctypes.c_double),
+        ("beta2_power", ctypes.c_double),
+        ("value_count", ctypes.c_uint64),
     ]
 
 
@@ -382,6 +423,7 @@ _ContextHandle = ctypes.POINTER(_NativeContext)
 _TokenizerHandle = ctypes.POINTER(_NativeTokenizer)
 _TensorHandle = ctypes.POINTER(_NativeTensor)
 _ModelHandle = ctypes.POINTER(_NativeModel)
+_LlamaMistralModelHandle = ctypes.POINTER(_NativeLlamaMistralModel)
 _DecodeSessionHandle = ctypes.POINTER(_NativeDecodeSession)
 _ParameterListHandle = ctypes.POINTER(_NativeParameterList)
 _VariableHandle = ctypes.POINTER(_NativeVariable)
@@ -829,6 +871,44 @@ def _configure_library(library: ctypes.CDLL) -> None:
         ctypes.c_uint64,
     ]
     library.rt_transformer_config_init.restype = ctypes.c_int32
+    library.rt_llama_mistral_config_init.argtypes = [
+        ctypes.POINTER(_NativeLlamaMistralConfig),
+        ctypes.c_uint64,
+    ]
+    library.rt_llama_mistral_config_init.restype = ctypes.c_int32
+    library.rt_llama_mistral_model_create.argtypes = [
+        ctypes.POINTER(_NativeLlamaMistralConfig),
+        ctypes.POINTER(_LlamaMistralModelHandle),
+    ]
+    library.rt_llama_mistral_model_create.restype = ctypes.c_int32
+    library.rt_llama_mistral_model_release.argtypes = [
+        _LlamaMistralModelHandle,
+    ]
+    library.rt_llama_mistral_model_release.restype = None
+    library.rt_llama_mistral_model_to.argtypes = [
+        _LlamaMistralModelHandle,
+        ctypes.c_int32,
+    ]
+    library.rt_llama_mistral_model_to.restype = ctypes.c_int32
+    library.rt_llama_mistral_model_backend.argtypes = [
+        _LlamaMistralModelHandle,
+        ctypes.POINTER(ctypes.c_int32),
+    ]
+    library.rt_llama_mistral_model_backend.restype = ctypes.c_int32
+    library.rt_llama_mistral_model_forward.argtypes = [
+        _LlamaMistralModelHandle,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_uint64,
+        ctypes.c_uint64,
+        ctypes.c_uint64,
+        ctypes.POINTER(_VariableHandle),
+    ]
+    library.rt_llama_mistral_model_forward.restype = ctypes.c_int32
+    library.rt_llama_mistral_model_parameters.argtypes = [
+        _LlamaMistralModelHandle,
+        ctypes.POINTER(_ParameterListHandle),
+    ]
+    library.rt_llama_mistral_model_parameters.restype = ctypes.c_int32
     library.rt_decode_session_options_init.argtypes = [
         ctypes.POINTER(_NativeDecodeSessionOptions),
         ctypes.c_uint64,
@@ -914,6 +994,23 @@ def _configure_library(library: ctypes.CDLL) -> None:
         ctypes.POINTER(_NativeQuantizedMemoryStats),
     ]
     library.rt_model_quantized_memory_stats.restype = ctypes.c_int32
+    library.rt_model_packed_state_size.argtypes = [
+        _ModelHandle,
+        ctypes.POINTER(ctypes.c_uint64),
+    ]
+    library.rt_model_packed_state_size.restype = ctypes.c_int32
+    library.rt_model_packed_state_copy.argtypes = [
+        _ModelHandle,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_uint64,
+    ]
+    library.rt_model_packed_state_copy.restype = ctypes.c_int32
+    library.rt_model_packed_state_load.argtypes = [
+        _ModelHandle,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_uint64,
+    ]
+    library.rt_model_packed_state_load.restype = ctypes.c_int32
     library.rt_model_forward.argtypes = [
         _ModelHandle,
         ctypes.POINTER(ctypes.c_uint32),
@@ -971,6 +1068,15 @@ def _configure_library(library: ctypes.CDLL) -> None:
         ctypes.POINTER(_ParameterListHandle),
     ]
     library.rt_model_lora_parameters.restype = ctypes.c_int32
+    library.rt_model_frozen_parameters_load_from_host_f32.argtypes = [
+        _ModelHandle,
+        _AdamHandle,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint64,
+    ]
+    library.rt_model_frozen_parameters_load_from_host_f32.restype = (
+        ctypes.c_int32
+    )
     library.rt_model_merge_lora.argtypes = [_ModelHandle]
     library.rt_model_merge_lora.restype = ctypes.c_int32
 
@@ -1129,6 +1235,28 @@ def _configure_library(library: ctypes.CDLL) -> None:
         ctypes.POINTER(ctypes.c_uint64),
     ]
     library.rt_adam_state_payload_bytes.restype = ctypes.c_int32
+    library.rt_adam_state_get.argtypes = [
+        _AdamHandle,
+        ctypes.POINTER(_NativeAdamState),
+    ]
+    library.rt_adam_state_get.restype = ctypes.c_int32
+    library.rt_adam_state_copy_to_host_f32.argtypes = [
+        _AdamHandle,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint64,
+    ]
+    library.rt_adam_state_copy_to_host_f32.restype = ctypes.c_int32
+    library.rt_adam_state_load_from_host_f32.argtypes = [
+        _AdamHandle,
+        ctypes.POINTER(_NativeAdamState),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint64,
+    ]
+    library.rt_adam_state_load_from_host_f32.restype = ctypes.c_int32
     library.rt_adam_step.argtypes = [
         _AdamHandle,
         ctypes.POINTER(_NativeAdamStepStats),
@@ -1614,6 +1742,102 @@ class TransformerConfig:
     random_seed: int = 5489
     layer_norm_epsilon: float = 1.0e-5
 
+    def __post_init__(self) -> None:
+        positive_float32(
+            self.layer_norm_epsilon,
+            "layer_norm_epsilon",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LlamaMistralConfig:
+    """Dense, trainable full-sequence Llama/Mistral topology."""
+
+    vocabulary_size: int
+    maximum_context: int
+    model_width: int
+    query_head_count: int
+    key_value_head_count: int
+    block_count: int
+    feed_forward_width: int
+    architecture: str = "llama"
+    random_seed: int = 5489
+    rms_norm_epsilon: float = 1.0e-5
+    rope_theta: float = 10000.0
+    sliding_window: int | None = None
+
+    def __post_init__(self) -> None:
+        maximum = (1 << 64) - 1
+        for name in (
+            "vocabulary_size",
+            "maximum_context",
+            "model_width",
+            "query_head_count",
+            "key_value_head_count",
+            "block_count",
+            "feed_forward_width",
+        ):
+            value = _unsigned_integer(getattr(self, name), maximum, name)
+            if value == 0:
+                raise ValueError(f"{name} must be greater than zero")
+            object.__setattr__(self, name, value)
+
+        architecture, _code = _choice_code(
+            self.architecture,
+            _LLAMA_MISTRAL_ARCHITECTURE_CODES,
+            "architecture",
+        )
+        object.__setattr__(self, "architecture", architecture)
+        object.__setattr__(
+            self,
+            "random_seed",
+            _unsigned_integer(
+                self.random_seed,
+                (1 << 32) - 1,
+                "random_seed",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "rms_norm_epsilon",
+            positive_float32(
+                self.rms_norm_epsilon,
+                "rms_norm_epsilon",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "rope_theta",
+            positive_float32(self.rope_theta, "rope_theta"),
+        )
+
+        if self.model_width % self.query_head_count != 0:
+            raise ValueError(
+                "model_width must be divisible by query_head_count"
+            )
+        if self.query_head_count % self.key_value_head_count != 0:
+            raise ValueError(
+                "query_head_count must be divisible by "
+                "key_value_head_count"
+            )
+        if (self.model_width // self.query_head_count) % 2 != 0:
+            raise ValueError("head width must be even for RoPE")
+
+        if self.sliding_window is not None:
+            window = _unsigned_integer(
+                self.sliding_window,
+                maximum,
+                "sliding_window",
+            )
+            if window == 0:
+                raise ValueError("sliding_window must be greater than zero")
+            if window < self.maximum_context:
+                raise ValueError(
+                    "sliding_window must cover maximum_context; narrow "
+                    "sliding-window attention is not implemented"
+                )
+            object.__setattr__(self, "sliding_window", window)
+
 
 @dataclass(frozen=True, slots=True)
 class ProgramAugmentedModelConfig:
@@ -1990,6 +2214,31 @@ class AdamStepStats:
     step: int
     gradient_norm: float
     clip_scale: float
+
+
+@dataclass(frozen=True, slots=True)
+class AdamOptions:
+    """Canonical native hyperparameters and physical state preferences."""
+
+    learning_rate: float
+    beta1: float
+    beta2: float
+    epsilon: float
+    maximum_gradient_norm: float
+    state_storage: str
+    page_size: int
+
+
+@dataclass(frozen=True, slots=True)
+class AdamState:
+    """Backend-neutral logical Adam state at a clean step boundary."""
+
+    step_count: int
+    beta1_power: float
+    beta2_power: float
+    parameter_values: tuple[float, ...]
+    first_moments: tuple[float, ...]
+    second_moments: tuple[float, ...]
 
 
 def backend_available(backend: str | int) -> bool:
@@ -3410,11 +3659,10 @@ class DecoderOnlyTransformer:
             (1 << 32) - 1,
             "random_seed",
         )
-        epsilon = float(config.layer_norm_epsilon)
-        if not math.isfinite(epsilon) or epsilon <= 0.0:
-            raise ValueError(
-                "layer_norm_epsilon must be finite and positive"
-            )
+        epsilon = positive_float32(
+            config.layer_norm_epsilon,
+            "layer_norm_epsilon",
+        )
         native_config.layer_norm_epsilon = epsilon
 
         output = _ModelHandle()
@@ -3692,6 +3940,88 @@ class DecoderOnlyTransformer:
                 ),
             )
 
+    @property
+    def packed_quantized_state(self) -> bytes:
+        """Copy the canonical packed NF4 state without FP32 materialization."""
+
+        with self._lock:
+            size = ctypes.c_uint64()
+            _check(
+                _native().rt_model_packed_state_size(
+                    self._native_handle(), ctypes.byref(size)
+                )
+            )
+            count = int(size.value)
+            array_type = ctypes.c_uint8 * count
+            output = array_type()
+            _check(
+                _native().rt_model_packed_state_copy(
+                    self._native_handle(), output, count
+                )
+            )
+            return bytes(output)
+
+    def load_packed_quantized_state(
+        self, state: bytes | bytearray | memoryview
+    ) -> None:
+        """Transactionally replace packed NF4 bases from canonical bytes."""
+
+        if not isinstance(state, (bytes, bytearray, memoryview)):
+            raise TypeError("state must be a bytes-like object")
+        try:
+            value = bytes(state)
+        except (TypeError, ValueError) as error:
+            raise TypeError(
+                "state must be a contiguous bytes-like object"
+            ) from error
+        array_type = ctypes.c_uint8 * len(value)
+        native_state = array_type.from_buffer_copy(value)
+        with self._lock:
+            _check(
+                _native().rt_model_packed_state_load(
+                    self._native_handle(), native_state, len(value)
+                )
+            )
+
+    def _load_frozen_parameter_values(
+        self,
+        optimizer: Adam,
+        values: Iterable[object],
+    ) -> None:
+        """Restore base values while the sole live Adam owns all adapters."""
+
+        if not isinstance(optimizer, Adam):
+            raise TypeError("optimizer must be an Adam")
+        try:
+            raw_values = tuple(values)
+        except TypeError as error:
+            raise TypeError("values must be an iterable of numbers") from error
+        converted: list[float] = []
+        for index, value in enumerate(raw_values):
+            if isinstance(value, bool):
+                raise TypeError(f"values[{index}] must be a number")
+            try:
+                number = float(value)
+            except (TypeError, ValueError) as error:
+                raise TypeError(
+                    f"values[{index}] must be a number"
+                ) from error
+            if not math.isfinite(number):
+                raise ValueError(f"values[{index}] must be finite")
+            converted.append(number)
+
+        array_type = ctypes.c_float * len(converted)
+        native_values = array_type(*converted) if converted else None
+        with self._lock:
+            _check(
+                _native().rt_model_frozen_parameters_load_from_host_f32(
+                    self._native_handle(),
+                    optimizer._native_handle(),
+                    native_values,
+                    len(converted),
+                )
+            )
+
     def parameters(self) -> ParameterList:
         """Return the stable base-model parameter collection."""
 
@@ -3827,6 +4157,162 @@ class DecoderOnlyTransformer:
 
     def __deepcopy__(self, _memo: object) -> DecoderOnlyTransformer:
         raise TypeError("model handles cannot be copied")
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+class LlamaMistralTransformer:
+    """Native dense Llama/Mistral model for full-sequence training."""
+
+    __slots__ = ("_config", "_handle", "_lock", "__weakref__")
+
+    def __init__(self, config: LlamaMistralConfig) -> None:
+        if not isinstance(config, LlamaMistralConfig):
+            raise TypeError("config must be a LlamaMistralConfig")
+
+        self._handle: _LlamaMistralModelHandle | None = None
+        self._lock = threading.RLock()
+        native_config = _NativeLlamaMistralConfig()
+        _check(
+            _native().rt_llama_mistral_config_init(
+                ctypes.byref(native_config),
+                ctypes.sizeof(native_config),
+            )
+        )
+        native_config.architecture = (
+            _LLAMA_MISTRAL_ARCHITECTURE_CODES[config.architecture]
+        )
+        native_config.random_seed = config.random_seed
+        native_config.vocabulary_size = config.vocabulary_size
+        native_config.maximum_context = config.maximum_context
+        native_config.model_width = config.model_width
+        native_config.query_head_count = config.query_head_count
+        native_config.key_value_head_count = config.key_value_head_count
+        native_config.block_count = config.block_count
+        native_config.feed_forward_width = config.feed_forward_width
+        native_config.rms_norm_epsilon = config.rms_norm_epsilon
+        native_config.rope_theta = config.rope_theta
+        native_config.sliding_window = (
+            0 if config.sliding_window is None else config.sliding_window
+        )
+
+        output = _LlamaMistralModelHandle()
+        _check(
+            _native().rt_llama_mistral_model_create(
+                ctypes.byref(native_config),
+                ctypes.byref(output),
+            )
+        )
+        if not output:
+            raise RuntimeError(
+                "native Llama/Mistral model creation succeeded without "
+                "a handle"
+            )
+        self._config = config
+        self._handle = output
+
+    def _native_handle(self) -> _LlamaMistralModelHandle:
+        if self._handle is None:
+            raise RuntimeError("Llama/Mistral model is closed")
+        return self._handle
+
+    @property
+    def config(self) -> LlamaMistralConfig:
+        return self._config
+
+    @property
+    def backend(self) -> str:
+        with self._lock:
+            output = ctypes.c_int32()
+            _check(
+                _native().rt_llama_mistral_model_backend(
+                    self._native_handle(),
+                    ctypes.byref(output),
+                )
+            )
+            return _backend_name(int(output.value))
+
+    def to(self, backend: str | int) -> LlamaMistralTransformer:
+        """Move all parameters transactionally and return this model."""
+
+        backend_code = _backend_code(backend)
+        with self._lock:
+            _check(
+                _native().rt_llama_mistral_model_to(
+                    self._native_handle(),
+                    backend_code,
+                )
+            )
+        return self
+
+    def parameters(self) -> ParameterList:
+        """Return all dense base-model parameters in stable name order."""
+
+        with self._lock:
+            output = _ParameterListHandle()
+            _check(
+                _native().rt_llama_mistral_model_parameters(
+                    self._native_handle(),
+                    ctypes.byref(output),
+                )
+            )
+            return ParameterList._from_native(self, output)
+
+    def __call__(self, tokens: Iterable[object]) -> Variable:
+        values, batch_size, sequence_length = _token_matrix(
+            tokens,
+            "tokens",
+        )
+        native_values = _native_u32_values(values)
+        with self._lock:
+            output = _VariableHandle()
+            _check(
+                _native().rt_llama_mistral_model_forward(
+                    self._native_handle(),
+                    native_values,
+                    len(values),
+                    batch_size,
+                    sequence_length,
+                    ctypes.byref(output),
+                )
+            )
+            return Variable._from_native(output, self, self._lock)
+
+    @property
+    def closed(self) -> bool:
+        with self._lock:
+            return self._handle is None
+
+    def close(self) -> None:
+        with self._lock:
+            handle = self._handle
+            if handle is None:
+                return
+            self._handle = None
+            _native().rt_llama_mistral_model_release(handle)
+
+    def __enter__(self) -> LlamaMistralTransformer:
+        with self._lock:
+            self._native_handle()
+            return self
+
+    def __exit__(
+        self,
+        _type: object,
+        _value: object,
+        _traceback: object,
+    ) -> None:
+        self.close()
+
+    def __copy__(self) -> LlamaMistralTransformer:
+        raise TypeError("Llama/Mistral model handles cannot be copied")
+
+    def __deepcopy__(self, _memo: object) -> LlamaMistralTransformer:
+        raise TypeError("Llama/Mistral model handles cannot be copied")
 
     def __del__(self) -> None:
         try:
@@ -4481,7 +4967,15 @@ def cross_entropy_time_range(
 class Adam:
     """Adam for a base-model or LoRA adapter parameter collection."""
 
-    __slots__ = ("_handle", "_lock", "_parameters", "__weakref__")
+    __slots__ = (
+        "_handle",
+        "_lock",
+        "_options",
+        "_parameter_names",
+        "_parameter_owner",
+        "_parameter_shapes",
+        "__weakref__",
+    )
 
     def __init__(
         self,
@@ -4502,7 +4996,9 @@ class Adam:
             )
         self._handle: _AdamHandle | None = None
         self._lock = parameters._lock
-        self._parameters = parameters
+        parameter_names = parameters.names
+        parameter_owner = parameters._model
+        parameter_shapes = parameters.shapes
 
         native_options = _NativeAdamOptions()
         _check(
@@ -4526,6 +5022,19 @@ class Adam:
             (1 << 64) - 1,
             "page_size",
         )
+        canonical_options = AdamOptions(
+            learning_rate=float(native_options.learning_rate),
+            beta1=float(native_options.beta1),
+            beta2=float(native_options.beta2),
+            epsilon=float(native_options.epsilon),
+            maximum_gradient_norm=float(
+                native_options.maximum_gradient_norm
+            ),
+            state_storage=_adam_state_storage_name(
+                int(native_options.state_storage)
+            ),
+            page_size=int(native_options.page_size),
+        )
 
         with self._lock:
             output = _AdamHandle()
@@ -4541,6 +5050,10 @@ class Adam:
                     "native Adam creation succeeded without a handle"
                 )
             self._handle = output
+            self._options = canonical_options
+            self._parameter_names = parameter_names
+            self._parameter_owner = parameter_owner
+            self._parameter_shapes = parameter_shapes
 
     def _native_handle(self) -> _AdamHandle:
         if self._handle is None:
@@ -4582,6 +5095,37 @@ class Adam:
                 )
             )
             return int(output.value)
+
+    @property
+    def parameter_names(self) -> tuple[str, ...]:
+        """Return the exact stable parameter identity owned by Adam."""
+
+        with self._lock:
+            self._native_handle()
+            return self._parameter_names
+
+    @property
+    def parameter_shapes(self) -> tuple[tuple[int, ...], ...]:
+        """Return optimizer parameter shapes in state-array order."""
+
+        with self._lock:
+            self._native_handle()
+            return self._parameter_shapes
+
+    def owns_parameters_of(self, model: object) -> bool:
+        """Return whether Adam was built from this exact model instance."""
+
+        with self._lock:
+            self._native_handle()
+            return self._parameter_owner is model
+
+    @property
+    def options(self) -> AdamOptions:
+        """Return the canonical options accepted by the native optimizer."""
+
+        with self._lock:
+            self._native_handle()
+            return self._options
 
     @property
     def state_storage(self) -> str:
@@ -4631,6 +5175,101 @@ class Adam:
             )
             return int(output.value)
 
+    def state(self) -> AdamState:
+        """Capture logical state at a clean post-step boundary."""
+
+        with self._lock:
+            native_state = _NativeAdamState()
+            native_state.struct_size = ctypes.sizeof(native_state)
+            _check(
+                _native().rt_adam_state_get(
+                    self._native_handle(),
+                    ctypes.byref(native_state),
+                )
+            )
+            count = int(native_state.value_count)
+            array_type = ctypes.c_float * count
+            parameter_values = array_type()
+            first_moments = array_type()
+            second_moments = array_type()
+            _check(
+                _native().rt_adam_state_copy_to_host_f32(
+                    self._native_handle(),
+                    parameter_values,
+                    first_moments,
+                    second_moments,
+                    count,
+                )
+            )
+            return AdamState(
+                step_count=int(native_state.step_count),
+                beta1_power=float(native_state.beta1_power),
+                beta2_power=float(native_state.beta2_power),
+                parameter_values=tuple(
+                    float(value) for value in parameter_values
+                ),
+                first_moments=tuple(
+                    float(value) for value in first_moments
+                ),
+                second_moments=tuple(
+                    float(value) for value in second_moments
+                ),
+            )
+
+    def load_state(self, state: AdamState) -> None:
+        """Transactionally restore trainable values and logical state."""
+
+        if not isinstance(state, AdamState):
+            raise TypeError("state must be an AdamState")
+        count = len(state.parameter_values)
+        if (
+            len(state.first_moments) != count
+            or len(state.second_moments) != count
+        ):
+            raise ValueError("Adam state arrays must have equal lengths")
+        native_arrays: list[ctypes.Array[ctypes.c_float]] = []
+        array_type = ctypes.c_float * count
+        for name, values in (
+            ("parameter_values", state.parameter_values),
+            ("first_moments", state.first_moments),
+            ("second_moments", state.second_moments),
+        ):
+            converted: list[float] = []
+            for index, value in enumerate(values):
+                if isinstance(value, bool):
+                    raise TypeError(f"{name}[{index}] must be a number")
+                try:
+                    converted_value = float(value)
+                except (TypeError, ValueError) as error:
+                    raise TypeError(
+                        f"{name}[{index}] must be a number"
+                    ) from error
+                if not math.isfinite(converted_value):
+                    raise ValueError(f"{name}[{index}] must be finite")
+                converted.append(converted_value)
+            native_arrays.append(array_type(*converted))
+
+        native_state = _NativeAdamState(
+            struct_size=ctypes.sizeof(_NativeAdamState),
+            step_count=_unsigned_integer(
+                state.step_count, (1 << 64) - 1, "step_count"
+            ),
+            beta1_power=float(state.beta1_power),
+            beta2_power=float(state.beta2_power),
+            value_count=count,
+        )
+        with self._lock:
+            _check(
+                _native().rt_adam_state_load_from_host_f32(
+                    self._native_handle(),
+                    ctypes.byref(native_state),
+                    native_arrays[0],
+                    native_arrays[1],
+                    native_arrays[2],
+                    count,
+                )
+            )
+
     def step(self) -> AdamStepStats:
         with self._lock:
             output = _NativeAdamStepStats()
@@ -4670,6 +5309,7 @@ class Adam:
                 return
             self._handle = None
             _native().rt_adam_release(handle)
+            self._parameter_owner = None
 
     def __enter__(self) -> Adam:
         with self._lock:
@@ -4727,6 +5367,8 @@ __all__ = [
     "LORA_TARGET_FF_PROJECT",
     "LORA_TARGET_LM_HEAD",
     "LORA_TARGET_NAMES",
+    "LLAMA_MISTRAL_ARCHITECTURE_LLAMA",
+    "LLAMA_MISTRAL_ARCHITECTURE_MISTRAL",
     "LOWERING_STRATEGY_AUTO",
     "LOWERING_STRATEGY_DENSE",
     "LOWERING_STRATEGY_LINEAR",
@@ -4736,10 +5378,14 @@ __all__ = [
     "TOKENIZER_METHOD_BPE",
     "TOKENIZER_METHOD_BYTE",
     "Adam",
+    "AdamOptions",
+    "AdamState",
     "AdamStepStats",
     "Context",
     "DecodeSession",
     "DecoderOnlyTransformer",
+    "LlamaMistralConfig",
+    "LlamaMistralTransformer",
     "LoraConfig",
     "MultilinearMap",
     "NeuralLoweringConfig",

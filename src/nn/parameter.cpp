@@ -189,6 +189,10 @@ Parameter::shared_state() const noexcept {
     return state_->weak_from_this().lock();
 }
 
+bool Parameter::has_pending_gradient() const noexcept {
+    return variable().has_pending_gradient();
+}
+
 const Variable& Parameter::variable() const noexcept {
     return state_->variable;
 }

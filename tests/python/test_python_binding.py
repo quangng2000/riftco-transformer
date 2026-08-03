@@ -26,6 +26,10 @@ from riftco_transformer import (  # noqa: E402
     LORA_TARGET_ATTENTION_VALUE,
     LORA_TARGET_DEFAULT,
     LORA_TARGET_NAMES,
+    LLAMA_MISTRAL_ARCHITECTURE_LLAMA,
+    LLAMA_MISTRAL_ARCHITECTURE_MISTRAL,
+    LlamaMistralConfig,
+    LlamaMistralTransformer,
     LoraConfig,
     MultilinearMap,
     NeuralLoweringConfig,
@@ -116,9 +120,127 @@ class PythonBindingTests(unittest.TestCase):
         self.assertFalse(_abi_version_is_compatible(0x00020002))
         self.assertFalse(_abi_version_is_compatible(0x00020003))
         self.assertFalse(_abi_version_is_compatible(0x00020004))
-        self.assertTrue(_abi_version_is_compatible(0x00020005))
-        self.assertTrue(_abi_version_is_compatible(0x00020006))
+        self.assertFalse(_abi_version_is_compatible(0x00020005))
+        self.assertFalse(_abi_version_is_compatible(0x00020006))
+        self.assertFalse(_abi_version_is_compatible(0x00020007))
+        self.assertTrue(_abi_version_is_compatible(0x00020008))
+        self.assertTrue(_abi_version_is_compatible(0x00020009))
         self.assertFalse(_abi_version_is_compatible(0x00030000))
+
+    def test_llama_mistral_config_and_one_adam_step(self) -> None:
+        self.assertEqual(LLAMA_MISTRAL_ARCHITECTURE_LLAMA, 0)
+        self.assertEqual(LLAMA_MISTRAL_ARCHITECTURE_MISTRAL, 1)
+        arguments = {
+            "vocabulary_size": 11,
+            "maximum_context": 4,
+            "model_width": 8,
+            "query_head_count": 4,
+            "key_value_head_count": 2,
+            "block_count": 1,
+            "feed_forward_width": 12,
+        }
+        with self.assertRaisesRegex(ValueError, "narrow"):
+            LlamaMistralConfig(
+                **arguments,
+                architecture="mistral",
+                sliding_window=3,
+            )
+        with self.assertRaisesRegex(ValueError, "RoPE"):
+            LlamaMistralConfig(
+                **{
+                    **arguments,
+                    "model_width": 12,
+                    "query_head_count": 4,
+                }
+            )
+
+        config = LlamaMistralConfig(
+            **arguments,
+            architecture="mistral",
+            sliding_window=4,
+            random_seed=313,
+        )
+        with LlamaMistralTransformer(config).to("cpu") as model:
+            self.assertEqual(model.config, config)
+            self.assertEqual(model.backend, "cpu")
+            with model.parameters() as parameters:
+                self.assertEqual(len(parameters), 12)
+                self.assertFalse(
+                    any(name.endswith(".bias") for name in parameters.names)
+                )
+                self.assertEqual(
+                    parameters.names[3],
+                    "blocks.0.attention.key.weight",
+                )
+                self.assertEqual(parameters.shapes[3], (4, 8))
+                before = parameters.flat_values()
+                with Adam(parameters, learning_rate=1.0e-2) as optimizer:
+                    with model([[1, 2, 3]]) as logits:
+                        self.assertEqual(logits.shape, (1, 3, 11))
+                        with cross_entropy(
+                            logits,
+                            [[2, 3, 4]],
+                        ) as loss:
+                            self.assertTrue(math.isfinite(loss.item()))
+                            loss.backward()
+                            stats = optimizer.step()
+                            self.assertEqual(stats.step, 1)
+                            self.assertTrue(
+                                math.isfinite(stats.gradient_norm)
+                            )
+                            self.assertGreater(stats.gradient_norm, 0.0)
+                            optimizer.zero_grad()
+                after = parameters.flat_values()
+                self.assertTrue(
+                    any(left != right for left, right in zip(before, after))
+                )
+
+    def test_layer_norm_epsilon_must_survive_positive_f32_conversion(
+        self,
+    ) -> None:
+        arguments = {
+            "vocabulary_size": 5,
+            "maximum_context": 4,
+            "model_width": 4,
+            "head_count": 2,
+            "block_count": 1,
+            "feed_forward_width": 8,
+        }
+        for description, invalid in (
+            ("overflow", 1.0e300),
+            ("underflow", 1.0e-50),
+        ):
+            with self.subTest(description=description):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "finite, strictly positive float32",
+                ):
+                    TransformerConfig(
+                        **arguments,
+                        layer_norm_epsilon=invalid,
+                    )
+
+                config = TransformerConfig(**arguments)
+                object.__setattr__(
+                    config,
+                    "layer_norm_epsilon",
+                    invalid,
+                )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "finite, strictly positive float32",
+                ):
+                    DecoderOnlyTransformer(config)
+
+        smallest_subnormal = float.fromhex("0x1p-149")
+        accepted = TransformerConfig(
+            **arguments,
+            layer_norm_epsilon=smallest_subnormal,
+        )
+        self.assertEqual(
+            accepted.layer_norm_epsilon,
+            smallest_subnormal,
+        )
 
     def test_sparse_multilinear_map_validation_and_close(self) -> None:
         with _sparse_identity_map() as identity:

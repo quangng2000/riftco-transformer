@@ -60,6 +60,15 @@
       }
     },
     {
+      "name": "tpu-hardware",
+      "displayName": "Cloud TPU hardware evidence gate (rejects repo fake)",
+      "inherits": "tpu-release",
+      "binaryDir": "${sourceDir}/build/tpu-hardware",
+      "cacheVariables": {
+        "RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU": "ON"
+      }
+    },
+    {
       "name": "sanitize",
       "displayName": "Debug with address and undefined-behavior sanitizers",
       "generator": "Ninja",
@@ -94,6 +103,10 @@
       "configurePreset": "tpu-release"
     },
     {
+      "name": "tpu-hardware",
+      "configurePreset": "tpu-hardware"
+    },
+    {
       "name": "sanitize",
       "configurePreset": "sanitize"
     }
@@ -123,6 +136,16 @@
     {
       "name": "tpu-release",
       "configurePreset": "tpu-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "tpu-hardware",
+      "configurePreset": "tpu-hardware",
+      "environment": {
+        "RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN": "1"
+      },
       "output": {
         "outputOnFailure": true
       }

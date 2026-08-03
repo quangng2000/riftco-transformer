@@ -81,6 +81,17 @@ def cmake_version(cmake_lists: str) -> str:
     return match.group(1)
 
 
+def python_string_constant(source: str, name: str) -> str:
+    match = re.search(
+        rf'^{re.escape(name)} = "([^"]+)"$',
+        source,
+        flags=re.MULTILINE,
+    )
+    if match is None:
+        fail(f"could not read Python constant {name}")
+    return match.group(1)
+
+
 def main(arguments: list[str]) -> int:
     if len(arguments) > 1:
         fail("usage: check_release_version.py [vMAJOR.MINOR.PATCH]")
@@ -121,6 +132,21 @@ def main(arguments: list[str]) -> int:
         fail(
             "CMake and Python versions differ: "
             f"{native_version} != {package_version}"
+        )
+    onnx_producer_version = python_string_constant(
+        (
+            root
+            / "python"
+            / "riftco_transformer"
+            / "interchange"
+            / "onnx.py"
+        ).read_text(encoding="utf-8"),
+        "ONNX_PRODUCER_VERSION",
+    )
+    if onnx_producer_version != package_version:
+        fail(
+            "ONNX producer version differs from the Python package: "
+            f"{onnx_producer_version} != {package_version}"
         )
 
     license_path = root / EXPECTED_LICENSE_FILE

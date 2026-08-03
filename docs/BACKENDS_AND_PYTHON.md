@@ -4,7 +4,7 @@ The backend layer owns tensor storage and focused accelerated operations
 without changing the transformer or autograd equations:
 
 ```text
-Python workflows/programmed models/tensors/Adam ──ctypes──→ stable C ABI 2.5
+Python workflows/programmed models/tensors/Adam ──ctypes──→ stable C ABI 2.8
                                          │
                                          ▼
                                 public C++ operations
@@ -70,8 +70,12 @@ not an end-to-end acceleration claim. The source/ABI boundary and no-device
 behavior are tested. A tests-only fake PJRT plugin also exercises the existing
 loader, client, compile, transfer, execute, and download paths. It recognizes
 the generated quantized-linear program contract and checks legacy and
-double-quantized forward/input-backward results against CPU oracles. Real
-`libtpu` and Cloud TPU hardware validation remain pending.
+double-quantized forward/input-backward results against CPU oracles. The
+eight-test TPU slice additionally rejects the repository fake in hardware mode
+and runs full, LoRA, and packed-QLoRA training,
+the C ABI, and Python serving. Real `libtpu` and Cloud TPU hardware validation
+remain pending; the exact non-skippable protocol is documented in
+[TPU validation](TPU_VALIDATION.md).
 
 ## Selecting a backend
 
@@ -262,23 +266,23 @@ clean unavailable behavior off-device. Configure it only on Linux x86-64:
 
 ```bash
 export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
-cmake --preset tpu-release
-cmake --build --preset tpu-release
-ctest --preset tpu-release
+cmake --preset tpu-hardware
+cmake --build --preset tpu-hardware
+ctest --preset tpu-hardware
 ```
 
 `RIFTCO_TRANSFORMER_TPU_LIBRARY` is the clearest way to select the runtime; the
 loader then falls back to `TPU_LIBRARY_PATH` and `libtpu.so`. Google distributes
 `libtpu` separately for Cloud TPU environments. It is an unavoidable external
 runtime for real TPU execution and is never bundled in this repository or its
-standard wheels. On a real device, configure the preset with
-`-DRIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON` so missing hardware fails the test
-run. The ordinary TPU CI job intentionally verifies only compilation and the
-no-runtime/no-device contract plus fake-PJRT happy paths. The fake checks the
-project's PJRT calls, matmul/attention parity, and the generated
-quantized-linear contract for both scale encodings. It emulates the resulting
-math; it is not a StableHLO compiler or a substitute for `libtpu` on real
-hardware.
+standard wheels. The `tpu-hardware` preset enables
+`RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON`, so missing hardware fails the run.
+The ordinary `tpu-release` CI gate verifies compilation, the
+no-runtime/no-device contract, and seven fake-PJRT paths. The fake checks the
+project's PJRT calls, matmul/attention parity, both quantized-linear scale
+encodings, training workflows, ABI use, and Python serving. It emulates the
+resulting math; it is not a StableHLO compiler or a substitute for `libtpu` on
+real hardware.
 
 ## What the CUDA slice does
 
@@ -573,7 +577,7 @@ flight. Python uses one shared reentrant lock for a model and its derived
 objects, which is why its concurrent `close()` behavior is stronger than the
 raw C contract.
 
-ABI version `0x00020005` represents the current version 2.5: the upper 16 bits
+ABI version `0x00020008` represents the current version 2.8: the upper 16 bits
 are the major and the lower 16 bits are the minor. Version 2.0 was the
 intentional breaking namespace reset. It exports only the `rt_` function/type
 prefix and `RT_` constants; no legacy symbol-prefix aliases are provided.
@@ -586,6 +590,11 @@ statistics without changing existing structures or numeric values. Version
 continuing to accept the original 2.3 structure prefix. Version 2.5 adds dense
 and sparse multilinear-map import, generic program-augmented model and trace
 handles, forward interventions, and contiguous time-range cross entropy.
+Version 2.6 additively exposes logical Adam parameter/moment/counter capture
+and transactional restore for exact-resume training checkpoints. Version 2.7
+adds canonical packed-NF4 state size, copy, and transactional-load calls for
+QLoRA checkpoints. Version 2.8 adds the dense full-sequence Llama/Mistral
+configuration, model, backend, forward, and base-parameter handles.
 Future major changes may break callers, while a minor change may only add
 compatible API. Clients accept
 the same major and an equal or newer minor. Published status and backend
@@ -733,7 +742,7 @@ stats = optimizer.step()
 print(loss.item(), stats.gradient_norm)
 ```
 
-The installed `riftco_transformer.programmed` package wraps the ABI 2.5 map,
+The installed `riftco_transformer.programmed` package wraps the ABI 2.8 map,
 model, intervention, and trace surfaces. `MultilinearMap.from_sparse(...)`
 accepts nonzero output-major flat indices without first building a dense Python
 list. `ProgramAugmentedModel` accepts a task-neutral model config and optional
@@ -804,7 +813,7 @@ The library contains the statically linked framework implementation behind the
 stable C ABI. A standard installed wheel has no third-party runtime
 dependencies; users of a matching wheel do not need CMake, a C++ compiler, a
 system-wide native installation, or `RIFTCO_TRANSFORMER_LIBRARY`. Standard
-wheels recognize `cuda` and `tpu` through ABI 2.5 but build their unavailable
+wheels recognize `cuda` and `tpu` through ABI 2.8 but build their unavailable
 stubs, so they do not require or silently load CUDA or `libtpu` runtimes.
 
 The initial binary matrix provides Linux `x86_64` and `aarch64` wheels for
@@ -925,15 +934,17 @@ establish kernel numerical parity without a visible NVIDIA GPU. That real-GPU
 acceptance run was not available on the macOS development host.
 
 TPU verification covers its additive ABI identity, unavailable-stub contract,
-C ABI/Python recognition, TPU-runtime source compilation on Linux, and fake-PJRT
-matmul, packed quantized-linear, and materialized/paged-attention execution. On
-a Cloud TPU host it
+C ABI/Python execution, TPU-runtime source compilation on Linux, fake-PJRT
+matmul, packed quantized-linear, materialized/paged-attention execution, one
+full/LoRA/QLoRA optimizer step, and Python serving. On a Cloud TPU host it
 additionally requires CPU/TPU transfer, batched matmul/autograd parity, both
 packed quantized-linear scale encodings and their input VJPs, materialized
-attention/VJP and paged-decode parity, and complete pretraining,
-Full/LoRA/QLoRA, evaluation, and serving smoke paths. Fake PJRT is an API
-emulator, not a StableHLO compiler or real-device acceptance test; actual
-Cloud TPU execution was not available on the macOS development host.
+attention/VJP and paged-decode parity, native full/LoRA/QLoRA optimizer steps,
+a disjoint evaluation loss, C ABI model training, Adam, Python pretraining,
+Python full/LoRA/QLoRA post-training with artifact handoff, and Python serving.
+Fake PJRT is an API emulator, not a StableHLO compiler or real-device
+acceptance test; actual Cloud TPU execution was not available on the macOS
+development host.
 
 On a real NVIDIA test host, make device absence a hard failure instead of a
 skip:
@@ -953,10 +964,9 @@ The equivalent hardware-required Cloud TPU gate is:
 
 ```bash
 export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
-cmake --preset tpu-release \
-  -DRIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON
-cmake --build --preset tpu-release
-ctest --preset tpu-release
+cmake --preset tpu-hardware
+cmake --build --preset tpu-hardware
+ctest --preset tpu-hardware
 ```
 
 The hosted TPU workflow covers the compile/no-device boundary and a tests-only

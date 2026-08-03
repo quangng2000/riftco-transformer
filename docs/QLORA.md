@@ -158,8 +158,20 @@ The runtime performs these steps:
 
 Step 5 intentionally has an export-time FP32 memory spike. It happens after
 the optimizer and training graph are released and does not weaken the packed
-training-memory guarantee. Packed artifact handoff is a separate future
-format milestone.
+training-memory guarantee. Exact-resume `.riftckpt` v2 archives can instead
+retain packed state during training; packed serving/distribution `.rift`
+artifacts remain a separate milestone.
+
+## Exact-resume checkpoints
+
+`TrainingCheckpoint.capture()` preserves every NF4 nibble and all legacy or
+double-quantized scale metadata alongside FP32 adapters, Adam moments, random
+state, and batch-source position. Restore requires a freshly constructed,
+fully quantized model with the same LoRA configuration and adapter-only Adam.
+It transactionally replaces the target's immutable bases from canonical bytes
+without allocating a full FP32 base matrix. Tests compare packed payload bytes,
+resident memory accounting, and the resumed optimization trajectory against an
+uninterrupted QLoRA run.
 
 The quantization targets and LoRA targets are independent: all
 $6\times\text{block_count}+1$ eligible linear weights are packed, while the
@@ -195,8 +207,9 @@ This milestone implements base NF4, optional legacy FP32 scales, default
 double-quantized scales, adapter-only Adam, bounded-page Adam state, packed
 linear execution across all four backends, and explicit FP32 export.
 Embeddings, normalization parameters, and biases stay FP32; the large eligible
-linear matrices are the packed base-weight scope. Packed serving/training
-artifacts remain a separate format milestone.
+linear matrices are the packed base-weight scope. Packed serving artifacts
+remain a separate format milestone; packed training continuation is covered by
+`.riftckpt` v2.
 
 Paged Adam divides each trainable parameter's two FP32 moment vectors into
 pages of at most `page_size` elements and submits one page update at a time.

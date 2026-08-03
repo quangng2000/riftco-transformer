@@ -175,14 +175,16 @@ These are intentionally different persistence contracts:
 - `ModelBundle` is the current inference, distribution, and stage-handoff
   contract. It stores model configuration, tokenizer state, named weights,
   lineage, and metadata.
-- `TrainingCheckpoint` is a future exact-resumption contract. It must add Adam
-  moments and step, the training step, data position, random-generator states,
-  and any schedule state.
+- `TrainingCheckpoint` is the independently versioned `.riftckpt`
+  exact-resumption contract. It stores FP32 full-model or active-LoRA values,
+  Adam moments/beta powers/step, the global step, Python random state, and the
+  fingerprinted position of a built-in batch source.
 
 Loading a `ModelBundle` and creating a new Adam optimizer starts a new training
 stage. It does **not** reproduce the next update of the run that created the
-bundle. Until `TrainingCheckpoint` exists, do not describe model-bundle
-save/load as resumable training.
+bundle. Use `TrainingCheckpoint.capture()` at a clean post-step boundary and
+restore it into a compatible fresh model, optimizer, and batch source when the
+same run must continue. See [Training checkpoints](TRAINING_CHECKPOINTS.md).
 
 ### Python supervised post-training
 
@@ -320,7 +322,7 @@ PYTHONPATH=python:. python3 -m labs.lora_rank.run --help
 ### Python generation and local serving
 
 `TextGenerator` performs single-request autoregressive generation. For a
-native `DecoderOnlyTransformer`, it uses the current stable ABI 2.5
+native `DecoderOnlyTransformer`, it uses the current stable ABI 2.8
 `DecodeSession` surface, prefills one token at a time,
 and then appends one generated token per step.
 Paged caching with 16-token pages is the default; callers can select the
@@ -440,7 +442,8 @@ small:
 - native serving is in process only; local HTTP belongs to the Python layer;
 - no masked response-only post-training loss;
 - no pairwise preference-training objective for prepared HH-RLHF data;
-- no resumable `TrainingCheckpoint`;
+- checkpoint v2 persists still-packed NF4/QLoRA base weights without an FP32
+  materialization boundary;
 - prefill is one token at a time; no batched-prefill kernel;
 - paged KV caching does not yet include request batching, continuous batching,
   a scheduler, or immutable-prefix sharing;

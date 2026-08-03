@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     riftco_transformer
-    VERSION 0.5.0
+    VERSION 0.6.0
     DESCRIPTION "An auditable dependency-free transformer framework"
     LANGUAGES C CXX
 )
@@ -10,7 +10,7 @@ project(
 include(GNUInstallDirs)
 find_package(Threads REQUIRED)
 
-set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.5.0)
+set(RIFTCO_TRANSFORMER_C_ABI_VERSION 2.8.0)
 string(REPLACE "." ";" riftco_transformer_c_abi_components
     "${RIFTCO_TRANSFORMER_C_ABI_VERSION}"
 )
@@ -107,6 +107,10 @@ add_library(riftco_transformer_library STATIC
     src/model/causal_self_attention.cpp
     src/model/decoder_only_transformer.cpp
     src/model/feed_forward.cpp
+    src/model/grouped_query_attention.cpp
+    src/model/llama_mistral_transformer.cpp
+    src/model/rotary_embedding.cpp
+    src/model/swiglu.cpp
     src/model/transformer_block.cpp
     src/optim/adam.cpp
     src/nn/activations.cpp
@@ -119,6 +123,7 @@ add_library(riftco_transformer_library STATIC
     src/nn/module.cpp
     src/nn/parameter.cpp
     src/nn/quantized_linear.cpp
+    src/nn/rms_norm.cpp
     src/stages/serving/config.cpp
     src/stages/serving/cache/contiguous_kv_cache.cpp
     src/stages/serving/cache/page_storage.cpp

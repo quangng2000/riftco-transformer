@@ -120,7 +120,7 @@ materialized attention and its VJPs, and paged decode; evaluation, loss, Flash
 attention, Adam, and other capabilities run through audited reference paths
 over host-mirrored storage. Full, LoRA, and QLoRA comparisons are functionally
 wired, but real-hardware validation is pending and selecting TPU is not yet a
-performance claim. Standard wheels expose the stable name through ABI 2.5 but
+performance claim. Standard wheels expose the stable name through ABI 2.8 but
 contain its unavailable stub. Keep one resolved backend for every candidate in
 a comparison.
 

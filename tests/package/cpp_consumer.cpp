@@ -6,6 +6,7 @@
 #include "riftco_transformer/lowering/lowering.hpp"
 #include "riftco_transformer/model/activation_checkpointing.hpp"
 #include "riftco_transformer/model/lora.hpp"
+#include "riftco_transformer/model/llama_mistral_transformer.hpp"
 #include "riftco_transformer/nn/module.hpp"
 #include "riftco_transformer/nn/quantized_linear.hpp"
 #include "riftco_transformer/stages/stages.hpp"
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <random>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -186,6 +188,30 @@ int main() {
         retained.front().name != "weight" ||
         retained.front().parameter == nullptr ||
         retained.front().parameter->value().flat(1) != 2.0F) {
+        return EXIT_FAILURE;
+    }
+
+    std::mt19937 llama_random(17U);
+    const riftco_transformer::LlamaMistralConfig llama_config{
+        riftco_transformer::LlamaMistralArchitecture::Llama,
+        8,
+        4,
+        8,
+        4,
+        2,
+        1,
+        12,
+    };
+    riftco_transformer::LlamaMistralTransformer llama(
+        llama_config,
+        llama_random
+    );
+    const std::array<riftco_transformer::TokenId, 2> llama_tokens{1, 2};
+    const riftco_transformer::Variable llama_logits = llama.forward(
+        llama_tokens,
+        {1, 2}
+    );
+    if (llama_logits.value().shape() != Tensor::Shape({1, 2, 8})) {
         return EXIT_FAILURE;
     }
 

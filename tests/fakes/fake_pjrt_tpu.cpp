@@ -1982,6 +1982,14 @@ PJRT_Api make_api() {
 #define RIFTCO_FAKE_PJRT_EXPORT
 #endif
 
+// The hardware-required CTest preset rejects this sentinel before accepting
+// a PJRT runtime. Keeping the marker in the plugin prevents an accidental
+// fake-PJRT run from being reported as Cloud TPU evidence.
+extern "C" RIFTCO_FAKE_PJRT_EXPORT int
+RiftcoTransformerTestOnlyFakePjrtTpu() {
+    return 1;
+}
+
 extern "C" RIFTCO_FAKE_PJRT_EXPORT const PJRT_Api* GetPjrtApi() {
     static const PJRT_Api api = make_api();
     return &api;

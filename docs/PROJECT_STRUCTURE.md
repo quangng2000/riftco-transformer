@@ -12,8 +12,8 @@ auditable without turning one experiment into framework API.
 | Reusable model/runtime state | C++ framework | tokenizer state, `ModelSnapshot`, native generation, KV cache |
 | Symbolic and interpretation primitives | C++ framework | Cajal compiler, neural lowering, generic program-augmented composition, PCA/ablation helpers |
 | Stable language boundary | C ABI | opaque handles and size-versioned structures used by `ctypes` |
-| Workflow policy | installed Python package | datasets, batches, training loops, pretraining, post-training, evaluation, bundles, HTTP serving |
-| Small usage demonstrations | `examples/python/` | one readable training run and three-stage artifact flow |
+| Workflow policy | installed Python package | datasets, batches, training loops, checkpoints, model interchange, evaluation, bundles, HTTP serving |
+| Small usage demonstrations | `examples/python/` | readable training, conversion, and three-stage artifact flows |
 | Research policy | top-level `labs/` | hypotheses, candidate sweeps, fixed seeds, held-out selection, reports |
 
 Labs are source-checkout modules. They are not included in the wheel, installed
@@ -143,6 +143,11 @@ validates a backend-neutral request, then selects an available capability.
 Hardware directories implement that contract without leaking CUDA, Metal, or
 PJRT types into tensors, neural layers, Adam, or Python.
 
+The model layer also keeps the experimental dense Llama/Mistral topology in
+separate reusable RMSNorm, RoPE, grouped-query-attention, SwiGLU, and full-model
+modules. It does not alter the stable `DecoderOnlyTransformer` parameter or
+artifact contract; see [the support matrix](LLAMA_MISTRAL.md).
+
 This separation supports extension without copying whole algorithms into every
 backend. A new kernel normally changes one capability contract/dispatcher,
 one reference test, and the hardware implementation that benefits from it.
@@ -158,6 +163,8 @@ python/riftco_transformer/
 ├── post_training/   Full/LoRA/QLoRA workflow and held-out evaluation
 ├── data/            preparation, adapters, splitting, verification
 ├── artifacts/       versioned `.rift` `ModelBundle`
+├── checkpoints/     exact-resume `.riftckpt` training state
+├── interchange/     SafeTensors, Hugging Face, GGUF, and ONNX adapters
 └── serving/         sampling, model service, chat, and local HTTP
 ```
 
@@ -174,6 +181,7 @@ examples/python/
 ├── prepare_huggingface_data.py
 ├── pretrain_stage.py
 ├── post_train_stage.py
+├── convert_model.py
 └── serve_stage.py
 
 labs/
@@ -201,20 +209,23 @@ deterministic data, sparse F/P/T/I specifications, training/evaluation policy,
 PCA, ablations, steering, and reports. The generic C++/C ABI/Python path is
 implemented without creating a task-specific native library. One archived
 record under `labs/conditional_reverse/reports/` preserves the retired native
-prototype's provenance, while two reviewed records cover the current ABI 2.5
+prototype's provenance, while two reviewed records cover the ABI 2.5
 QUICK and paper-F paths. None is current multi-seed reproduction evidence.
 
 ## State handoffs
 
-Two state contracts remain intentionally different:
+Three state contracts remain intentionally different:
 
 | Contract | Owner | Purpose | Persistent | Resumable training |
 | --- | --- | --- | --- | --- |
 | `ModelSnapshot` | C++ | in-process model/tokenizer state, including native serving restore | No | No |
 | `ModelBundle` | Python | immutable, checksummed stage handoff and distribution | Yes (`.rift`) | No |
+| `TrainingCheckpoint` | Python + C ABI state | exact continuation of FP32 full/LoRA or packed QLoRA Adam | Yes (`.riftckpt`) | Yes |
 
-Neither stores Adam moments, optimizer step, sampler position, or random state.
-A future exact `TrainingCheckpoint` is a separate contract.
+`TrainingCheckpoint` deliberately remains separate from `ModelBundle`: it
+stores logical Adam moments and counters plus RNG/data position, while the
+bundle stays a small inference and distribution artifact. Checkpoint v2 adds
+canonical packed QLoRA base state without changing the `.rift` contract.
 
 ## Tests
 
@@ -253,7 +264,7 @@ The installed package exports these concerns separately:
 | `riftco_transformer::analysis` | standard-library-only interpretation primitives |
 | `riftco_transformer::lowering` | one-way compiler-to-neural bridge |
 | `riftco_transformer::programmed` | generic programmed sequence and learned-model composition |
-| `riftco_transformer::c_api` | shared stable ABI 2.5 used by Python, including programmed handles |
+| `riftco_transformer::c_api` | shared stable ABI 2.8 used by Python, including Llama/Mistral, programmed, Adam-state, and packed-NF4 handles |
 
 `cmake/RiftcoTransformerBackends.cmake` owns hardware options;
 `RiftcoTransformerWarnings.cmake` and `RiftcoTransformerSanitizers.cmake` own

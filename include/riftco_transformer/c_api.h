@@ -20,7 +20,7 @@ extern "C" {
 #endif
 
 #define RT_ABI_VERSION_MAJOR UINT32_C(2)
-#define RT_ABI_VERSION_MINOR UINT32_C(5)
+#define RT_ABI_VERSION_MINOR UINT32_C(8)
 #define RT_ABI_VERSION \
     ((RT_ABI_VERSION_MAJOR << 16) | RT_ABI_VERSION_MINOR)
 
@@ -28,6 +28,7 @@ typedef struct rt_context rt_context;
 typedef struct rt_tensor rt_tensor;
 typedef struct rt_tokenizer rt_tokenizer;
 typedef struct rt_model rt_model;
+typedef struct rt_llama_mistral_model rt_llama_mistral_model;
 typedef struct rt_decode_session rt_decode_session;
 typedef struct rt_parameter_list rt_parameter_list;
 typedef struct rt_variable rt_variable;
@@ -64,6 +65,12 @@ typedef int32_t rt_activation_checkpointing_kind;
     ((rt_activation_checkpointing_kind)0)
 #define RT_ACTIVATION_CHECKPOINTING_TRANSFORMER_BLOCK \
     ((rt_activation_checkpointing_kind)1)
+
+typedef int32_t rt_llama_mistral_architecture;
+#define RT_LLAMA_MISTRAL_ARCHITECTURE_LLAMA \
+    ((rt_llama_mistral_architecture)0)
+#define RT_LLAMA_MISTRAL_ARCHITECTURE_MISTRAL \
+    ((rt_llama_mistral_architecture)1)
 
 typedef int32_t rt_tokenizer_method;
 #define RT_TOKENIZER_METHOD_BYTE ((rt_tokenizer_method)0)
@@ -147,6 +154,26 @@ typedef struct rt_transformer_config {
     float layer_norm_epsilon;
 } rt_transformer_config;
 
+// Dense full-context Llama/Mistral training topology. sliding_window == 0
+// means dense attention without a window declaration. A nonzero window must
+// cover maximum_context; narrower Mistral windows are rejected rather than
+// silently executed with different semantics.
+typedef struct rt_llama_mistral_config {
+    uint64_t struct_size;
+    rt_llama_mistral_architecture architecture;
+    uint32_t random_seed;
+    uint64_t vocabulary_size;
+    uint64_t maximum_context;
+    uint64_t model_width;
+    uint64_t query_head_count;
+    uint64_t key_value_head_count;
+    uint64_t block_count;
+    uint64_t feed_forward_width;
+    float rms_norm_epsilon;
+    float rope_theta;
+    uint64_t sliding_window;
+} rt_llama_mistral_config;
+
 typedef struct rt_lora_config {
     uint64_t struct_size;
     uint64_t rank;
@@ -203,6 +230,16 @@ typedef struct rt_adam_step_stats {
     double gradient_norm;
     double clip_scale;
 } rt_adam_step_stats;
+
+// Logical optimizer state metadata. The corresponding flat arrays are
+// backend-neutral and do not expose contiguous/page allocation details.
+typedef struct rt_adam_state {
+    uint64_t struct_size;
+    uint64_t step_count;
+    double beta1_power;
+    double beta2_power;
+    uint64_t value_count;
+} rt_adam_state;
 
 // A fixed-context learned sequence model surrounding an optional lowered
 // multilinear program. The attention branches are independent modules whose
@@ -624,6 +661,47 @@ RT_API rt_status RT_CALL rt_transformer_config_init(
     uint64_t config_size
 );
 
+RT_API rt_status RT_CALL rt_llama_mistral_config_init(
+    rt_llama_mistral_config* config,
+    uint64_t config_size
+);
+
+// Additive ABI 2.8 full-sequence trainable dense Llama/Mistral model. These
+// calls do not provide incremental decode, LoRA/QLoRA, tokenizer, or artifact
+// conversion semantics.
+RT_API rt_status RT_CALL rt_llama_mistral_model_create(
+    const rt_llama_mistral_config* config,
+    rt_llama_mistral_model** output
+);
+
+RT_API void RT_CALL rt_llama_mistral_model_release(
+    rt_llama_mistral_model* model
+);
+
+RT_API rt_status RT_CALL rt_llama_mistral_model_to(
+    rt_llama_mistral_model* model,
+    rt_backend backend
+);
+
+RT_API rt_status RT_CALL rt_llama_mistral_model_backend(
+    const rt_llama_mistral_model* model,
+    rt_backend* output
+);
+
+RT_API rt_status RT_CALL rt_llama_mistral_model_forward(
+    const rt_llama_mistral_model* model,
+    const uint32_t* token_ids,
+    uint64_t token_count,
+    uint64_t batch_size,
+    uint64_t sequence_length,
+    rt_variable** output
+);
+
+RT_API rt_status RT_CALL rt_llama_mistral_model_parameters(
+    rt_llama_mistral_model* model,
+    rt_parameter_list** output
+);
+
 // Initializes a paged cache with a block size of 16. A null options pointer
 // passed to rt_model_decode_session_create selects the same defaults.
 RT_API rt_status RT_CALL rt_decode_session_options_init(
@@ -729,6 +807,26 @@ RT_API rt_status RT_CALL rt_model_quantized_memory_stats(
     rt_quantized_memory_stats* output
 );
 
+// Canonical backend-neutral byte representation of every packed NF4 Linear
+// base weight. The payload preserves nibbles, scale encoding, block sizes, and
+// double-quantization metadata without creating FP32 base weights.
+RT_API rt_status RT_CALL rt_model_packed_state_size(
+    const rt_model* model,
+    uint64_t* output
+);
+RT_API rt_status RT_CALL rt_model_packed_state_copy(
+    const rt_model* model,
+    uint8_t* output,
+    uint64_t output_size
+);
+// Transactionally replaces the immutable weights of an already fully-packed
+// decoder. Adapter Parameters and optimizer state are not changed.
+RT_API rt_status RT_CALL rt_model_packed_state_load(
+    rt_model* model,
+    const uint8_t* state,
+    uint64_t state_size
+);
+
 // Token shape is [batch_size, sequence_length]. token_count must equal their
 // product. The returned variable has shape
 // [batch_size, sequence_length, vocabulary_size].
@@ -802,6 +900,19 @@ RT_API rt_status RT_CALL rt_model_parameters(
 RT_API rt_status RT_CALL rt_model_lora_parameters(
     rt_model* model,
     rt_parameter_list** output
+);
+
+// Transactionally restores the complete non-adapter parameter tree while the
+// model's sole live optimizer owns exactly its complete LoRA parameter list.
+// This is the frozen-base half of an exact-resume checkpoint restore. It is
+// rejected for a different/incomplete optimizer, while graphs or decode
+// sessions are alive, or when value_count does not exactly match
+// rt_model_parameters(). The optimizer and adapter values are unchanged.
+RT_API rt_status RT_CALL rt_model_frozen_parameters_load_from_host_f32(
+    rt_model* model,
+    const rt_adam* adapter_optimizer,
+    const float* values,
+    uint64_t value_count
 );
 
 // Merging is transactional and invalidates the attached adapter. It is
@@ -996,6 +1107,36 @@ RT_API rt_status RT_CALL rt_adam_state_page_count(
 RT_API rt_status RT_CALL rt_adam_state_payload_bytes(
     const rt_adam* adam,
     uint64_t* output
+);
+
+// output_state must have struct_size initialized to sizeof(*output_state).
+RT_API rt_status RT_CALL rt_adam_state_get(
+    const rt_adam* adam,
+    rt_adam_state* output_state
+);
+
+// Captures a clean post-step boundary. Each output must provide at least
+// rt_adam_state.value_count floats. Parameter values use the optimizer's
+// parameter-list order, followed by first and second moments in that order.
+RT_API rt_status RT_CALL rt_adam_state_copy_to_host_f32(
+    const rt_adam* adam,
+    float* output_parameter_values,
+    float* output_first_moments,
+    float* output_second_moments,
+    uint64_t value_capacity
+);
+
+// Transactionally restores trainable values and logical optimizer state.
+// Physical state storage may differ from the state-producing optimizer.
+// Loading clears parameter gradients and is rejected while variable graphs
+// or decode sessions derived from the model are alive.
+RT_API rt_status RT_CALL rt_adam_state_load_from_host_f32(
+    rt_adam* adam,
+    const rt_adam_state* state,
+    const float* parameter_values,
+    const float* first_moments,
+    const float* second_moments,
+    uint64_t value_count
 );
 
 // output_stats must have struct_size initialized to sizeof(*output_stats).

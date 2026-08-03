@@ -23,6 +23,7 @@ namespace {
 
 using riftco_transformer::Adam;
 using riftco_transformer::AdamOptions;
+using riftco_transformer::AdamState;
 using riftco_transformer::AdamStateStorageKind;
 using riftco_transformer::AdamStepStats;
 using riftco_transformer::DecoderOnlyTransformer;
@@ -2062,6 +2063,99 @@ void test_tiny_decoder_integration() {
     }
 }
 
+void test_backend_neutral_state_round_trip() {
+    Parameter source_parameter(
+        Tensor({3}, {1.0F, -2.0F, 3.0F})
+    );
+    AdamOptions source_options;
+    source_options.learning_rate = 0.01F;
+    Adam source({{"weight", &source_parameter}}, source_options);
+    const AdamState initial_clean_state = source.state();
+
+    const Variable zero_loss = riftco_transformer::sum(
+        source_parameter.variable() * 0.0F
+    );
+    zero_loss.backward();
+    require_zero_gradient(
+        source_parameter,
+        "exactly-zero backward gradient"
+    );
+    require_throws(
+        [&] { static_cast<void>(source.state()); },
+        "Adam state capture rejects a pending exactly-zero gradient"
+    );
+    require_throws(
+        [&] { source.load_state(initial_clean_state); },
+        "Adam state restore rejects a pending exactly-zero gradient"
+    );
+    source.zero_gradients();
+    source.load_state(initial_clean_state);
+
+    seed_gradient(
+        source_parameter,
+        Tensor({3}, {0.25F, -0.5F, 1.0F})
+    );
+    require_throws(
+        [&] { static_cast<void>(source.state()); },
+        "Adam state capture rejects a dirty pre-step boundary"
+    );
+    static_cast<void>(source.step());
+    const AdamState captured = source.state();
+    require(captured.step_count == 1, "captured Adam step");
+    require(captured.parameter_values.size() == 3,
+            "captured Adam parameter count");
+    require(captured.first_moments.size() == 3,
+            "captured Adam first-moment count");
+    require(captured.second_moments.size() == 3,
+            "captured Adam second-moment count");
+
+    Parameter restored_parameter(
+        Tensor({3}, {-9.0F, -8.0F, -7.0F})
+    );
+    AdamOptions restored_options = source_options;
+    restored_options.state_storage = AdamStateStorageKind::Paged;
+    restored_options.page_size = 2;
+    Adam restored(
+        {{"weight", &restored_parameter}}, restored_options
+    );
+    restored.load_state(captured);
+    const AdamState round_trip = restored.state();
+    require(
+        round_trip.parameter_values == captured.parameter_values &&
+            round_trip.first_moments == captured.first_moments &&
+            round_trip.second_moments == captured.second_moments,
+        "logical Adam state survives contiguous-to-paged restoration"
+    );
+    require(
+        round_trip.step_count == captured.step_count &&
+            round_trip.beta1_power == captured.beta1_power &&
+            round_trip.beta2_power == captured.beta2_power,
+        "Adam counters survive state restoration"
+    );
+
+    AdamState invalid = captured;
+    invalid.beta1_power = 0.25;
+    require_throws(
+        [&] { restored.load_state(invalid); },
+        "Adam rejects a beta power inconsistent with its step"
+    );
+    require(
+        restored.state().parameter_values == captured.parameter_values,
+        "failed state validation does not mutate parameters"
+    );
+
+    const Tensor next_gradient({3}, {-0.75F, 0.5F, 0.125F});
+    seed_gradient(source_parameter, next_gradient);
+    seed_gradient(restored_parameter, next_gradient);
+    static_cast<void>(source.step());
+    static_cast<void>(restored.step());
+    require(
+        source.state().parameter_values ==
+            restored.state().parameter_values,
+        "restored Adam produces the same next update"
+    );
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -2121,6 +2215,7 @@ int main(int argc, char* argv[]) {
         test_clipping_boundary_and_large_finite_norm();
         test_constructor_and_option_validation();
         test_nonfinite_gradient_failure_is_atomic();
+        test_backend_neutral_state_round_trip();
         test_tiny_decoder_integration();
     } catch (const std::exception& error) {
         std::cerr << "Adam test failed: " << error.what() << '\n';

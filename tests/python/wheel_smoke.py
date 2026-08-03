@@ -12,12 +12,16 @@ from riftco_transformer import (
     Adam,
     Context,
     DecoderOnlyTransformer,
+    LlamaMistralConfig,
+    LlamaMistralTransformer,
     LoraConfig,
     Tensor,
     TransformerConfig,
     cross_entropy,
 )
 from riftco_transformer.native import bindings
+from riftco_transformer.checkpoints import TrainingCheckpoint
+from riftco_transformer.interchange import EXPORT_FORMATS, IMPORT_FORMATS
 from riftco_transformer.programmed import (
     MultilinearMap,
     NeuralLoweringConfig,
@@ -173,11 +177,46 @@ def exercise_programmed_model() -> None:
                     )
 
 
+def exercise_llama_mistral() -> None:
+    """Exercise the installed ABI 2.8 dense GQA model surface."""
+
+    config = LlamaMistralConfig(
+        vocabulary_size=8,
+        maximum_context=4,
+        model_width=8,
+        query_head_count=4,
+        key_value_head_count=2,
+        block_count=1,
+        feed_forward_width=12,
+        architecture="llama",
+        random_seed=443,
+    )
+    with LlamaMistralTransformer(config).to("cpu") as model:
+        with model.parameters() as parameters:
+            if len(parameters) != 12:
+                raise RuntimeError(
+                    f"unexpected Llama parameter count: {len(parameters)}"
+                )
+        with model([[1, 2]]) as logits:
+            if logits.shape != (1, 2, 8):
+                raise RuntimeError(
+                    f"unexpected Llama logits shape: {logits.shape}"
+                )
+
+
 def main() -> int:
     if os.environ.get("RIFTCO_TRANSFORMER_LIBRARY"):
         raise RuntimeError(
             "wheel smoke test must not use RIFTCO_TRANSFORMER_LIBRARY"
         )
+    if TrainingCheckpoint.__module__ != (
+        "riftco_transformer.checkpoints.checkpoint"
+    ):
+        raise RuntimeError("wheel checkpoint package is not canonical")
+    if IMPORT_FORMATS != ("rift", "huggingface", "gguf", "onnx") or (
+        EXPORT_FORMATS != ("rift", "huggingface", "gguf", "onnx")
+    ):
+        raise RuntimeError("wheel interchange formats are incomplete")
 
     package_directory = Path(bindings.__file__).resolve().parents[1]
     if (package_directory / "experiments").exists():
@@ -211,6 +250,7 @@ def main() -> int:
 
     exercise_qlora()
     exercise_programmed_model()
+    exercise_llama_mistral()
 
     library = bindings._native()
     loaded_path = Path(str(library._name)).resolve()

@@ -26,6 +26,8 @@ namespace {
 
 constexpr int minimum_compatible_pjrt_minor = 57;
 constexpr std::size_t executable_cache_capacity = 64;
+constexpr std::string_view fake_pjrt_sentinel =
+    "RiftcoTransformerTestOnlyFakePjrtTpu";
 
 using GetPjrtApi = const PJRT_Api* (*)();
 
@@ -306,6 +308,13 @@ std::string selected_library_path() {
     return "libtpu.so";
 }
 
+bool reject_test_plugin() noexcept {
+    const char* value = std::getenv(
+        "RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN"
+    );
+    return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 class PjrtRuntime final {
 public:
     static PjrtRuntime& instance() {
@@ -473,6 +482,21 @@ private:
             throw std::runtime_error(
                 "could not load " + path +
                 (error == nullptr ? std::string{} : ": " + std::string(error)));
+        }
+
+        if (reject_test_plugin()) {
+            dlerror();
+            void* fake_marker = dlsym(
+                library_handle_,
+                fake_pjrt_sentinel.data()
+            );
+            const char* marker_error = dlerror();
+            if (fake_marker != nullptr && marker_error == nullptr) {
+                throw std::runtime_error(
+                    "the hardware-required TPU gate rejects Riftco's "
+                    "tests-only fake PJRT plugin"
+                );
+            }
         }
 
         dlerror();

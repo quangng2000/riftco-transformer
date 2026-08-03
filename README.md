@@ -12,9 +12,13 @@ evaluation, labs, and reports; C++ executes tensor math, autograd, models,
 losses, Adam, serving primitives, and hardware backends. Train on CPU, Apple
 Metal, or optional source-built NVIDIA CUDA and Google Cloud TPU backends;
 post-train with full fine-tuning, LoRA, or packed-weight QLoRA, measure held-out
-generalization, save portable artifacts, and serve through paged attention.
+generalization, save portable artifacts or exact-resume checkpoints, convert
+the current architecture through SafeTensors/Hugging Face, GGUF, or ONNX, and
+serve through paged attention.
 
 **[Explore the complete framework documentation →](https://quangng2000.github.io/riftco-transformer/docs/)**
+
+**[Read the neuro-symbolic research portfolio →](docs/RESEARCH_PORTFOLIO.md)**
 
 | Install | Import | Third-party Python dependencies |
 | --- | --- | --- |
@@ -41,10 +45,12 @@ materialized attention and its gradients, and paged decode through PJRT; Flash
 attention and the remaining capabilities stay on audited host reference paths.
 CI covers compilation, no-device behavior, and the
 loader/compile/transfer/execute/download sequence with a tests-only fake PJRT
-plugin. The fake also checks packed quantized-linear forward/input backward for
-both scale encodings against the CPU oracle. Real `libtpu` and Cloud TPU
-hardware validation is still required before treating it as production
-support.
+plugin. The eight-test TPU gate covers fake-plugin rejection,
+matmul/autograd, attention, packed quantized-linear forward/input backward for
+both scale encodings, Adam, full
+training, LoRA, packed QLoRA, the C ABI, and Python serving. Real `libtpu` and
+Cloud TPU hardware validation is still required before treating it as
+production support; see [Validate the Cloud TPU Backend](docs/TPU_VALIDATION.md).
 
 QLoRA's packed-weight linear path is implemented on CPU, Apple Metal, optional
 CUDA, and optional TPU builds. CPU decodes in the readable reference loop;
@@ -99,7 +105,7 @@ flowchart LR
 
 | Native C++ engine | Python orchestration | Serving |
 | --- | --- | --- |
-| Tensors · modules · autograd · losses · Adam · NF4 · backends · C ABI | Data · training loops · Full/LoRA/QLoRA policy · evaluation · labs · reports | Native artifacts/KV cache plus Python sampling · local chat/API |
+| Tensors · modules · autograd · losses · Adam · NF4 · backends · C ABI | Data · training loops · checkpoints · interchange · Full/LoRA/QLoRA policy · evaluation · labs · reports | Native artifacts/KV cache plus Python sampling · local chat/API |
 
 ## From text to chat
 
@@ -138,8 +144,10 @@ sequenceDiagram
     S-->>U: generated text
 ```
 
-> Implemented: pretraining, full/LoRA/QLoRA post-training, immutable model bundles,
-> and local serving. Exact resumable optimizer/data checkpoints are future work.
+> Implemented: pretraining, full/LoRA/QLoRA post-training, immutable model
+> bundles, exact-resume FP32 full/LoRA/packed-QLoRA checkpoints, model
+> interchange, and local serving. Real CUDA/TPU hardware acceptance remains
+> pending.
 
 ## Setup
 
@@ -206,7 +214,7 @@ small reviewed evidence records may live beside a lab. The conditional-reverse
 lab now composes the installed `riftco_transformer.programmed` API: Python owns
 F/P/T/I map construction, data, training, validation/test policy, PCA,
 ablations, steering, and reports, while C++ executes the generic learned and
-programmed graph through ABI 2.5. A `paper` profile is available for the full
+programmed graph through ABI 2.8. A `paper` profile is available for the full
 configuration; always inspect `--help` before launching a long run.
 
 The generic execution path is implemented and tested. Reviewed clean records
@@ -249,16 +257,17 @@ Google's `libtpu.so` available at runtime:
 
 ```bash
 export RIFTCO_TRANSFORMER_TPU_LIBRARY=/absolute/path/to/libtpu.so
-cmake --preset tpu-release
-cmake --build --preset tpu-release
-ctest --preset tpu-release
+cmake --preset tpu-hardware
+cmake --build --preset tpu-hardware
+ctest --preset tpu-hardware
 ```
 
 The loader also checks `TPU_LIBRARY_PATH` and then the system loader path for
-`libtpu.so`. On a real TPU host, reconfigure with
-`-DRIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON` to make device absence a test
-failure. The TPU option is off by default and standard wheels do not bundle or
-load `libtpu`.
+`libtpu.so`. The hardware preset enables
+`RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=ON`, making runtime or device absence a
+test failure. Use `tpu-release` for the CI-style fake-PJRT source boundary. The
+TPU option is off by default and standard wheels do not bundle or load
+`libtpu`.
 
 QLoRA defaults to double-quantized NF4 scales and bounded-page Adam state.
 Paged Adam stores the two moment vectors as fixed-size tensor pages and updates
@@ -328,10 +337,14 @@ Open `http://127.0.0.1:8000/`. The stages exchange immutable `.rift` bundles in
 
 | Goal | Start here |
 | --- | --- |
+| Review the research portfolio | [Neuro-symbolic learning and compiled Transformers](docs/RESEARCH_PORTFOLIO.md) |
 | Understand the full model | [Architecture](docs/ARCHITECTURE.md) · [Transformer](docs/TRANSFORMER.md) |
+| Use the native dense Llama/Mistral topology | [Llama/Mistral support matrix](docs/LLAMA_MISTRAL.md) |
 | Learn tensors and gradients | [Tensor](docs/TENSOR.md) · [Tensor operations](docs/TENSOR_OPS.md) · [Autograd](docs/AUTOGRAD.md) |
 | Extend layers and modules | [Neural network](docs/NEURAL_NETWORK.md) · [Modules](docs/MODULES.md) |
 | Understand training | [Training](docs/TRAINING.md) · [Adam](docs/ADAM.md) · [Activation checkpointing](docs/ACTIVATION_CHECKPOINTING.md) |
+| Resume an interrupted run | [Training checkpoints](docs/TRAINING_CHECKPOINTS.md) |
+| Convert model artifacts | [Model interchange](docs/MODEL_INTERCHANGE.md) |
 | Compare attention paths | [Attention](docs/ATTENTION.md) · [Execution backends and Python](docs/BACKENDS_AND_PYTHON.md) |
 | Run all three stages | [Pipeline](docs/PIPELINE.md) · [LoRA](docs/LORA.md) · [Serving](docs/SERVING.md) |
 | Compare full tuning and LoRA | [Post-training generalization](docs/GENERALIZATION.md) |
@@ -344,7 +357,7 @@ Open `http://127.0.0.1:8000/`. The stages exchange immutable `.rift` bundles in
 ## CMake consumers
 
 ```cmake
-find_package(riftco_transformer 0.5 CONFIG REQUIRED)
+find_package(riftco_transformer 0.6 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE riftco_transformer::library)
 ```
 

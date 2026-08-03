@@ -210,6 +210,54 @@ if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS)
                 ${CMAKE_CURRENT_SOURCE_DIR}/python/test_huggingface_data.py
         )
         add_test(
+            NAME python_training_checkpoint
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_training_checkpoint.py
+        )
+        add_test(
+            NAME python_interchange_safetensors
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_interchange_safetensors.py
+        )
+        add_test(
+            NAME python_interchange_huggingface
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_interchange_huggingface.py
+        )
+        add_test(
+            NAME python_interchange_gguf
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_interchange_gguf.py
+        )
+        add_test(
+            NAME python_interchange_onnx
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_interchange_onnx.py
+        )
+        add_test(
+            NAME python_interchange_conversion
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_interchange_conversion.py
+        )
+        add_test(
             NAME python_lora_rank_lab
             COMMAND
                 ${CMAKE_COMMAND} -E env
@@ -240,6 +288,12 @@ if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS)
             python_stage_stack
             python_package_structure
             python_huggingface_data
+            python_training_checkpoint
+            python_interchange_safetensors
+            python_interchange_huggingface
+            python_interchange_gguf
+            python_interchange_onnx
+            python_interchange_conversion
             python_lora_rank_lab
             python_fine_tuning_lab
             python_conditional_reverse_lab
@@ -363,6 +417,7 @@ if(RIFTCO_TRANSFORMER_ENABLE_TPU)
         COMMAND
             ${CMAKE_COMMAND} -E env
             RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN=0
             $<TARGET_FILE:backend_tests>
             --require-tpu
     )
@@ -370,6 +425,119 @@ if(RIFTCO_TRANSFORMER_ENABLE_TPU)
         PROPERTIES
             LABELS "backend;tpu;fake-pjrt"
     )
+
+    add_executable(tpu_hardware_gate_tests
+        core/backend/test_tpu_hardware_gate.cpp
+    )
+    target_link_libraries(tpu_hardware_gate_tests
+        PRIVATE
+            riftco_transformer::library
+    )
+    riftco_transformer_enable_warnings(tpu_hardware_gate_tests)
+    riftco_transformer_enable_sanitizers(tpu_hardware_gate_tests)
+    add_dependencies(
+        tpu_hardware_gate_tests
+        riftco_transformer_fake_pjrt_tpu
+    )
+    add_test(
+        NAME tpu_hardware_gate_rejects_fake
+        COMMAND
+            ${CMAKE_COMMAND} -E env
+            RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN=1
+            $<TARGET_FILE:tpu_hardware_gate_tests>
+    )
+    set_tests_properties(tpu_hardware_gate_rejects_fake
+        PROPERTIES
+            LABELS "backend;hardware-gate;tpu;fake-pjrt"
+    )
+
+    add_dependencies(
+        c_api_tests
+        riftco_transformer_fake_pjrt_tpu
+    )
+    add_test(
+        NAME c_api_fake_pjrt_tpu
+        COMMAND
+            ${CMAKE_COMMAND} -E env
+            RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN=0
+            $<TARGET_FILE:c_api_tests>
+    )
+    set_tests_properties(c_api_fake_pjrt_tpu
+        PROPERTIES
+            LABELS "abi;backend;tpu;fake-pjrt"
+    )
+
+    add_executable(tpu_acceptance_tests
+        stages/test_tpu_acceptance.cpp
+    )
+    target_link_libraries(tpu_acceptance_tests
+        PRIVATE
+            riftco_transformer::library
+    )
+    riftco_transformer_enable_warnings(tpu_acceptance_tests)
+    riftco_transformer_enable_sanitizers(tpu_acceptance_tests)
+    add_dependencies(
+        tpu_acceptance_tests
+        riftco_transformer_fake_pjrt_tpu
+    )
+    add_test(
+        NAME tpu_acceptance_fake_pjrt
+        COMMAND
+            ${CMAKE_COMMAND} -E env
+            RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN=0
+            $<TARGET_FILE:tpu_acceptance_tests>
+    )
+    set_tests_properties(tpu_acceptance_fake_pjrt
+        PROPERTIES
+            LABELS "acceptance;training;qlora;tpu;fake-pjrt"
+    )
+
+    if(RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU)
+        add_test(
+            NAME tpu_hardware_acceptance
+            COMMAND $<TARGET_FILE:tpu_acceptance_tests>
+        )
+        set_tests_properties(tpu_hardware_acceptance
+            PROPERTIES
+                LABELS "acceptance;hardware;training;qlora;tpu"
+        )
+    endif()
+
+    if(RIFTCO_TRANSFORMER_BUILD_PYTHON_TESTS AND
+       python_binding_test_supported)
+        add_test(
+            NAME python_stage_stack_fake_pjrt_tpu
+            COMMAND
+                ${CMAKE_COMMAND} -E env
+                ${python_test_environment}
+                RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+                RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN=0
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/test_stage_stack.py
+        )
+        set_tests_properties(python_stage_stack_fake_pjrt_tpu
+            PROPERTIES
+                LABELS "backend;python;serving;tpu;fake-pjrt"
+        )
+        if(RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU)
+            add_test(
+                NAME python_stage_stack_hardware_tpu
+                COMMAND
+                    ${CMAKE_COMMAND} -E env
+                    ${python_test_environment}
+                    RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU=1
+                    ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/python/test_stage_stack.py
+            )
+            set_tests_properties(python_stage_stack_hardware_tpu
+                PROPERTIES
+                    LABELS "backend;hardware;python;serving;tpu"
+            )
+        endif()
+    endif()
 endif()
 
 add_riftco_transformer_test(
@@ -403,6 +571,7 @@ if(RIFTCO_TRANSFORMER_ENABLE_TPU)
         COMMAND
             ${CMAKE_COMMAND} -E env
             RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN=0
             $<TARGET_FILE:quantized_linear_backend_tests>
             --require-tpu
     )
@@ -432,6 +601,7 @@ if(RIFTCO_TRANSFORMER_ENABLE_TPU)
         COMMAND
             ${CMAKE_COMMAND} -E env
             RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN=0
             $<TARGET_FILE:nn_backend_tests>
             --require-tpu
     )
@@ -586,6 +756,12 @@ add_riftco_transformer_test(
 )
 
 add_riftco_transformer_test(
+    llama_mistral_transformer_tests
+    llama_mistral_transformer
+    model/test_llama_mistral_transformer.cpp
+)
+
+add_riftco_transformer_test(
     lora_model_tests
     lora_model
     model/test_lora_model.cpp
@@ -617,6 +793,7 @@ if(RIFTCO_TRANSFORMER_ENABLE_TPU)
         COMMAND
             ${CMAKE_COMMAND} -E env
             RIFTCO_TRANSFORMER_TPU_LIBRARY=$<TARGET_FILE:riftco_transformer_fake_pjrt_tpu>
+            RIFTCO_TRANSFORMER_TPU_REJECT_TEST_PLUGIN=0
             $<TARGET_FILE:adam_tests>
             --require-tpu
     )
@@ -624,6 +801,16 @@ if(RIFTCO_TRANSFORMER_ENABLE_TPU)
         PROPERTIES
             LABELS "backend;optim;adam;tpu;fake-pjrt"
     )
+    if(RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU)
+        add_test(
+            NAME adam_hardware_tpu
+            COMMAND $<TARGET_FILE:adam_tests> --require-tpu
+        )
+        set_tests_properties(adam_hardware_tpu
+            PROPERTIES
+                LABELS "backend;hardware;optim;adam;tpu"
+        )
+    endif()
 endif()
 
 add_riftco_transformer_test(

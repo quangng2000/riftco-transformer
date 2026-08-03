@@ -28,6 +28,16 @@ struct TransformerDimensions {
     std::size_t feed_forward_width = 0;
 };
 
+// Backend-neutral snapshot of one immutable packed Linear base weight. The
+// decoder returns these entries in the same stable order used by its
+// model-wide quantization pass: six projections per block, followed by the
+// language-model head. No operation on this type materializes FP32 weights.
+struct PackedLinearWeightState {
+    QuantizedWeight::Shape shape;
+    std::size_t block_size = 0;
+    Nf4Payload payload;
+};
+
 class DecoderOnlyTransformer : public Module {
 public:
     DecoderOnlyTransformer(
@@ -98,6 +108,14 @@ public:
     double_quantized_linear_weight_count() const noexcept;
     [[nodiscard]] QuantizedMemoryUsage
     quantized_memory_usage() const noexcept;
+    [[nodiscard]] std::vector<PackedLinearWeightState>
+    packed_linear_weight_state() const;
+    // Transactionally replaces an already-packed model's immutable base
+    // weights. Shapes, count, and NF4 metadata are validated before commit;
+    // active LoRA adapters and their optimizer-owned Parameters are untouched.
+    void load_packed_linear_weight_state(
+        std::span<const PackedLinearWeightState> state
+    );
 
     // Attaches adapters to the configured projection kinds in every block.
     // This is a one-time operation for the lifetime of the model.

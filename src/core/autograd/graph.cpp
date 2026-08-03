@@ -153,6 +153,7 @@ void Variable::zero_gradient() const {
         node_->gradient.data().end(),
         0.0F
     );
+    node_->gradient_pending = false;
 }
 
 void Variable::replace_leaf_value(Tensor value) {
@@ -171,19 +172,26 @@ void Variable::replace_leaf_value(Tensor value) {
             0.0F
         );
         node_->value = std::move(value);
+        node_->gradient_pending = false;
         ++node_->value_version;
         return;
     }
     Tensor replacement_gradient = Tensor::zeros(value.shape(), value.backend());
     node_->value = std::move(value);
     node_->gradient = std::move(replacement_gradient);
+    node_->gradient_pending = false;
     ++node_->value_version;
 }
 
 void Variable::replace_leaf_state(Tensor value, Tensor gradient) noexcept {
     node_->value = std::move(value);
     node_->gradient = std::move(gradient);
+    node_->gradient_pending = false;
     ++node_->value_version;
+}
+
+bool Variable::has_pending_gradient() const noexcept {
+    return node_->gradient_pending;
 }
 
 Variable Variable::from_operation(
@@ -230,6 +238,7 @@ void Variable::accumulate_gradient(
         return;
     }
     node->gradient = tensor_ops::add(node->gradient, contribution);
+    node->gradient_pending = true;
 }
 
 void Variable::backward() const {
@@ -248,6 +257,8 @@ void Variable::backward(const Tensor& seed_gradient) const {
          ++index) {
         result->nodes[index]->gradient =
             std::move(result->gradients[index]);
+        result->nodes[index]->gradient_pending =
+            result->nodes[index]->requires_gradient;
     }
 }
 

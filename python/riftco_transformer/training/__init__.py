@@ -2,7 +2,9 @@
 
 from .engine import (
     BatchSource,
+    BatchSourceState,
     CausalLanguageModelTrainer,
+    CheckpointableBatchSource,
     ExampleWindowBatchSource,
     MetricSink,
     RandomWindowBatchSource,
@@ -18,7 +20,9 @@ from .engine import (
 
 __all__ = [
     "BatchSource",
+    "BatchSourceState",
     "CausalLanguageModelTrainer",
+    "CheckpointableBatchSource",
     "ExampleWindowBatchSource",
     "MetricSink",
     "RandomWindowBatchSource",

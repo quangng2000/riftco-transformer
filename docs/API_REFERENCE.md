@@ -1,6 +1,6 @@
 # API reference
 
-This page indexes the supported public surfaces of Riftco Transformer 0.5.0.
+This page indexes the supported public surfaces of Riftco Transformer 0.6.0.
 It is a navigation reference, not generated Doxygen: signatures are shortened
 where that improves scanning, and the linked headers remain authoritative.
 See [Architecture](ARCHITECTURE.md) for subsystem boundaries and
@@ -11,7 +11,7 @@ See [Architecture](ARCHITECTURE.md) for subsystem boundaries and
 Installed consumers use CMake 3.24 or newer and C++20:
 
 ```cmake
-find_package(riftco_transformer 0.5 CONFIG REQUIRED)
+find_package(riftco_transformer 0.6 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE riftco_transformer::library)
 ```
 
@@ -22,7 +22,7 @@ target_link_libraries(app PRIVATE riftco_transformer::library)
 | `riftco_transformer::analysis` | Matrices, representation traces, PCA, interventions, ablations | Standard library only |
 | `riftco_transformer::lowering` | Cajal/multilinear-map to neural modules | Compiler + runtime |
 | `riftco_transformer::programmed` | Programmed sequence cores, placement, and task-neutral learned/programmed model composition | Analysis + lowering |
-| `riftco_transformer::c_api` | Stable C ABI 2.5 shared library | Runtime and programmed composition behind opaque handles |
+| `riftco_transformer::c_api` | Stable C ABI 2.8 shared library | Runtime and programmed composition behind opaque handles |
 
 The exported target definitions live in
 [`CMakeLists.txt`](https://github.com/quangng2000/riftco-transformer/blob/main/CMakeLists.txt)
@@ -67,6 +67,7 @@ See [Tensor](TENSOR.md), [Tensor operations](TENSOR_OPS.md), and
 | [`nn/linear.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/linear.hpp) | `Linear::forward`, LoRA attachment/merge, NF4 conversion | Owns dense parameters or an immutable packed base weight, never both as trainable base state. |
 | [`nn/embedding.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/embedding.hpp) | `Embedding::forward` | Gathers rows from a registered embedding table. |
 | [`nn/layer_norm.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/layer_norm.hpp) | `LayerNorm::forward` | Registered scale and bias; differentiable normalization. |
+| [`nn/rms_norm.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/rms_norm.hpp) | `RMSNorm::forward`, `rms_norm` | Scale-only root-mean-square normalization with a fully differentiable reference composition. |
 | [`nn/low_rank_adapter.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/low_rank_adapter.hpp) | `LowRankAdapter::forward`, `weight_delta` | Owns floating-point A/B adapter parameters. |
 | [`nn/activations.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/activations.hpp) and [`nn/loss.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/nn/loss.hpp) | `gelu`, `relu`, `softmax`, `cross_entropy`, `cross_entropy_time_range` | Differentiable operations over `Variable`; loss returns a scalar mean over all positions or one contiguous per-batch time range. |
 | [`model/feed_forward.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/model/feed_forward.hpp) | `FeedForward`, `FeedForwardActivation` | Position-wise expand/activate/project module with GELU or ReLU. |
@@ -74,7 +75,8 @@ See [Tensor](TENSOR.md), [Tensor operations](TENSOR_OPS.md), and
 | [`model/transformer_block.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/model/transformer_block.hpp) | `TransformerBlock::forward` | Pre-normalized attention and feed-forward residual composition. |
 | [`model/decoder_kv_cache.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/model/decoder_kv_cache.hpp) | `DecoderKeyValueCache` | Abstract, caller-owned per-request cache mutated transactionally by token decode. |
 | [`model/decoder_only_transformer.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/model/decoder_only_transformer.hpp) | `DecoderOnlyTransformer::forward`, `decode_token`, `to`, NF4/LoRA lifecycle, `parameters` | Model is non-copyable/non-movable. Full forward builds an autograd graph; token decode returns detached logits and mutates a caller-owned cache. |
-| [`optim/adam.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/optim/adam.hpp) | `Adam(ParameterList, AdamOptions)`, `step`, `zero_gradients`, state diagnostics | Retains parameter handles and owns first/second moments. `step()` is transactional across the registered list. |
+| [`model/llama_mistral_transformer.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/model/llama_mistral_transformer.hpp) | `LlamaMistralConfig`, `LlamaMistralTransformer::forward` | Experimental native C++ dense full-context RMSNorm/RoPE/GQA/SwiGLU runtime. Narrow sliding windows and external checkpoint/tokenizer reinterpretation are rejected. |
+| [`optim/adam.hpp`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/optim/adam.hpp) | `Adam(ParameterList, AdamOptions)`, `step`, `zero_gradients`, `state`, `load_state` | Retains parameter handles and owns first/second moments. Updates and logical-state restoration are transactional across the registered list. |
 
 Model construction and forward:
 
@@ -91,6 +93,8 @@ Variable logits = model.forward(token_ids, {batch, time});
 `model.lora_parameters()`. Quantized frozen weights deliberately do not appear
 in either optimizer list. See [Modules](MODULES.md), [Transformer](TRANSFORMER.md),
 [LoRA](LORA.md), [QLoRA](QLORA.md), and [Adam](ADAM.md).
+The distinct dense family topology and its current non-goals are listed in
+[Dense Llama and Mistral runtime boundary](LLAMA_MISTRAL.md).
 
 ## Data, native serving, and artifacts
 
@@ -171,7 +175,7 @@ all-position objective.
 ## Stable C ABI
 
 [`c_api.h`](https://github.com/quangng2000/riftco-transformer/blob/main/include/riftco_transformer/c_api.h)
-defines C ABI 2.5. It uses fixed-width constants, status returns, versioned
+defines C ABI 2.8. It uses fixed-width constants, status returns, versioned
 value structures, and opaque handles:
 
 ```c
@@ -186,13 +190,14 @@ rt_context_release(context);
 | ABI and errors | `rt_abi_version`, `rt_status_string`, `rt_last_error` |
 | Tokenization | `rt_tokenizer_options_init`, create/restore, vocabulary/merge queries, encode/decode, `rt_tokenizer_release` |
 | Backend and tensors | `rt_backend_is_available`, context create/query/release, FP32 tensor create/query/copy/matmul/release |
-| Model | Config initialization, create/transfer/query, attention/checkpointing selection, forward, NF4 conversion, LoRA attach/query/merge, memory statistics, release |
+| Model | Decoder config initialization, create/transfer/query, attention/checkpointing selection, forward, NF4 conversion, packed-state size/copy/transactional load, LoRA attach/query/merge, memory statistics, release |
+| Dense Llama/Mistral | `rt_llama_mistral_config_init`, create/transfer/backend, full-sequence forward, base-parameter list, release |
 | Serving | Decode-session options, create, step, reset, cache queries, release |
 | Multilinear maps | Dense or sparse output-major import into `rt_multilinear_map`, copied ownership, release |
 | Programmed model | Versioned model/branch/lowering/forward configs; create, transfer, query, parameters, forward, release |
 | Representation traces | Owning trace count/name/shape/value queries and release |
-| Parameters and autograd | Base/LoRA/programmed parameter lists, shape/value transfer, model forward variables, all-position or time-range cross-entropy, backward, release |
-| Optimization | Adam options, create, step, zero gradients, state diagnostics, release |
+| Parameters and autograd | Base/LoRA/programmed parameter lists, shape/value transfer, checkpoint-safe frozen-base restore under the sole adapter Adam, model forward variables, cross-entropy, backward, release |
+| Optimization | Adam options, create, step, zero gradients, state diagnostics, logical state size/copy/load, release |
 
 Initialize every versioned structure with its matching `rt_*_init` function
 and its actual `sizeof(...)`. Every successful create returns one handle that
@@ -212,8 +217,9 @@ module re-exports the native layer:
 ```python
 from riftco_transformer import (
     Adam, Context, DecoderOnlyTransformer, LoraConfig, Tensor,
-    Tokenizer, TransformerConfig, Variable, backend_available,
-    cross_entropy, cross_entropy_time_range,
+    LlamaMistralConfig, LlamaMistralTransformer, Tokenizer,
+    TransformerConfig, Variable, backend_available, cross_entropy,
+    cross_entropy_time_range,
 )
 ```
 
@@ -224,7 +230,9 @@ high-level packages are:
 | Package | Public entry points |
 | --- | --- |
 | [`artifacts`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/artifacts) | `ModelBundle`, `ModelRuntime`, `ParameterSpec`, `TokenizerSpec` |
+| [`checkpoints`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/checkpoints) | `TrainingCheckpoint.capture`, `save`, `load`, `restore`; v2 packed QLoRA plus v1 dense loading; `TrainingCheckpointRestore` |
 | [`data`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/data) | Hugging Face HTTP client, dataset adapters, stable splitting, serializers, preparation and verification |
+| [`interchange`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/interchange) | `load_model`, `export_model`, `convert_model`; F32 SafeTensors, Riftco Hugging Face directory, GGUF v3, and strict canonical ONNX interchange |
 | [`training`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/training) | Batch sources, `TrainingLoopConfig`, `CausalLanguageModelTrainer`, backend selection |
 | [`pretraining`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/pretraining) | `PretrainingConfig`, `pretrain_text`, `pretrain_splits`, `pretrain_file`, `pretrain_files` |
 | [`post_training`](https://github.com/quangng2000/riftco-transformer/tree/main/python/riftco_transformer/post_training) | Instruction loading/splits, `PostTrainingConfig`, `post_train`, held-out evaluation |

@@ -13,6 +13,7 @@ import tempfile
 from typing import Iterable, Mapping
 import zipfile
 
+from .._numeric import positive_float32
 from ..native import DecoderOnlyTransformer, Tokenizer, TransformerConfig
 
 
@@ -237,6 +238,10 @@ class ModelBundle:
         self._parent_artifact_id = parent_artifact_id
         self._metadata_json = metadata_json
         self._artifact_id = self._calculate_artifact_id()
+        if len(self._manifest_bytes(include_artifact_id=True)) > (
+            MAXIMUM_MANIFEST_BYTES
+        ):
+            raise ValueError("model bundle manifest is too large")
 
     @property
     def artifact_id(self) -> str:
@@ -316,12 +321,15 @@ class ModelBundle:
         return ModelRuntime(self, backend)
 
     def save(self, path: str | os.PathLike[str]) -> Path:
+        _validate_config(self._config)
         destination = Path(path)
         if destination.exists() and destination.is_dir():
             raise IsADirectoryError(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
 
         manifest_bytes = self._manifest_bytes(include_artifact_id=True)
+        if len(manifest_bytes) > MAXIMUM_MANIFEST_BYTES:
+            raise ValueError("model bundle manifest is too large")
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{destination.name}.",
             suffix=".tmp",
@@ -722,11 +730,7 @@ def _validate_config(config: TransformerConfig) -> None:
     _bounded_integer(config.random_seed, (1 << 32) - 1, "random_seed")
     if config.model_width % config.head_count != 0:
         raise ValueError("model_width must be divisible by head_count")
-    epsilon = float(config.layer_norm_epsilon)
-    if not math.isfinite(epsilon) or epsilon <= 0.0:
-        raise ValueError(
-            "layer_norm_epsilon must be finite and greater than zero"
-        )
+    positive_float32(config.layer_norm_epsilon, "layer_norm_epsilon")
 
 
 def _canonical_json(value: object) -> str:

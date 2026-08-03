@@ -181,7 +181,9 @@ with Adam(
 The Python post-training artifact records the same values under metadata key
 `optimizer_state`. These diagnostics describe the temporary optimizer used for
 that run; model bundles still exclude moment contents and are not resumable
-training checkpoints.
+training checkpoints. Use `Adam.state()`/`Adam.load_state()` through a
+`.riftckpt` `TrainingCheckpoint` when the moments, counters, RNG, and batch
+position must resume together.
 
 ## Global gradient clipping
 

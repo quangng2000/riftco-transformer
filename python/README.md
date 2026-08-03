@@ -2,8 +2,8 @@
 
 This package is the typed, runtime-dependency-free-by-default `ctypes` interface to
 `libriftco_transformer_c`, plus explicit data preparation, Python-owned
-training orchestration, pretraining, post-training, artifact, generation, and
-local-serving modules.
+training orchestration, pretraining, post-training, exact-resume checkpoint,
+model-interchange, artifact, generation, and local-serving modules.
 A platform wheel carries both the Python modules and its native C ABI library;
 users do not install the native framework separately.
 
@@ -80,8 +80,8 @@ fine-tuning, LoRA, QLoRA, evaluation, and serving are functionally wired
 without implying an end-to-end TPU speedup. Real Cloud TPU validation is still
 pending. Default installs never load `libtpu`.
 
-The Python package follows the framework release version (`0.5.0` here), while
-the native C ABI has its own compatibility version (`2.5`). The client accepts
+The Python package follows the framework release version (`0.6.0` here), while
+the native C ABI has its own compatibility version (`2.8`). The client accepts
 the same ABI major and an equal or newer additive minor, and rejects older or
 breaking ABIs before use.
 
@@ -433,10 +433,36 @@ active KV-cache strategy.
 configuration, named parameter shapes, float32 weights, checksums, stage
 metadata, and parent artifact ID. It is an immutable inference or warm-start
 artifact, not a resumable training checkpoint: Adam moments, optimizer step,
-data position, and random-generator state are deliberately not included yet.
+data position, and random-generator state deliberately belong to the separate
+`.riftckpt` `TrainingCheckpoint` contract.
 LoRA post-training optimizes only adapter factors, then merges them before
 capturing this ordinary serving-ready bundle. Full-parameter post-training
 remains the default; adapter-only persistence is not part of `ModelBundle`.
+
+## Exact-resume checkpoints and model interchange
+
+`riftco_transformer.checkpoints.TrainingCheckpoint` captures ordinary FP32
+full-parameter training, active LoRA, or packed QLoRA at a clean post-Adam
+boundary. It saves model/adapter values, logical Adam state, counters, Python
+RNG state, and a fingerprinted built-in batch-source position. Contiguous and
+paged Adam layouts can restore each other's logical state. Checkpoint v2 keeps
+NF4 codes and all scale/double-quantization metadata packed end to end.
+
+`riftco_transformer.interchange` provides strict F32 SafeTensors, a complete
+Riftco Hugging Face-style directory, lossless custom-architecture GGUF v3,
+and ONNX opset-18 inference interchange. `convert_model()` routes complete
+`.rift`, Hugging Face-style, GGUF, and canonical Riftco ONNX models explicitly.
+ONNX import requires its generated adjacent `.riftco.json` tokenizer/artifact
+sidecar and rejects arbitrary or rewritten graphs. These adapters support
+`riftco_decoder_v1` and reject Llama/Mistral topology rather than silently
+reinterpreting incompatible weights.
+Canonical ONNX input is constrained to a nonempty `[batch, sequence]` matrix,
+in-range token IDs, and sequence length at most `maximum_context`; inference
+wrappers should validate that contract before invoking an external runtime.
+Loading validates the bounded sidecar first, applies config-derived and 1 GiB
+absolute file limits, and parses one byte snapshot. Export rollback preserves
+an existing ONNX/sidecar pair after ordinary write failures, but two fixed
+filenames cannot provide crash-atomic publication to non-cooperating readers.
 
 The first post-training objective is explicitly
 `full_sequence_causal_sft`: it applies causal cross-entropy to the complete
@@ -445,7 +471,7 @@ extension.
 
 ## Incremental generation
 
-Native models use the current ABI 2.5 `DecodeSession` surface instead of
+Native models use the current ABI 2.8 `DecodeSession` surface instead of
 rerunning the full-sequence training forward for every generated token.
 `TextGenerator` creates a request-local session, prefills the
 prompt one token at a time, and then performs one-token decode:
@@ -501,6 +527,8 @@ riftco_transformer/
 ├── native/          # stable C ABI bindings
 ├── programmed/      # generic learned/programmed composition
 ├── artifacts/       # ModelBundle persistence
+├── checkpoints/     # exact-resume .riftckpt state
+├── interchange/     # SafeTensors, HF-style, GGUF, ONNX
 ├── data/            # external dataset adapters and preparation
 ├── training/        # shared batches, metrics, and trainer
 ├── pretraining/     # next-token pretraining stage

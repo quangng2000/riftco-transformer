@@ -119,6 +119,10 @@ _Static_assert(
     "legacy rt_adam_options ABI prefix"
 );
 _Static_assert(
+    sizeof(rt_adam_state) == 40,
+    "rt_adam_state ABI layout"
+);
+_Static_assert(
     offsetof(rt_quantized_memory_stats, fp32_scale_bytes) ==
         RT_LEGACY_QUANTIZED_MEMORY_STATS_SIZE,
     "legacy rt_quantized_memory_stats ABI prefix"
@@ -154,6 +158,14 @@ _Static_assert(
 _Static_assert(
     sizeof(rt_program_augmented_forward_options) == 64,
     "rt_program_augmented_forward_options ABI layout"
+);
+_Static_assert(
+    sizeof(rt_llama_mistral_architecture) == 4,
+    "rt_llama_mistral_architecture ABI layout"
+);
+_Static_assert(
+    sizeof(rt_llama_mistral_config) == 88,
+    "rt_llama_mistral_config ABI layout"
 );
 
 typedef struct error_thread_result {
@@ -2854,6 +2866,70 @@ static void test_lora_api(void) {
     );
     rt_parameter_list_release(adapters);
     adapters = NULL;
+
+    uint64_t frozen_value_count = 0;
+    require_status(
+        rt_parameter_list_total_numel(
+            base_after_attachment,
+            &frozen_value_count
+        ),
+        "count frozen LoRA base values"
+    );
+    float* frozen_values = (float*)malloc(
+        (size_t)frozen_value_count * sizeof(float)
+    );
+    float* observed_frozen_values = (float*)malloc(
+        (size_t)frozen_value_count * sizeof(float)
+    );
+    require_condition(
+        frozen_values != NULL && observed_frozen_values != NULL,
+        "allocate frozen LoRA base values"
+    );
+    require_status(
+        rt_parameter_list_copy_to_host_f32(
+            base_after_attachment,
+            frozen_values,
+            frozen_value_count
+        ),
+        "copy frozen LoRA base values"
+    );
+    const float original_frozen_value = frozen_values[0];
+    frozen_values[0] = original_frozen_value + 0.125F;
+    require_status(
+        rt_model_frozen_parameters_load_from_host_f32(
+            model,
+            optimizer,
+            frozen_values,
+            frozen_value_count
+        ),
+        "restore frozen LoRA base values with adapter Adam"
+    );
+    require_status(
+        rt_parameter_list_copy_to_host_f32(
+            base_after_attachment,
+            observed_frozen_values,
+            frozen_value_count
+        ),
+        "copy restored frozen LoRA base values"
+    );
+    require_close(
+        observed_frozen_values[0],
+        frozen_values[0],
+        "frozen LoRA base restore changes the requested value"
+    );
+    frozen_values[0] = original_frozen_value;
+    require_status(
+        rt_model_frozen_parameters_load_from_host_f32(
+            model,
+            optimizer,
+            frozen_values,
+            frozen_value_count
+        ),
+        "restore original frozen LoRA base values"
+    );
+    free(observed_frozen_values);
+    free(frozen_values);
+
     require_condition(
         rt_model_merge_lora(model) == RT_STATUS_INVALID_ARGUMENT,
         "LoRA merge rejects a live optimizer"
@@ -3184,6 +3260,44 @@ static void test_qlora_api(void) {
             memory.double_quantized_weight_count == 7,
         "QLoRA memory statistics describe double-quantized NF4 payloads"
     );
+    uint64_t packed_state_size = 0;
+    require_status(
+        rt_model_packed_state_size(model, &packed_state_size),
+        "query canonical packed model state size"
+    );
+    require_condition(
+        packed_state_size > memory.logical_payload_bytes,
+        "canonical packed state includes payload identity metadata"
+    );
+    uint8_t* packed_state = (uint8_t*)malloc((size_t)packed_state_size);
+    uint8_t* packed_state_after =
+        (uint8_t*)malloc((size_t)packed_state_size);
+    require_condition(
+        packed_state != NULL && packed_state_after != NULL,
+        "allocate canonical packed model state buffers"
+    );
+    require_status(
+        rt_model_packed_state_copy(
+            model, packed_state, packed_state_size
+        ),
+        "copy canonical packed model state"
+    );
+    require_condition(
+        rt_model_packed_state_load(
+            model, packed_state, packed_state_size - 1
+        ) == RT_STATUS_INVALID_ARGUMENT,
+        "truncated packed model state is rejected transactionally"
+    );
+    require_status(
+        rt_model_packed_state_copy(
+            model, packed_state_after, packed_state_size
+        ),
+        "copy packed model state after rejected import"
+    );
+    require_condition(
+        memcmp(packed_state, packed_state_after, (size_t)packed_state_size) == 0,
+        "rejected packed import preserves resident NF4 payload bytes"
+    );
 
     rt_quantized_memory_stats legacy_memory;
     memset(&legacy_memory, 0xa5, sizeof(legacy_memory));
@@ -3271,6 +3385,10 @@ static void test_qlora_api(void) {
         rt_adam_create(adapters, &qlora_adam_options, &optimizer),
         "create paged adapter-only QLoRA Adam"
     );
+    require_status(
+        rt_model_packed_state_load(model, packed_state, packed_state_size),
+        "restore packed model state while adapter Adam is alive"
+    );
     rt_adam_state_storage_kind qlora_state_storage =
         (rt_adam_state_storage_kind)-1;
     uint64_t qlora_state_page_size = 0;
@@ -3325,6 +3443,8 @@ static void test_qlora_api(void) {
     require_condition(step.step == 1, "QLoRA optimizer advances once");
     rt_adam_release(optimizer);
     rt_parameter_list_release(adapters);
+    free(packed_state_after);
+    free(packed_state);
 
     rt_quantized_memory_stats after_step;
     memset(&after_step, 0, sizeof(after_step));
@@ -3365,6 +3485,11 @@ static void test_qlora_api(void) {
         rt_model_quantize_linear_weights_nf4(NULL, 64) ==
             RT_STATUS_INVALID_ARGUMENT,
         "NF4 conversion rejects a null model"
+    );
+    require_condition(
+        rt_model_packed_state_size(NULL, &packed_state_size) ==
+            RT_STATUS_INVALID_ARGUMENT,
+        "packed model state size rejects a null model"
     );
 }
 
@@ -4639,7 +4764,10 @@ static void test_cuda_backend(
     rt_tensor_release(left);
 }
 
-static void test_tpu_backend(int32_t* tpu_available) {
+static void test_tpu_backend(
+    int32_t* tpu_available,
+    rt_tensor** retained_tpu
+) {
     require_condition(
         RT_BACKEND_TPU == (rt_backend)3,
         "TPU backend numeric identity"
@@ -4681,7 +4809,82 @@ static void test_tpu_backend(int32_t* tpu_available) {
         actual_backend == RT_BACKEND_TPU,
         "TPU context backend"
     );
+
+    const uint64_t shape[] = {2, 2};
+    const float left_values[] = {
+        1.0F, 2.0F,
+        3.0F, 4.0F,
+    };
+    const float right_values[] = {
+        5.0F, 6.0F,
+        7.0F, 8.0F,
+    };
+    rt_tensor* left = NULL;
+    rt_tensor* right = NULL;
+    require_status(
+        rt_tensor_create_f32(
+            tpu_context,
+            shape,
+            2,
+            left_values,
+            4,
+            &left
+        ),
+        "create TPU left tensor"
+    );
+    require_status(
+        rt_tensor_create_f32(
+            tpu_context,
+            shape,
+            2,
+            right_values,
+            4,
+            &right
+        ),
+        "create TPU right tensor"
+    );
+    require_tensor_backend(
+        left,
+        RT_BACKEND_TPU,
+        "TPU tensor intrinsic backend"
+    );
+
+    // TPU tensor storage, like the other accelerator storage, outlives the
+    // context that selected it. This also forces a real PJRT compile,
+    // transfer, execute, and download in hardware-required validation.
     rt_context_release(tpu_context);
+    tpu_context = NULL;
+    require_status(
+        rt_tensor_matmul(left, right, retained_tpu),
+        "TPU matmul after context release"
+    );
+    require_tensor_backend(
+        *retained_tpu,
+        RT_BACKEND_TPU,
+        "TPU matmul output backend"
+    );
+    float product_values[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+    require_status(
+        rt_tensor_copy_to_host_f32(
+            *retained_tpu,
+            product_values,
+            4
+        ),
+        "copy retained TPU product"
+    );
+    const float expected[] = {
+        19.0F, 22.0F,
+        43.0F, 50.0F,
+    };
+    for (size_t index = 0; index < 4; ++index) {
+        require_close(
+            product_values[index],
+            expected[index],
+            "retained TPU product value"
+        );
+    }
+    rt_tensor_release(right);
+    rt_tensor_release(left);
 }
 
 static void run_model_training(rt_backend backend) {
@@ -4930,13 +5133,267 @@ static void run_model_training(rt_backend backend) {
         "zero Adam gradients"
     );
 
+    rt_adam_state adam_state = {
+        (uint64_t)sizeof(rt_adam_state),
+        0,
+        0.0,
+        0.0,
+        0,
+    };
+    require_status(
+        rt_adam_state_get(adam, &adam_state),
+        "query logical Adam state"
+    );
+    require_condition(
+        adam_state.step_count == 1 &&
+            adam_state.value_count > 0 &&
+            adam_state.beta1_power > 0.0 &&
+            adam_state.beta1_power < 1.0 &&
+            adam_state.beta2_power > 0.0 &&
+            adam_state.beta2_power < 1.0,
+        "logical Adam state metadata"
+    );
+    float* state_parameters = (float*)malloc(
+        (size_t)adam_state.value_count * sizeof(float)
+    );
+    float* state_first = (float*)malloc(
+        (size_t)adam_state.value_count * sizeof(float)
+    );
+    float* state_second = (float*)malloc(
+        (size_t)adam_state.value_count * sizeof(float)
+    );
+    require_condition(
+        state_parameters != NULL &&
+            state_first != NULL &&
+            state_second != NULL,
+        "allocate logical Adam state arrays"
+    );
+    require_condition(
+        rt_adam_state_copy_to_host_f32(
+            adam,
+            state_parameters,
+            state_first,
+            state_second,
+            adam_state.value_count
+        ) == RT_STATUS_INVALID_ARGUMENT,
+        "Adam state capture rejects a live variable graph"
+    );
+
     require_condition(
         rt_variable_backward(loss) == RT_STATUS_RUNTIME_ERROR,
         "backward graph is consumed exactly once"
     );
 
     rt_variable_release(loss);
+    require_status(
+        rt_adam_state_copy_to_host_f32(
+            adam,
+            state_parameters,
+            state_first,
+            state_second,
+            adam_state.value_count
+        ),
+        "capture logical Adam arrays"
+    );
+    rt_adam_state invalid_state = adam_state;
+    invalid_state.beta1_power = 0.25;
+    require_condition(
+        rt_adam_state_load_from_host_f32(
+            adam,
+            &invalid_state,
+            state_parameters,
+            state_first,
+            state_second,
+            invalid_state.value_count
+        ) == RT_STATUS_INVALID_ARGUMENT,
+        "Adam state restore rejects an inconsistent beta power"
+    );
+    require_status(
+        rt_adam_state_load_from_host_f32(
+            adam,
+            &adam_state,
+            state_parameters,
+            state_first,
+            state_second,
+            adam_state.value_count
+        ),
+        "restore logical Adam arrays"
+    );
+    require_status(
+        rt_adam_step_count(adam, &step_count),
+        "query restored Adam step count"
+    );
+    require_condition(step_count == 1, "restored Adam step count");
+    free(state_second);
+    free(state_first);
+    free(state_parameters);
     rt_adam_release(adam);
+}
+
+static void test_llama_mistral_api(void) {
+    rt_llama_mistral_config config;
+    require_status(
+        rt_llama_mistral_config_init(
+            &config,
+            (uint64_t)sizeof(config)
+        ),
+        "initialize Llama/Mistral config"
+    );
+    require_condition(
+        config.struct_size == (uint64_t)sizeof(config) &&
+            config.architecture ==
+                RT_LLAMA_MISTRAL_ARCHITECTURE_LLAMA &&
+            config.random_seed == 5489U &&
+            config.rms_norm_epsilon == 1.0e-5F &&
+            config.rope_theta == 10000.0F &&
+            config.sliding_window == 0,
+        "Llama/Mistral config defaults"
+    );
+    config.vocabulary_size = 11;
+    config.maximum_context = 4;
+    config.model_width = 8;
+    config.query_head_count = 4;
+    config.key_value_head_count = 2;
+    config.block_count = 1;
+    config.feed_forward_width = 12;
+    config.random_seed = 313;
+
+    rt_llama_mistral_model* model = NULL;
+    require_status(
+        rt_llama_mistral_model_create(&config, &model),
+        "create Llama model"
+    );
+    require_condition(model != NULL, "Llama model handle");
+
+    rt_backend backend = (rt_backend)-1;
+    require_status(
+        rt_llama_mistral_model_backend(model, &backend),
+        "query Llama model backend"
+    );
+    require_condition(backend == RT_BACKEND_CPU, "Llama CPU backend");
+    require_status(
+        rt_llama_mistral_model_to(model, RT_BACKEND_CPU),
+        "move Llama model to CPU"
+    );
+
+    rt_parameter_list* parameters = NULL;
+    require_status(
+        rt_llama_mistral_model_parameters(model, &parameters),
+        "query Llama parameters"
+    );
+    uint64_t parameter_count = 0;
+    require_status(
+        rt_parameter_list_count(parameters, &parameter_count),
+        "query Llama parameter count"
+    );
+    require_condition(
+        parameter_count == 12,
+        "one-block Llama parameter count"
+    );
+    char key_name[128];
+    uint64_t required_capacity = 0;
+    require_status(
+        rt_parameter_list_name(
+            parameters,
+            3,
+            key_name,
+            (uint64_t)sizeof(key_name),
+            &required_capacity
+        ),
+        "copy Llama key-projection parameter name"
+    );
+    require_condition(
+        strcmp(key_name, "blocks.0.attention.key.weight") == 0,
+        "stable Llama key-projection parameter name"
+    );
+    uint64_t key_shape[2] = {0, 0};
+    require_status(
+        rt_parameter_list_shape(parameters, 3, key_shape, 2),
+        "query Llama key-projection shape"
+    );
+    require_condition(
+        key_shape[0] == 4 && key_shape[1] == 8,
+        "grouped-query key-projection shape"
+    );
+
+    rt_adam_options adam_options;
+    require_status(
+        rt_adam_options_init(
+            &adam_options,
+            (uint64_t)sizeof(adam_options)
+        ),
+        "initialize Llama Adam options"
+    );
+    adam_options.learning_rate = 1.0e-2F;
+    rt_adam* adam = NULL;
+    require_status(
+        rt_adam_create(parameters, &adam_options, &adam),
+        "create Llama Adam optimizer"
+    );
+
+    const uint32_t token_ids[] = {1, 2};
+    rt_variable* logits = NULL;
+    require_status(
+        rt_llama_mistral_model_forward(
+            model,
+            token_ids,
+            2,
+            1,
+            2,
+            &logits
+        ),
+        "Llama forward"
+    );
+    uint64_t logits_shape[3] = {0, 0, 0};
+    require_status(
+        rt_variable_shape(logits, logits_shape, 3),
+        "query Llama logits shape"
+    );
+    require_condition(
+        logits_shape[0] == 1 &&
+            logits_shape[1] == 2 &&
+            logits_shape[2] == 11,
+        "Llama logits shape"
+    );
+
+    const uint32_t targets[] = {2, 3};
+    rt_variable* loss = NULL;
+    require_status(
+        rt_cross_entropy(logits, targets, 2, &loss),
+        "Llama cross entropy"
+    );
+    require_status(rt_variable_backward(loss), "Llama backward");
+    rt_adam_step_stats stats = {
+        (uint64_t)sizeof(rt_adam_step_stats),
+        0,
+        0.0,
+        0.0,
+    };
+    require_status(rt_adam_step(adam, &stats), "Llama Adam step");
+    require_condition(
+        stats.step == 1 && isfinite(stats.gradient_norm),
+        "Llama Adam step statistics"
+    );
+    require_status(
+        rt_adam_zero_gradients(adam),
+        "zero Llama Adam gradients"
+    );
+
+    rt_variable_release(loss);
+    rt_variable_release(logits);
+    rt_adam_release(adam);
+    rt_parameter_list_release(parameters);
+    rt_llama_mistral_model_release(model);
+
+    config.architecture = RT_LLAMA_MISTRAL_ARCHITECTURE_MISTRAL;
+    config.sliding_window = config.maximum_context - 1;
+    model = NULL;
+    require_condition(
+        rt_llama_mistral_model_create(&config, &model) ==
+            RT_STATUS_INVALID_ARGUMENT &&
+            model == NULL,
+        "Mistral rejects an unsupported narrow sliding window"
+    );
 }
 
 int main(void) {
@@ -4946,7 +5403,7 @@ int main(void) {
     );
     require_condition(
         RT_ABI_VERSION_MAJOR == UINT32_C(2) &&
-            RT_ABI_VERSION_MINOR == UINT32_C(5),
+            RT_ABI_VERSION_MINOR == UINT32_C(8),
         "current additive ABI version"
     );
 
@@ -4960,6 +5417,7 @@ int main(void) {
     test_qlora_api();
     test_decode_session_api();
     test_parameter_state_api();
+    test_llama_mistral_api();
 
     int32_t cpu_available = 0;
     require_status(
@@ -5114,7 +5572,8 @@ int main(void) {
 #endif
 
     int32_t tpu_available = 0;
-    test_tpu_backend(&tpu_available);
+    rt_tensor* retained_tpu = NULL;
+    test_tpu_backend(&tpu_available, &retained_tpu);
 #if RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU
     require_condition(
         tpu_available != 0,
@@ -5393,6 +5852,7 @@ int main(void) {
     );
 
     rt_tensor_release(product);
+    rt_tensor_release(retained_tpu);
     rt_tensor_release(retained_cuda);
     rt_tensor_release(retained_metal);
     rt_tensor_release(scalar);
@@ -5408,6 +5868,9 @@ int main(void) {
     }
     if (cuda_available != 0) {
         run_model_training(RT_BACKEND_CUDA);
+    }
+    if (tpu_available != 0) {
+        run_model_training(RT_BACKEND_TPU);
     }
 
     rt_transformer_config invalid_config;

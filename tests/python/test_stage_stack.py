@@ -67,6 +67,14 @@ import serve_stage as serve_cli  # noqa: E402
 
 
 CORPUS = "abcdabcdabcdabcd"
+REQUIRE_TPU = os.environ.get(
+    "RIFTCO_TRANSFORMER_TEST_REQUIRE_TPU",
+) == "1"
+if REQUIRE_TPU and not backend_available("tpu"):
+    raise RuntimeError(
+        "TPU is required for the Python stage-stack test, but no "
+        "hardware PJRT runtime is available"
+    )
 
 
 def make_tiny_bundle(
@@ -134,6 +142,62 @@ class CompactInstructionFormatter:
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_oversized_manifest_is_rejected_before_save(self) -> None:
+        bundle = make_tiny_bundle()
+        with self.assertRaisesRegex(ValueError, "manifest is too large"):
+            ModelBundle(
+                config=bundle.config,
+                tokenizer=bundle.tokenizer,
+                parameters=bundle.parameters,
+                weights=bundle.weights,
+                stage=bundle.stage,
+                parent_artifact_id=bundle.parent_artifact_id,
+                metadata={"padding": "x" * (1 << 20)},
+            )
+
+    def test_artifact_rejects_epsilon_that_cannot_remain_positive_f32(
+        self,
+    ) -> None:
+        for description, invalid in (
+            ("overflow", 1.0e300),
+            ("underflow", 1.0e-50),
+        ):
+            with self.subTest(description=description):
+                bundle = make_tiny_bundle()
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    valid_path = bundle.save(root / "valid.rift")
+                    with zipfile.ZipFile(valid_path, mode="r") as archive:
+                        manifest = json.loads(archive.read(MANIFEST_NAME))
+                        weights = archive.read(WEIGHTS_NAME)
+                    manifest["config"]["layer_norm_epsilon"] = invalid
+                    invalid_path = root / "invalid.rift"
+                    write_bundle_parts(
+                        invalid_path,
+                        json.dumps(
+                            manifest,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8"),
+                        weights,
+                    )
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "finite, strictly positive float32",
+                    ):
+                        ModelBundle.load(invalid_path)
+
+                    object.__setattr__(
+                        bundle.config,
+                        "layer_norm_epsilon",
+                        invalid,
+                    )
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "finite, strictly positive float32",
+                    ):
+                        bundle.save(root / "invalid-export.rift")
+
     def test_capture_rejects_active_lora_and_accepts_merged_model(
         self,
     ) -> None:
@@ -490,6 +554,66 @@ class PipelineStageTests(unittest.TestCase):
             self.assertEqual(service.backend, "tpu")
             self.assertEqual(generated.prompt_token_ids, (0, 1))
             self.assertEqual(len(generated.generated_token_ids), 1)
+
+    @unittest.skipUnless(
+        backend_available("tpu"),
+        "TPU backend is unavailable in this build",
+    )
+    def test_tpu_pretraining_and_post_training_smoke(self) -> None:
+        pretraining = pretrain_text(
+            CORPUS,
+            PretrainingConfig(
+                steps=1,
+                context_size=2,
+                batch_size=1,
+                validation_fraction=0.25,
+                validation_batch_count=1,
+                evaluation_interval=1,
+                loss_average_window=1,
+                tokenizer_method="byte",
+                model_width=4,
+                head_count=2,
+                block_count=1,
+                feed_forward_width=8,
+                learning_rate=1.0e-2,
+                random_seed=83,
+                validation_random_seed=89,
+                backend="tpu",
+            ),
+        )
+        self.assertEqual(pretraining.bundle.stage, "pretraining")
+        self.assertTrue(pretraining.metrics)
+
+        for method in ("full", "lora", "qlora"):
+            with self.subTest(method=method):
+                result = post_train(
+                    pretraining.bundle,
+                    (InstructionExample(prompt="ab", response="cd"),),
+                    PostTrainingConfig(
+                        steps=1,
+                        context_size=2,
+                        batch_size=1,
+                        evaluation_interval=1,
+                        loss_average_window=1,
+                        learning_rate=1.0e-2,
+                        random_seed=97,
+                        backend="tpu",
+                        fine_tuning_method=method,
+                        nf4_block_size=64,
+                        lora=LoraConfig(
+                            rank=2,
+                            alpha=4.0,
+                            random_seed=101,
+                        ),
+                    ),
+                    formatter=CompactInstructionFormatter(),
+                )
+                self.assertEqual(result.fine_tuning_method, method)
+                self.assertEqual(
+                    result.bundle.parent_artifact_id,
+                    pretraining.bundle.artifact_id,
+                )
+                self.assertTrue(result.metrics)
 
     def test_accelerator_backend_configs_and_stage_clis(self) -> None:
         for backend in ("cuda", "tpu"):

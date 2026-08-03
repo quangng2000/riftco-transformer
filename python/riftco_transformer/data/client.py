@@ -204,7 +204,7 @@ class HuggingFaceDatasetClient:
 
         headers = {
             "Accept": "application/json",
-            "User-Agent": "riftco-transformer/0.5.0 dataset-preparation",
+            "User-Agent": "riftco-transformer/0.6.0 dataset-preparation",
         }
         if token is not None:
             if not isinstance(token, str):
