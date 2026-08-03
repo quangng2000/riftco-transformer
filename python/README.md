@@ -80,7 +80,7 @@ fine-tuning, LoRA, QLoRA, evaluation, and serving are functionally wired
 without implying an end-to-end TPU speedup. Real Cloud TPU validation is still
 pending. Default installs never load `libtpu`.
 
-The Python package follows the framework release version (`0.6.0` here), while
+The Python package follows the framework release version (`0.6.1` here), while
 the native C ABI has its own compatibility version (`2.8`). The client accepts
 the same ABI major and an equal or newer additive minor, and rejects older or
 breaking ABIs before use.

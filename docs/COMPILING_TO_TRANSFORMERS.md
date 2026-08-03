@@ -380,7 +380,7 @@ include/riftco_transformer/nn/loss.hpp
 src/nn/loss.cpp             all-position and contiguous time-range objectives
 
 include/riftco_transformer/c_api.h
-src/c_api.cpp               ABI 2.5 map/model/trace/loss bridge
+src/c_api/                  ABI 2.8 subsystem bridges and private internals
 
 python/riftco_transformer/programmed/
   __init__.py        ABI-backed task-neutral Python composition surface

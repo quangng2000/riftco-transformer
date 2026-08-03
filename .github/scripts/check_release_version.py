@@ -42,7 +42,14 @@ def project_root() -> Path:
 
 def validate_canonical_branding(root: Path) -> None:
     tracked = subprocess.run(
-        ["git", "ls-files", "-z"],
+        [
+            "git",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ],
         cwd=root,
         check=True,
         capture_output=True,
@@ -56,6 +63,8 @@ def validate_canonical_branding(root: Path) -> None:
             violations.append(relative_path)
             continue
         path = root / relative_path
+        if not path.is_file():
+            continue
         try:
             contents = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:

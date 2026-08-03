@@ -275,13 +275,17 @@ static void test_thread_local_errors(void) {
         "worker call does not overwrite the main thread error"
     );
 
+    rt_tokenizer_options tokenizer_options;
     require_status(
-        rt_backend_is_available(RT_BACKEND_CPU, &available),
-        "clear main thread error"
+        rt_tokenizer_options_init(
+            &tokenizer_options,
+            (uint64_t)sizeof(tokenizer_options)
+        ),
+        "clear main thread error from another C API subsystem"
     );
     require_condition(
         rt_last_error()[0] == '\0',
-        "successful main-thread call clears only its error"
+        "cross-subsystem success clears only this thread's error"
     );
 }
 

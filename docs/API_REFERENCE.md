@@ -1,6 +1,6 @@
 # API reference
 
-This page indexes the supported public surfaces of Riftco Transformer 0.6.0.
+This page indexes the supported public surfaces of Riftco Transformer 0.6.1.
 It is a navigation reference, not generated Doxygen: signatures are shortened
 where that improves scanning, and the linked headers remain authoritative.
 See [Architecture](ARCHITECTURE.md) for subsystem boundaries and

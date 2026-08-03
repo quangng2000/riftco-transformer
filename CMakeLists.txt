@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     riftco_transformer
-    VERSION 0.6.0
+    VERSION 0.6.1
     DESCRIPTION "An auditable dependency-free transformer framework"
     LANGUAGES C CXX
 )
@@ -362,7 +362,19 @@ if(RIFTCO_TRANSFORMER_ENABLE_METAL)
 endif()
 
 add_library(riftco_transformer_c SHARED
-    src/c_api.cpp
+    src/c_api/abi.cpp
+    src/c_api/adam.cpp
+    src/c_api/autograd.cpp
+    src/c_api/bridge.cpp
+    src/c_api/context_tensor.cpp
+    src/c_api/decode_session.cpp
+    src/c_api/error.cpp
+    src/c_api/llama_mistral.cpp
+    src/c_api/model.cpp
+    src/c_api/model_state.cpp
+    src/c_api/parameters.cpp
+    src/c_api/programmed.cpp
+    src/c_api/tokenizer.cpp
 )
 
 add_library(riftco_transformer::c_api ALIAS riftco_transformer_c)

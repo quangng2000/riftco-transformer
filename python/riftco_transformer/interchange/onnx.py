@@ -37,7 +37,7 @@ ONNX_OPSET_VERSION = 18
 RIFTCO_ARCHITECTURE_ID = "riftco_decoder_v1"
 ONNX_CANONICAL_GRAPH_FORMAT = "riftco_decoder_v1_onnx"
 ONNX_CANONICAL_GRAPH_VERSION = 1
-ONNX_PRODUCER_VERSION = "0.6.0"
+ONNX_PRODUCER_VERSION = "0.6.1"
 ONNX_INPUT_CONTRACT = (
     "batch>=1;sequence>=1;0<=input_ids<vocabulary_size;"
     "sequence<=maximum_context"

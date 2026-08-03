@@ -91,7 +91,11 @@ src/
 ├── lowering/
 ├── programmed/
 ├── analysis/
-└── c_api.cpp
+└── c_api/
+    ├── internal/         opaque handles, shared errors, bridge contracts
+    ├── bridge.cpp        cross-cutting validation and ownership checks
+    ├── model_state.cpp   packed model-state codec and C entry points
+    └── *.cpp             subsystem-owned C entry points
 ```
 
 There is intentionally no native pretraining stack, post-training stack,
